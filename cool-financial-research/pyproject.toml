@@ -26,6 +26,7 @@ dev = ["pytest>=8.2.0", "ruff>=0.5.0", "mypy>=1.10.0"]
 
 [project.scripts]
 cool-financial-research = "cool_financial_research.cli:app"
+cool-financial-research-helper = "cool_financial_research.openclaw_helper:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cool_financial_research"]
