@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-This repository contains one Python CLI project in `cool-financial-research-cli/`. Source code lives under `cool-financial-research-cli/src/cool_financial_research/`. The main CLI entry point is `cli.py`, orchestration logic is in `orchestrator.py`, typed contracts are in `schemas.py`, and provider integrations are under `providers/`. Agent implementations live in `agents/`, prompt templates in `prompts/`, and tests in `cool-financial-research-cli/tests/`.
+This repository contains one Python CLI project in `cool-financial-research/`. Source code lives under `cool-financial-research/src/cool_financial_research/`. The main CLI entry point is `cli.py`, orchestration logic is in `orchestrator.py`, typed contracts are in `schemas.py`, and provider integrations are under `providers/`. Agent implementations live in `agents/`, prompt templates in `prompts/`, and tests in `cool-financial-research/tests/`.
 
-Generated research output is written at runtime to `cool-financial-research-cli/cool-financial-research/` and should not be treated as source.
+Generated research output is written at runtime to `cool-financial-research/cool-financial-research/` and should not be treated as source.
 
 ## Build, Test, and Development Commands
 
-Run commands from `cool-financial-research-cli/`.
+Run commands from `cool-financial-research/`.
 
 ```bash
 python -m venv .venv
