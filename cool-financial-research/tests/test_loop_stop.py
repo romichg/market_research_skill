@@ -1,4 +1,3 @@
-from cool_financial_research.orchestrator import ResearchOrchestrator
 from cool_financial_research.schemas import (
     Issue,
     IssueSeverity,
@@ -6,6 +5,7 @@ from cool_financial_research.schemas import (
     ValidationStageOutput,
     ValidationStructuredData,
 )
+from cool_financial_research.workflow import should_stop_validation
 
 
 def validation_with_issues(issues, critical=0, moderate=0):
@@ -17,7 +17,7 @@ def validation_with_issues(issues, critical=0, moderate=0):
         structured_data=ValidationStructuredData(
             symbol="ABC",
             security_type=SecurityType.equity,
-            validation_date="2026-05-16",
+            validation_date="2026-05-24",
             overall_verdict="pass_with_revisions",
             recommendation_confidence="medium",
             critical_count=critical,
@@ -30,8 +30,7 @@ def validation_with_issues(issues, critical=0, moderate=0):
 
 
 def test_stops_when_no_blocking_issues():
-    validation = validation_with_issues([])
-    should_stop, reason = ResearchOrchestrator._should_stop(validation)
+    should_stop, reason = should_stop_validation(validation_with_issues([]))
     assert should_stop is True
     assert reason == "no_blocking_issues"
 
@@ -48,7 +47,7 @@ def test_continues_when_open_moderate_issue_exists():
         ],
         moderate=1,
     )
-    should_stop, reason = ResearchOrchestrator._should_stop(validation)
+    should_stop, reason = should_stop_validation(validation)
     assert should_stop is False
     assert reason == ""
 
@@ -65,6 +64,6 @@ def test_stops_when_blocking_issue_is_unresolved_data_unavailable():
         ],
         critical=1,
     )
-    should_stop, reason = ResearchOrchestrator._should_stop(validation)
+    should_stop, reason = should_stop_validation(validation)
     assert should_stop is True
     assert reason == "only_unresolved_data_unavailable"
