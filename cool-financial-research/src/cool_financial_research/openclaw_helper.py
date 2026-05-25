@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
+import requests
 import typer
 from pydantic import ValidationError
 from typer import Option
@@ -48,6 +49,13 @@ def _validate_stage(kind: StageKind, payload: dict) -> StageOutput | ValidationS
     if stage_output.stage != kind:
         raise ValueError(f"Expected {kind} stage JSON but found {stage_output.stage}")
     return stage_output
+
+
+def _validate_validation_stage(payload: dict) -> ValidationStageOutput:
+    validation_output = ValidationStageOutput.model_validate(payload)
+    if validation_output.stage != "validation":
+        raise ValueError(f"Expected validation stage JSON but found {validation_output.stage}")
+    return validation_output
 
 
 @app.command()
@@ -97,7 +105,7 @@ def classify(
 
     try:
         classification = EdgarClassifier(user_agent=sec_user_agent).classify(symbol)
-    except ClassificationError as exc:
+    except (ClassificationError, requests.RequestException, OSError, ValueError) as exc:
         typer.echo(f"Classification failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
@@ -119,7 +127,11 @@ def init_run(
 ) -> None:
     """Create the output directory for a symbol run."""
 
-    paths = RunPaths(output_root, symbol)
+    try:
+        paths = RunPaths(output_root, symbol)
+    except OSError as exc:
+        typer.echo(f"Could not initialize run: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(json.dumps({"symbol": paths.symbol, "output_dir": str(paths.symbol_dir)}))
 
 
@@ -151,11 +163,15 @@ def save_stage(
         typer.echo(f"Invalid {kind} stage JSON: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    markdown_path, json_path = RunPaths(output_root, symbol).write_stage(
-        label,
-        output,
-        output.markdown_report,
-    )
+    try:
+        markdown_path, json_path = RunPaths(output_root, symbol).write_stage(
+            label,
+            output,
+            output.markdown_report,
+        )
+    except OSError as exc:
+        typer.echo(f"Could not save stage: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(json.dumps({"markdown": str(markdown_path), "json": str(json_path)}))
 
 
@@ -164,7 +180,7 @@ def should_stop(validation_file: Path) -> None:
     """Print the validation loop stop decision for a validation payload."""
 
     try:
-        validation = _validate_stage("validation", _read_json(validation_file))
+        validation = _validate_validation_stage(_read_json(validation_file))
     except (
         FileNotFoundError,
         PermissionError,

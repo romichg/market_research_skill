@@ -3,7 +3,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from cool_financial_research.openclaw_helper import app, prompt_key
+from cool_financial_research.openclaw_helper import EdgarClassifier, RunPaths, app, prompt_key
 
 runner = CliRunner()
 
@@ -148,3 +148,37 @@ def test_should_stop_outputs_machine_readable_decision(tmp_path):
     result = runner.invoke(app, ["should-stop", str(payload_file)])
     assert result.exit_code == 0
     assert json.loads(result.output) == {"should_stop": True, "reason": "no_blocking_issues"}
+
+
+def test_classify_reports_classifier_errors(monkeypatch):
+    def raise_classifier_error(self: EdgarClassifier, symbol: str):
+        raise OSError("network unavailable")
+
+    monkeypatch.setattr(EdgarClassifier, "classify", raise_classifier_error)
+    result = runner.invoke(app, ["classify", "ABC"])
+    assert result.exit_code == 1
+    assert "Classification failed: network unavailable" in result.output
+
+
+def test_save_stage_reports_output_write_errors(monkeypatch, tmp_path):
+    payload_file = tmp_path / "stage.json"
+    payload_file.write_text(json.dumps(research_payload()), encoding="utf-8")
+
+    def raise_write_error(self: RunPaths, label: str, output, markdown: str):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(RunPaths, "write_stage", raise_write_error)
+    result = runner.invoke(
+        app,
+        [
+            "save-stage",
+            "ABC",
+            "first_run",
+            "research",
+            str(payload_file),
+            "--output-root",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Could not save stage: disk full" in result.output
