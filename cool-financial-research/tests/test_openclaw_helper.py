@@ -182,3 +182,32 @@ def test_save_stage_reports_output_write_errors(monkeypatch, tmp_path):
     )
     assert result.exit_code == 1
     assert "Could not save stage: disk full" in result.output
+
+
+def test_write_manifest_creates_run_manifest(tmp_path):
+    files_file = tmp_path / "files.json"
+    files_file.write_text(json.dumps(["ABC-first_run.md", "ABC-final.md"]), encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "write-manifest",
+            "ABC",
+            "equity",
+            "--output-root",
+            str(tmp_path / "out"),
+            "--max-iterations",
+            "5",
+            "--iterations-completed",
+            "1",
+            "--stopped-reason",
+            "no_blocking_issues",
+            "--files-file",
+            str(files_file),
+        ],
+    )
+    assert result.exit_code == 0
+    manifest_path = Path(json.loads(result.output)["manifest"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["symbol"] == "ABC"
+    assert manifest["stopped_reason"] == "no_blocking_issues"
+    assert manifest["models"] == {"runtime": "openclaw"}

@@ -13,7 +13,12 @@ from cool_financial_research.config import RunMode
 from cool_financial_research.io import RunPaths
 from cool_financial_research.providers import ClassificationError, EdgarClassifier
 from cool_financial_research.prompt_loader import load_prompt, runtime_contract
-from cool_financial_research.schemas import SecurityType, StageOutput, ValidationStageOutput
+from cool_financial_research.schemas import (
+    RunManifest,
+    SecurityType,
+    StageOutput,
+    ValidationStageOutput,
+)
 from cool_financial_research.workflow import should_stop_validation
 
 app = typer.Typer(
@@ -22,6 +27,13 @@ app = typer.Typer(
 )
 
 StageKind = Literal["research", "fix", "final", "validation"]
+StoppedReason = Literal[
+    "no_blocking_issues",
+    "only_unresolved_data_unavailable",
+    "max_iterations_reached",
+    "classification_error",
+    "runtime_error",
+]
 DEFAULT_SEC_USER_AGENT = "cool-financial-research/0.1 contact@example.com"
 
 
@@ -195,6 +207,62 @@ def should_stop(validation_file: Path) -> None:
 
     should_stop_result, reason = should_stop_validation(validation)
     typer.echo(json.dumps({"should_stop": should_stop_result, "reason": reason}))
+
+
+@app.command("write-manifest")
+def write_manifest(
+    symbol: str,
+    security_type: SecurityType,
+    output_root: Path = Option(
+        Path("./cool-financial-research"),
+        "--output-root",
+        help="Root output directory.",
+    ),
+    max_iterations: int = Option(...),
+    iterations_completed: int = Option(...),
+    stopped_reason: StoppedReason = Option(...),
+    files_file: Path = Option(...),
+    name: str | None = Option(None),
+    exchange: str | None = Option(None),
+    cik: str | None = Option(None),
+) -> None:
+    """Write the final run manifest for an OpenClaw-driven run."""
+
+    try:
+        files = json.loads(files_file.read_text(encoding="utf-8"))
+    except (
+        FileNotFoundError,
+        PermissionError,
+        UnicodeDecodeError,
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
+        typer.echo(f"Could not write manifest: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    try:
+        manifest = RunManifest(
+            symbol=symbol.upper(),
+            security_type=security_type,
+            name=name,
+            exchange=exchange,
+            cik=cik,
+            max_iterations=max_iterations,
+            iterations_completed=iterations_completed,
+            stopped_reason=stopped_reason,
+            files=files,
+            models={"runtime": "openclaw"},
+        )
+    except ValidationError as exc:
+        typer.echo(f"Invalid manifest inputs: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    try:
+        path = RunPaths(output_root, symbol).write_json("run_manifest.json", manifest)
+    except OSError as exc:
+        typer.echo(f"Could not write manifest: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(json.dumps({"manifest": str(path)}, indent=2))
 
 
 if __name__ == "__main__":
