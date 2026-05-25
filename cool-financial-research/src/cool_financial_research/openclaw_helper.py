@@ -31,12 +31,14 @@ def _read_json(path: Path) -> dict:
 
 def _validate_stage(kind: StageKind, payload: dict) -> StageOutput | ValidationStageOutput:
     if kind == "validation":
-        output = ValidationStageOutput.model_validate(payload)
-    else:
-        output = StageOutput.model_validate(payload)
-    if output.stage != kind:
-        raise ValueError(f"Expected {kind} stage JSON but found {output.stage}")
-    return output
+        validation_output = ValidationStageOutput.model_validate(payload)
+        if validation_output.stage != kind:
+            raise ValueError(f"Expected {kind} stage JSON but found {validation_output.stage}")
+        return validation_output
+    stage_output = StageOutput.model_validate(payload)
+    if stage_output.stage != kind:
+        raise ValueError(f"Expected {kind} stage JSON but found {stage_output.stage}")
+    return stage_output
 
 
 @app.command()

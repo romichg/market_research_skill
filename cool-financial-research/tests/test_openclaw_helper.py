@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -59,6 +60,19 @@ def test_validate_stage_rejects_stage_mismatch(tmp_path):
 
 def test_validate_stage_rejects_missing_payload_file(tmp_path):
     payload = tmp_path / "missing.json"
+    result = runner.invoke(app, ["validate-stage", "research", str(payload)])
+    assert result.exit_code == 1
+    assert "Invalid research stage JSON" in result.output
+
+
+def test_validate_stage_rejects_unreadable_payload_file(monkeypatch, tmp_path):
+    payload = tmp_path / "unreadable.json"
+    payload.write_text(json.dumps(valid_stage_payload()), encoding="utf-8")
+
+    def raise_permission_error(self: Path, encoding: str | None = None) -> str:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "read_text", raise_permission_error)
     result = runner.invoke(app, ["validate-stage", "research", str(payload)])
     assert result.exit_code == 1
     assert "Invalid research stage JSON" in result.output
