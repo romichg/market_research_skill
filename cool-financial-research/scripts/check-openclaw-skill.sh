@@ -11,7 +11,11 @@ if ! grep -q '^name: cool-financial-research$' SKILL.md; then
   exit 1
 fi
 
-if grep -q 'OPENAI_API_KEY.*Required' SKILL.md README.md; then
+if awk '
+  tolower($0) ~ /openai_api_key/ && tolower($0) ~ /requir/ &&
+    tolower($0) !~ /(do|does|must) not requir/ { found=1 }
+  END { exit found ? 0 : 1 }
+' SKILL.md; then
   echo "OpenClaw path must not require OPENAI_API_KEY" >&2
   exit 1
 fi
