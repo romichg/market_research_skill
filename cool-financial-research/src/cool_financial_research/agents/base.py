@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, TypeVar, TYPE_CHECKING
+from typing import Any, Generic, TypeVar, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openai import OpenAI
@@ -14,7 +14,7 @@ class AgentRuntimeError(RuntimeError):
     pass
 
 
-class OpenAIJsonAgent:
+class OpenAIJsonAgent(Generic[T]):
     """Thin wrapper around the OpenAI Responses API with strict JSON outputs.
 
     Each stage is modeled as a separate local "agent" by using a distinct prompt, model,
@@ -53,7 +53,7 @@ class OpenAIJsonAgent:
                         "strict": True,
                     }
                 },
-            )
+            )  # type: ignore[call-overload]
         except Exception as exc:  # noqa: BLE001 - surface API context cleanly to CLI
             raise AgentRuntimeError(f"OpenAI call failed for model {self.model}: {exc}") from exc
 

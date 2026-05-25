@@ -31,7 +31,7 @@ RISK_TOLERANCE: {self.config.risk_tolerance}
 
 Use current public-source data and EDGAR/issuer/filing sources wherever possible.
 """
-        result = self.agent.run(instructions=instructions, user_input=user_input)
+        result: StageOutput = self.agent.run(instructions=instructions, user_input=user_input)
         result.stage = "research"
         result.iteration = 0
         return result

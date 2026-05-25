@@ -8,6 +8,7 @@ from cool_financial_research.config import AppConfig, RunMode
 from cool_financial_research.io import RunPaths
 from cool_financial_research.pdf import markdown_to_pdf
 from cool_financial_research.providers import ClassificationError, EdgarClassifier, PaidProviderClassifier
+from cool_financial_research.providers.base import SecurityClassifier
 from cool_financial_research.schemas import (
     RunManifest,
     SecurityClassification,
@@ -30,7 +31,7 @@ class ResearchOrchestrator:
         symbol = symbol.upper().strip()
         if self.config.paid_provider and self.config.paid_provider.lower() != "none":
             # Extension point: use a paid provider when a concrete adapter is implemented.
-            classifier = PaidProviderClassifier(self.config.paid_provider)
+            classifier: SecurityClassifier = PaidProviderClassifier(self.config.paid_provider)
         else:
             classifier = EdgarClassifier(user_agent=self.config.sec_user_agent)
 

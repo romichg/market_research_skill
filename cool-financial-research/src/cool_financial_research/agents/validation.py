@@ -38,6 +38,9 @@ REPORT UNDER REVIEW BELOW:
 
 {report.markdown_report}
 """
-        result = self.agent.run(instructions=instructions, user_input=user_input)
+        result: ValidationStageOutput = self.agent.run(
+            instructions=instructions,
+            user_input=user_input,
+        )
         result.iteration = iteration
         return result

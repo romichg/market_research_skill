@@ -43,7 +43,7 @@ VALIDATION REVIEW BELOW:
 
 {validation.markdown_report}
 """
-        result = self.agent.run(instructions=instructions, user_input=user_input)
+        result: StageOutput = self.agent.run(instructions=instructions, user_input=user_input)
         result.stage = "fix"
         result.iteration = iteration
         return result

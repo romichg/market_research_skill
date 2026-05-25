@@ -50,4 +50,4 @@ class AppConfig(BaseModel):
 def load_config(**overrides: object) -> AppConfig:
     load_dotenv()
     raw = {k: v for k, v in overrides.items() if v is not None}
-    return AppConfig(**raw)
+    return AppConfig.model_validate(raw)
