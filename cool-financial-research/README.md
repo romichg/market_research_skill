@@ -1,8 +1,26 @@
 # cool-financial-research
 
-Local CLI multi-agent research workflow for US-listed equities, ADRs, and ETFs.
+Local OpenClaw skill for US-listed stock, ADR, and ETF research with a research → validation → revision feedback loop.
 
-The CLI orchestrates these stages:
+OpenClaw provides the model connection and reasoning. The Python package provides deterministic helpers for ticker classification, prompt loading, schema validation, artifact writing, and manifest generation.
+
+## Local OpenClaw Setup
+
+```bash
+cd cool-financial-research
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+scripts/check-openclaw-skill.sh
+```
+
+Expose this folder to OpenClaw as a local skill by copying or symlinking it into the active OpenClaw workspace `skills/` directory, or by adding its parent directory to OpenClaw's configured extra skill directories.
+
+This OpenClaw skill path does not require `OPENAI_API_KEY`; it uses the model connection already configured in OpenClaw.
+
+## Workflow
+
+The skill workflow supports these stages:
 
 1. Classify the input symbol as `equity`, `adr`, or `etf` using EDGAR by default.
 2. Run the correct initial research agent.
@@ -14,20 +32,33 @@ The CLI orchestrates these stages:
 8. Repeat validation/fix until no open Critical or Moderate issues remain, remaining issues are explicitly unresolved because data is unavailable, or the max iteration cap is reached.
 9. Save final markdown, JSON, manifest, and PDF if the optional PDF stack is installed.
 
-## Install
+## OpenClaw Helpers
+
+The packaged helpers are intended for deterministic local work around OpenClaw's model calls:
 
 ```bash
-cd cool-financial-research-cli
+python -m cool_financial_research.openclaw_helper --help
+python -m cool_financial_research.openclaw_helper prompt equity research
+```
+
+Use `scripts/check-openclaw-skill.sh` after setup to verify the expected skill metadata, local package install, and prompt loading path.
+
+## Legacy Direct CLI Mode
+
+The direct CLI mode is retained for running the original local multi-agent workflow outside OpenClaw. It uses the package's own provider configuration and environment variables.
+
+```bash
+cd cool-financial-research
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[pdf,dev]'
 cp .env.example .env
-# edit .env and set OPENAI_API_KEY
+# edit .env and set provider credentials such as OPENAI_API_KEY
 ```
 
 If WeasyPrint system dependencies are not available, omit `[pdf]` and run with `--no-pdf`.
 
-## Usage
+### Legacy Usage
 
 ```bash
 cool-financial-research run AAPL
