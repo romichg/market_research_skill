@@ -103,10 +103,11 @@ cd {baseDir}
   --max-iterations 5 \
   --iterations-completed N \
   --stopped-reason STOP_REASON \
-  --files-file /path/to/files.json
+  --files-file /path/to/files.json \
+  --unresolved-issues-file /path/to/unresolved-issues.json
 ```
 
-`STOP_REASON` must be one of the stop condition values emitted or derived by the loop.
+`STOP_REASON` must be one of the stop condition values emitted or derived by the loop. If there are no unresolved issues, omit `--unresolved-issues-file` or provide an empty JSON list.
 
 ## Stop Conditions
 

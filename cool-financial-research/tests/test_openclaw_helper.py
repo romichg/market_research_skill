@@ -192,7 +192,9 @@ def test_save_stage_reports_output_write_errors(monkeypatch, tmp_path):
 
 def test_write_manifest_creates_run_manifest(tmp_path):
     files_file = tmp_path / "files.json"
+    unresolved_file = tmp_path / "unresolved.json"
     files_file.write_text(json.dumps(["ABC-first_run.md", "ABC-final.md"]), encoding="utf-8")
+    unresolved_file.write_text(json.dumps(["SEC data unavailable"]), encoding="utf-8")
     result = runner.invoke(
         app,
         [
@@ -209,6 +211,8 @@ def test_write_manifest_creates_run_manifest(tmp_path):
             "no_blocking_issues",
             "--files-file",
             str(files_file),
+            "--unresolved-issues-file",
+            str(unresolved_file),
         ],
     )
     assert result.exit_code == 0
@@ -217,6 +221,7 @@ def test_write_manifest_creates_run_manifest(tmp_path):
     assert manifest["symbol"] == "ABC"
     assert manifest["stopped_reason"] == "no_blocking_issues"
     assert manifest["models"] == {"runtime": "openclaw"}
+    assert manifest["unresolved_issues_summary"] == ["SEC data unavailable"]
 
 
 def test_openclaw_helper_does_not_import_openai_runtime():

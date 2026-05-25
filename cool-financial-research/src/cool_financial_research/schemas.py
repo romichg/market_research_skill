@@ -161,3 +161,4 @@ class RunManifest(BaseModel):
     ]
     files: list[str]
     models: dict[str, str]
+    unresolved_issues_summary: list[str] = Field(default_factory=list)

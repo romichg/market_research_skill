@@ -237,6 +237,7 @@ def write_manifest(
     iterations_completed: int = Option(...),
     stopped_reason: StoppedReason = typer.Option(...),
     files_file: Path = Option(...),
+    unresolved_issues_file: Path | None = Option(None),
     name: str | None = Option(None),
     exchange: str | None = Option(None),
     cik: str | None = Option(None),
@@ -255,6 +256,22 @@ def write_manifest(
         typer.echo(f"Could not write manifest: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
+    unresolved_issues_summary: list[str] = []
+    if unresolved_issues_file is not None:
+        try:
+            unresolved_issues_summary = json.loads(
+                unresolved_issues_file.read_text(encoding="utf-8")
+            )
+        except (
+            FileNotFoundError,
+            PermissionError,
+            UnicodeDecodeError,
+            OSError,
+            json.JSONDecodeError,
+        ) as exc:
+            typer.echo(f"Could not write manifest: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
     try:
         manifest = RunManifest(
             symbol=symbol.upper(),
@@ -267,6 +284,7 @@ def write_manifest(
             stopped_reason=stopped_reason.value,
             files=files,
             models={"runtime": "openclaw"},
+            unresolved_issues_summary=unresolved_issues_summary,
         )
     except ValidationError as exc:
         typer.echo(f"Invalid manifest inputs: {exc}", err=True)

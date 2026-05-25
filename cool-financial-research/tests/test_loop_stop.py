@@ -67,3 +67,20 @@ def test_stops_when_blocking_issue_is_unresolved_data_unavailable():
     should_stop, reason = should_stop_validation(validation)
     assert should_stop is True
     assert reason == "only_unresolved_data_unavailable"
+
+
+def test_continues_when_blocking_issue_is_deferred():
+    validation = validation_with_issues(
+        [
+            Issue(
+                severity=IssueSeverity.critical,
+                section="Valuation",
+                issue="DCF still needs review",
+                status="deferred",
+            )
+        ],
+        critical=1,
+    )
+    should_stop, reason = should_stop_validation(validation)
+    assert should_stop is False
+    assert reason == ""
