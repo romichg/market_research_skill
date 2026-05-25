@@ -31,8 +31,12 @@ def _read_json(path: Path) -> dict:
 
 def _validate_stage(kind: StageKind, payload: dict) -> StageOutput | ValidationStageOutput:
     if kind == "validation":
-        return ValidationStageOutput.model_validate(payload)
-    return StageOutput.model_validate(payload)
+        output = ValidationStageOutput.model_validate(payload)
+    else:
+        output = StageOutput.model_validate(payload)
+    if output.stage != kind:
+        raise ValueError(f"Expected {kind} stage JSON but found {output.stage}")
+    return output
 
 
 @app.command()
@@ -49,7 +53,15 @@ def validate_stage(kind: StageKind, payload_file: Path) -> None:
 
     try:
         output = _validate_stage(kind, _read_json(payload_file))
-    except (json.JSONDecodeError, ValidationError) as exc:
+    except (
+        FileNotFoundError,
+        PermissionError,
+        UnicodeDecodeError,
+        OSError,
+        json.JSONDecodeError,
+        ValidationError,
+        ValueError,
+    ) as exc:
         typer.echo(f"Invalid {kind} stage JSON: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(output.model_dump_json(indent=2))
