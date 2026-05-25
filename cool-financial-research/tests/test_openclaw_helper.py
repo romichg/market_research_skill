@@ -217,3 +217,12 @@ def test_write_manifest_creates_run_manifest(tmp_path):
     assert manifest["symbol"] == "ABC"
     assert manifest["stopped_reason"] == "no_blocking_issues"
     assert manifest["models"] == {"runtime": "openclaw"}
+
+
+def test_openclaw_helper_does_not_import_openai_runtime():
+    import sys
+
+    sys.modules.pop("openai", None)
+    result = runner.invoke(app, ["prompt", "equity", "research"])
+    assert result.exit_code == 0
+    assert "openai" not in sys.modules
