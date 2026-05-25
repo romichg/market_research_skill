@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Literal
 
@@ -27,14 +28,15 @@ app = typer.Typer(
 )
 
 StageKind = Literal["research", "fix", "final", "validation"]
-StoppedReason = Literal[
-    "no_blocking_issues",
-    "only_unresolved_data_unavailable",
-    "max_iterations_reached",
-    "classification_error",
-    "runtime_error",
-]
 DEFAULT_SEC_USER_AGENT = "cool-financial-research/0.1 contact@example.com"
+
+
+class StoppedReason(str, Enum):
+    no_blocking_issues = "no_blocking_issues"
+    only_unresolved_data_unavailable = "only_unresolved_data_unavailable"
+    max_iterations_reached = "max_iterations_reached"
+    classification_error = "classification_error"
+    runtime_error = "runtime_error"
 
 
 def prompt_key(security_type: str, stage: str) -> tuple[str, str]:
@@ -220,7 +222,7 @@ def write_manifest(
     ),
     max_iterations: int = Option(...),
     iterations_completed: int = Option(...),
-    stopped_reason: StoppedReason = Option(...),
+    stopped_reason: StoppedReason = typer.Option(...),
     files_file: Path = Option(...),
     name: str | None = Option(None),
     exchange: str | None = Option(None),
@@ -249,7 +251,7 @@ def write_manifest(
             cik=cik,
             max_iterations=max_iterations,
             iterations_completed=iterations_completed,
-            stopped_reason=stopped_reason,
+            stopped_reason=stopped_reason.value,
             files=files,
             models={"runtime": "openclaw"},
         )
