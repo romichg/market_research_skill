@@ -25,7 +25,14 @@ if [ ! -x .venv/bin/python ]; then
   exit 1
 fi
 
-.venv/bin/python -m cool_financial_research.openclaw_helper --help >/dev/null
-.venv/bin/python -m cool_financial_research.openclaw_helper prompt equity research >/dev/null
+if ! .venv/bin/python -m cool_financial_research.openclaw_helper --help >/dev/null 2>&1; then
+  echo "OpenClaw helper is not installed. Run: source .venv/bin/activate && pip install -e '.[dev]'" >&2
+  exit 1
+fi
+
+if ! .venv/bin/python -m cool_financial_research.openclaw_helper prompt equity research >/dev/null 2>&1; then
+  echo "OpenClaw helper prompt loading failed. Reinstall with: source .venv/bin/activate && pip install -e '.[dev]'" >&2
+  exit 1
+fi
 
 echo "OpenClaw skill check passed."
