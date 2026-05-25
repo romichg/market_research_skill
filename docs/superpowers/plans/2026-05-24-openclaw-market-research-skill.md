@@ -12,7 +12,7 @@
 
 ## File Structure
 
-- Rename: `cool-financial-research-cli/` -> `cool-financial-research/`
+- Rename: the old CLI-branded project directory -> `cool-financial-research/`
 - Modify: `AGENTS.md` to reference `cool-financial-research/`
 - Modify: `cool-financial-research/README.md` to document local OpenClaw setup first
 - Modify: `cool-financial-research/SKILL.md` to become the OpenClaw-native workflow contract
@@ -27,7 +27,7 @@
 ## Task 1: Rename Project Folder And References
 
 **Files:**
-- Rename: `cool-financial-research-cli/` -> `cool-financial-research/`
+- Rename: the old CLI-branded project directory -> `cool-financial-research/`
 - Modify: `.gitignore`
 - Modify: `AGENTS.md`
 
@@ -36,7 +36,7 @@
 Run:
 
 ```bash
-git mv cool-financial-research-cli cool-financial-research
+git mv <old-cli-branded-directory> cool-financial-research
 ```
 
 Expected: directory is renamed and git tracks the move.
@@ -61,14 +61,14 @@ cool-financial-research/cool-financial-research/
 
 - [ ] **Step 3: Update contributor guide paths**
 
-Replace `cool-financial-research-cli/` with `cool-financial-research/` in `AGENTS.md`.
+Replace old CLI-branded directory references with `cool-financial-research/` in `AGENTS.md`.
 
 - [ ] **Step 4: Verify references**
 
 Run:
 
 ```bash
-grep -R "cool-financial-research-cli" -n .
+grep -R "<old-cli-branded-directory>" -n .
 ```
 
 Expected: only historical references in git internals, or no output from tracked files.
@@ -1002,7 +1002,7 @@ git commit -m "test: guard OpenClaw helper runtime"
 Run:
 
 ```bash
-grep -R "cool-financial-research-cli" -n AGENTS.md docs cool-financial-research || true
+grep -R "<old-cli-branded-directory>" -n AGENTS.md docs cool-financial-research || true
 ```
 
 Expected: no output.

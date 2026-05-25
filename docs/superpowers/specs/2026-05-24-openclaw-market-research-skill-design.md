@@ -4,7 +4,7 @@
 
 Build a local-only OpenClaw skill for stock, ADR, and ETF research that uses OpenClaw's existing model connection for all reasoning. The skill should run a structured research, validation, and revision loop, preserve auditable artifacts, and avoid requiring a separate `OPENAI_API_KEY`.
 
-The project identity should be `cool-financial-research`, not `cool-financial-research-cli`. A command-line interface may remain as a helper or compatibility surface, but the repository and skill should no longer present themselves as primarily a CLI.
+The project identity should be `cool-financial-research`, not a CLI-branded project name. A command-line interface may remain as a helper or compatibility surface, but the repository and skill should no longer present themselves as primarily a CLI.
 
 ## Package Shape
 
@@ -148,4 +148,4 @@ Existing tests for loop stopping should be retained and adapted as needed.
 
 The current `OpenAIJsonAgent` and standalone CLI workflow can remain temporarily for reference or compatibility, but they must not be the OpenClaw execution path. Documentation should clearly distinguish any legacy direct-LLM mode from the OpenClaw-native skill mode.
 
-Rename user-facing references from `cool-financial-research-cli` to `cool-financial-research`.
+Rename user-facing references from the old CLI-branded project name to `cool-financial-research`.
