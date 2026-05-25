@@ -76,3 +76,75 @@ def test_validate_stage_rejects_unreadable_payload_file(monkeypatch, tmp_path):
     result = runner.invoke(app, ["validate-stage", "research", str(payload)])
     assert result.exit_code == 1
     assert "Invalid research stage JSON" in result.output
+
+
+def research_payload():
+    return {
+        "symbol": "ABC",
+        "security_type": "equity",
+        "stage": "research",
+        "iteration": 0,
+        "markdown_report": "# ABC Research",
+        "structured_data": {
+            "symbol": "ABC",
+            "security_type": "equity",
+            "analysis_date": "2026-05-24",
+            "summary": "summary",
+            "sections": [],
+            "sources": [],
+        },
+    }
+
+
+def validation_payload_without_blocking_issues():
+    return {
+        "symbol": "ABC",
+        "security_type": "equity",
+        "stage": "validation",
+        "iteration": 1,
+        "markdown_report": "# Validation",
+        "structured_data": {
+            "symbol": "ABC",
+            "security_type": "equity",
+            "validation_date": "2026-05-24",
+            "overall_verdict": "pass",
+            "recommendation_confidence": "medium",
+            "critical_count": 0,
+            "moderate_count": 0,
+            "minor_count": 0,
+            "issues": [],
+            "summary": "summary",
+        },
+    }
+
+
+def test_save_stage_writes_markdown_and_json(tmp_path):
+    payload_file = tmp_path / "stage.json"
+    payload_file.write_text(json.dumps(research_payload()), encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "save-stage",
+            "ABC",
+            "first_run",
+            "research",
+            str(payload_file),
+            "--output-root",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code == 0
+    written = json.loads(result.output)
+    assert Path(written["markdown"]).read_text(encoding="utf-8") == "# ABC Research"
+    assert Path(written["json"]).exists()
+
+
+def test_should_stop_outputs_machine_readable_decision(tmp_path):
+    payload_file = tmp_path / "validation.json"
+    payload_file.write_text(
+        json.dumps(validation_payload_without_blocking_issues()),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["should-stop", str(payload_file)])
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"should_stop": True, "reason": "no_blocking_issues"}
