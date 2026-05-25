@@ -84,8 +84,29 @@ cd {baseDir}
 ```
 
 10. If open Critical or Moderate issues remain, load the fix prompt, revise the report, and save `validation-fix<N>`.
+
+```bash
+cd {baseDir}
+.venv/bin/python -m cool_financial_research.openclaw_helper prompt SECURITY_TYPE fix
+.venv/bin/python -m cool_financial_research.openclaw_helper save-stage SYMBOL validation-fix1 fix /path/to/fix.json
+```
+
+Increment `validation-fix<N>` for each fix iteration.
+
 11. Repeat validation and fix until a stop condition is met or `max_iterations` is reached.
 12. Save the final report as `final` and write `run_manifest.json`.
+
+```bash
+cd {baseDir}
+.venv/bin/python -m cool_financial_research.openclaw_helper save-stage SYMBOL final final /path/to/final.json
+.venv/bin/python -m cool_financial_research.openclaw_helper write-manifest SYMBOL SECURITY_TYPE \
+  --max-iterations 5 \
+  --iterations-completed N \
+  --stopped-reason STOP_REASON \
+  --files-file /path/to/files.json
+```
+
+`STOP_REASON` must be one of the stop condition values emitted or derived by the loop.
 
 ## Stop Conditions
 
