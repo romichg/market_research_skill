@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Literal
 
 import requests
 import typer
 from pydantic import ValidationError
 from typer import Option
 
-from cool_financial_research.config import RunMode
 from cool_financial_research.io import RunPaths
 from cool_financial_research.providers import ClassificationError, EdgarClassifier
 from cool_financial_research.prompt_loader import load_prompt, runtime_contract
@@ -27,8 +25,21 @@ app = typer.Typer(
     help="Deterministic helper commands for the OpenClaw skill.",
 )
 
-StageKind = Literal["research", "fix", "final", "validation"]
 DEFAULT_SEC_USER_AGENT = "cool-financial-research/0.1 contact@example.com"
+
+
+class StageKind(str, Enum):
+    research = "research"
+    fix = "fix"
+    final = "final"
+    validation = "validation"
+
+
+class RunModeOption(str, Enum):
+    auto = "auto"
+    equity = "equity"
+    adr = "adr"
+    etf = "etf"
 
 
 class StoppedReason(str, Enum):
@@ -54,14 +65,14 @@ def _read_json(path: Path) -> dict:
 
 
 def _validate_stage(kind: StageKind, payload: dict) -> StageOutput | ValidationStageOutput:
-    if kind == "validation":
+    if kind == StageKind.validation:
         validation_output = ValidationStageOutput.model_validate(payload)
-        if validation_output.stage != kind:
-            raise ValueError(f"Expected {kind} stage JSON but found {validation_output.stage}")
+        if validation_output.stage != kind.value:
+            raise ValueError(f"Expected {kind.value} stage JSON but found {validation_output.stage}")
         return validation_output
     stage_output = StageOutput.model_validate(payload)
-    if stage_output.stage != kind:
-        raise ValueError(f"Expected {kind} stage JSON but found {stage_output.stage}")
+    if stage_output.stage != kind.value:
+        raise ValueError(f"Expected {kind.value} stage JSON but found {stage_output.stage}")
     return stage_output
 
 
@@ -95,7 +106,7 @@ def validate_stage(kind: StageKind, payload_file: Path) -> None:
         ValidationError,
         ValueError,
     ) as exc:
-        typer.echo(f"Invalid {kind} stage JSON: {exc}", err=True)
+        typer.echo(f"Invalid {kind.value} stage JSON: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(output.model_dump_json(indent=2))
 
@@ -103,8 +114,8 @@ def validate_stage(kind: StageKind, payload_file: Path) -> None:
 @app.command()
 def classify(
     symbol: str,
-    security_type: RunMode = Option(
-        "auto",
+    security_type: RunModeOption = Option(
+        RunModeOption.auto,
         "--security-type",
         "--type",
         help="auto, equity, adr, or etf. auto uses SEC metadata.",
@@ -123,10 +134,12 @@ def classify(
         typer.echo(f"Classification failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    if security_type != "auto":
-        classification.security_type = SecurityType(security_type)
-        classification.is_adr = security_type == "adr"
-        classification.notes.append(f"Security type overridden by helper mode: {security_type}")
+    if security_type != RunModeOption.auto:
+        classification.security_type = SecurityType(security_type.value)
+        classification.is_adr = security_type == RunModeOption.adr
+        classification.notes.append(
+            f"Security type overridden by helper mode: {security_type.value}"
+        )
     typer.echo(classification.model_dump_json(indent=2))
 
 
@@ -174,7 +187,7 @@ def save_stage(
         ValidationError,
         ValueError,
     ) as exc:
-        typer.echo(f"Invalid {kind} stage JSON: {exc}", err=True)
+        typer.echo(f"Invalid {kind.value} stage JSON: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     try:

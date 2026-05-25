@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import typer
 from rich.console import Console
@@ -14,11 +15,18 @@ app = typer.Typer(add_completion=False, help="Run local multi-agent financial re
 console = Console()
 
 
+class RunModeOption(str, Enum):
+    auto = "auto"
+    equity = "equity"
+    adr = "adr"
+    etf = "etf"
+
+
 @app.command()
 def run(
     symbol: str = typer.Argument(..., help="US-listed stock, ADR, or ETF ticker."),
-    security_type: RunMode = typer.Option(
-        "auto",
+    security_type: RunModeOption = typer.Option(
+        RunModeOption.auto,
         "--security-type",
         "--type",
         help="auto, equity, adr, or etf. auto uses SEC metadata.",
@@ -41,19 +49,20 @@ def run(
 ) -> None:
     """Run initial research, validation, fix loops, and final report generation."""
 
+    mode = cast(RunMode, security_type.value)
     config = load_config(
         output_root=output_root,
         max_iterations=max_iterations,
         analysis_date=analysis_date,
         horizon=horizon,
         risk_tolerance=risk_tolerance,
-        mode=security_type,
+        mode=mode,
         create_pdf=pdf,
         include_charts=charts,
     )
     orchestrator = ResearchOrchestrator(config)
     try:
-        manifest = orchestrator.run(symbol, mode=security_type)
+        manifest = orchestrator.run(symbol, mode=mode)
     except ResearchWorkflowError as exc:
         console.print(f"[red]Workflow failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
@@ -71,14 +80,19 @@ def run(
 @app.command("classify")
 def classify(
     symbol: str = typer.Argument(..., help="Ticker to classify."),
-    security_type: RunMode = typer.Option("auto", "--security-type", "--type"),
+    security_type: RunModeOption = typer.Option(
+        RunModeOption.auto,
+        "--security-type",
+        "--type",
+    ),
 ) -> None:
     """Classify a symbol using EDGAR metadata or an optional provider."""
 
-    config = load_config(mode=security_type)
+    mode = cast(RunMode, security_type.value)
+    config = load_config(mode=mode)
     orchestrator = ResearchOrchestrator(config)
     try:
-        classification = orchestrator.classify_symbol(symbol, mode=security_type)
+        classification = orchestrator.classify_symbol(symbol, mode=mode)
     except ResearchWorkflowError as exc:
         console.print(f"[red]Classification failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc

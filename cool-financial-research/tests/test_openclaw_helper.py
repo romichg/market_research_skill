@@ -38,6 +38,12 @@ def test_prompt_command_prints_runtime_contract():
     assert "Runtime Output Contract" in result.output
 
 
+def test_help_constructs_all_commands():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "write-manifest" in result.output
+
+
 def test_validate_stage_rejects_missing_markdown_report(tmp_path):
     payload = tmp_path / "bad.json"
     payload.write_text(
