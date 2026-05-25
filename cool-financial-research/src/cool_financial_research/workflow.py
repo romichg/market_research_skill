@@ -12,6 +12,10 @@ def should_stop_validation(validation: ValidationStageOutput) -> tuple[bool, str
     ]
     if not blocking and data.blocking_issue_count == 0:
         return True, "no_blocking_issues"
-    if blocking and all(issue.status == "unresolved_data_unavailable" for issue in blocking):
+    if (
+        len(blocking) == data.blocking_issue_count
+        and blocking
+        and all(issue.status == "unresolved_data_unavailable" for issue in blocking)
+    ):
         return True, "only_unresolved_data_unavailable"
     return False, ""

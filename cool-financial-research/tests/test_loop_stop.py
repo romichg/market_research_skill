@@ -84,3 +84,20 @@ def test_continues_when_blocking_issue_is_deferred():
     should_stop, reason = should_stop_validation(validation)
     assert should_stop is False
     assert reason == ""
+
+
+def test_continues_when_blocking_issue_counts_exceed_listed_unresolved_issues():
+    validation = validation_with_issues(
+        [
+            Issue(
+                severity=IssueSeverity.critical,
+                section="SEC Filings",
+                issue="One primary source unavailable",
+                status="unresolved_data_unavailable",
+            )
+        ],
+        critical=2,
+    )
+    should_stop, reason = should_stop_validation(validation)
+    assert should_stop is False
+    assert reason == ""
