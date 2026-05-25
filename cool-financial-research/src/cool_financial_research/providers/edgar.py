@@ -44,7 +44,12 @@ class EdgarClassifier(SecurityClassifier):
         symbol = symbol.upper().strip().replace(".", "-")
         row = self._find_ticker(symbol)
         cik = str(row["cik"]).zfill(10)
-        forms = self._recent_forms(cik)
+        try:
+            forms = self._recent_forms(cik)
+        except requests.RequestException as exc:
+            raise ClassificationError(
+                f"Could not fetch recent SEC submissions for {symbol}; classification is unavailable."
+            ) from exc
         name = row.get("name")
         exchange = row.get("exchange")
 
@@ -109,11 +114,8 @@ class EdgarClassifier(SecurityClassifier):
         raise ClassificationError(f"{symbol} was not found in the SEC ticker/exchange mapping.")
 
     def _recent_forms(self, cik: str) -> set[str]:
-        try:
-            response = self.session.get(SEC_SUBMISSIONS_URL.format(cik=cik), timeout=self.timeout)
-            response.raise_for_status()
-            data = response.json()
-            forms = data.get("filings", {}).get("recent", {}).get("form", [])
-            return {str(form).upper() for form in forms[:80]}
-        except requests.RequestException:
-            return set()
+        response = self.session.get(SEC_SUBMISSIONS_URL.format(cik=cik), timeout=self.timeout)
+        response.raise_for_status()
+        data = response.json()
+        forms = data.get("filings", {}).get("recent", {}).get("form", [])
+        return {str(form).upper() for form in forms[:80]}
