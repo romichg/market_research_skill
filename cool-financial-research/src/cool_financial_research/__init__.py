@@ -1,4 +1,9 @@
-"""Cool Financial Research CLI."""
+"""Cool Financial Research OpenClaw skill helper package.
 
-__all__ = ["__version__"]
-__version__ = "0.1.0"
+This package intentionally performs no LLM calls. OpenClaw remains the agent
+harness; the package exposes deterministic helpers, optional developer schemas,
+and thin modules for source bundling, ETF holdings, XBRL, PDF, charts, and the
+provider-value ledger.
+"""
+
+__version__ = "0.6.0"

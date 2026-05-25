@@ -1,0 +1,406 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/openclaw/cool-financial-research/validation-output.schema.json",
+  "title": "ValidationOutput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "symbol",
+    "security_type",
+    "stage",
+    "iteration",
+    "markdown_report",
+    "structured_data"
+  ],
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Z0-9.\\-]{1,12}$"
+    },
+    "security_type": {
+      "type": "string",
+      "enum": [
+        "equity",
+        "adr",
+        "etf"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "const": "validation"
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "markdown_report": {
+      "type": "string"
+    },
+    "structured_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbol",
+        "security_type",
+        "validation_date",
+        "overall_verdict",
+        "recommendation_confidence",
+        "critical_count",
+        "moderate_count",
+        "minor_count",
+        "issues",
+        "unresolved_due_to_data_unavailable",
+        "sources_checked",
+        "data_freshness_audit",
+        "data_gaps",
+        "summary"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "security_type": {
+          "type": "string",
+          "enum": [
+            "equity",
+            "adr",
+            "etf"
+          ]
+        },
+        "validation_date": {
+          "type": "string"
+        },
+        "overall_verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "pass_with_revisions",
+            "fail"
+          ]
+        },
+        "recommendation_confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "critical_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "moderate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "unresolved_due_to_data_unavailable": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "sources_checked": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "data_freshness_audit": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/freshness_item"
+          }
+        },
+        "summary": {
+          "type": "string"
+        },
+        "data_gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/data_gap"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "severity",
+        "section",
+        "issue",
+        "status",
+        "required_fix",
+        "source_or_evidence",
+        "source_confidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "moderate",
+            "minor"
+          ]
+        },
+        "section": {
+          "type": "string"
+        },
+        "issue": {
+          "type": "string"
+        },
+        "required_fix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_or_evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unverified"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "unresolved_data_unavailable",
+            "deferred"
+          ]
+        },
+        "unresolved_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "confidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "document_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "publication_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "accessed_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unverified"
+          ]
+        },
+        "primary_or_secondary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "primary",
+            "secondary",
+            "paid_licensed",
+            "unverified",
+            null
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "freshness_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data_point",
+        "value_in_report",
+        "source_id",
+        "as_of_date",
+        "within_threshold",
+        "verified"
+      ],
+      "properties": {
+        "data_point": {
+          "type": "string"
+        },
+        "value_in_report": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "freshness_threshold_days": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "within_threshold": {
+          "type": "boolean"
+        },
+        "verified": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "no",
+            "unverified"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "data_gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "severity",
+        "affected_sections",
+        "description",
+        "why_free_sources_were_insufficient",
+        "potential_paid_services",
+        "expected_quality_lift"
+      ],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "fundamentals_valuation",
+            "consensus_estimates",
+            "transcripts_kpis",
+            "etf_fund_analytics",
+            "options_derivatives",
+            "short_interest_borrow",
+            "market_data_technicals",
+            "ownership_insider",
+            "supply_chain_tariff",
+            "news_sentiment",
+            "other"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "moderate",
+            "minor"
+          ]
+        },
+        "affected_sections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "why_free_sources_were_insufficient": {
+          "type": "string"
+        },
+        "potential_paid_services": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expected_quality_lift": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "related_issue_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

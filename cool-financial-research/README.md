@@ -1,165 +1,269 @@
-# cool-financial-research
+# Cool Financial Research — OpenClaw Skill
 
-Local OpenClaw skill for US-listed stock, ADR, and ETF research with a research → validation → revision feedback loop.
+A local OpenClaw skill for multi-agent financial research on US-listed stocks, ADRs, and ETFs.
 
-OpenClaw provides the model connection and reasoning. The Python package provides deterministic helpers for ticker classification, prompt loading, schema validation, artifact writing, and manifest generation.
+This version is OpenClaw-native: the LLM connection is provided by the OpenClaw harness and its configured model/auth profile. The Python helper scripts perform only deterministic work such as EDGAR-first classification, directory setup, JSON validation, stop-condition checks, and PDF rendering. They do **not** call OpenAI, read `.env`, or require an API key.
 
-## Local OpenClaw Setup
+## Install locally
+
+Unzip or copy this folder somewhere local, then install it into your active OpenClaw workspace:
 
 ```bash
-cd cool-financial-research
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-scripts/check-openclaw-skill.sh
+# Preferred if your OpenClaw CLI supports local path installs:
+openclaw skills install ./cool-financial-research-openclaw
+openclaw skills list
+
+# If your CLI treats paths as registry slugs, install manually instead:
+mkdir -p ~/.openclaw/skills/cool-financial-research
+cp -R ./cool-financial-research-openclaw/* ~/.openclaw/skills/cool-financial-research/
+openclaw skills list
 ```
 
-Expose this folder to OpenClaw as a local skill by copying or symlinking it into the active OpenClaw workspace `skills/` directory, or by adding its parent directory to OpenClaw's configured extra skill directories.
+OpenClaw local installs expect a directory containing `SKILL.md` at the root. Some CLI builds do not support `--as` for local paths; manual install is safe for this skill.
 
-This OpenClaw skill path does not require `OPENAI_API_KEY`; it uses the model connection already configured in OpenClaw.
+
+## Optional package install for local development
+
+Manual OpenClaw installation does not require `pip install`; the helper wrapper remains stdlib-only. For local development, schema imports, and the optional developer CLI:
+
+```bash
+python3 -m pip install -e .[dev,pdf,pdftext,charts]
+# deterministic helper entry point
+cfr-helper preflight --output-root ./cool-financial-research
+# optional developer convenience CLI; no LLM calls are made
+cool-financial-research-dev openclaw-message ECH --security-type etf
+```
+
+The package intentionally contains no OpenAI SDK dependency, no `python-dotenv`, and no `.env` workflow.
+
+## OpenClaw config requirements
+
+The workflow requires sub-agent tools. If your OpenClaw agent already uses the coding/full tool profile, you may already have them. Otherwise merge the relevant settings from:
+
+```text
+examples/openclaw-config.example.json5
+```
+
+The important parts are:
+
+```json5
+{
+  tools: {
+    alsoAllow: ["exec", "sessions_spawn", "sessions_yield", "subagents"]
+  },
+  agents: {
+    defaults: {
+      model: "gpt-5.5",
+      thinking: "high",
+      subagents: {
+        delegationMode: "prefer",
+        maxSpawnDepth: 2,
+        maxChildrenPerAgent: 5,
+        maxConcurrent: 4,
+        runTimeoutSeconds: 1800,
+        model: "gpt-5.5-pro",
+        thinking: "high"
+      }
+    }
+  }
+}
+```
+
+Adjust model IDs to match the model names configured in your OpenClaw installation. This skill does not hardcode provider auth.
+
+## Usage
+
+From OpenClaw chat or CLI, ask for the skill explicitly, for example:
+
+```bash
+openclaw agent --message "Use the cool-financial-research skill to research AAPL" --thinking high
+openclaw agent --message "Use cool-financial-research for SPY as ETF, max 5 iterations, include PDF" --thinking high
+openclaw agent --message "Use cool-financial-research for BABA as ADR" --thinking high
+```
+
+The parent OpenClaw agent acts as the orchestrator and spawns research, validation, and fix sub-agents.
+
+
+## Research quality hardening
+
+Version 0.6 keeps the v0.5 research-quality gates and ECH hardening, and adds package ergonomics from the superpowers build without adding any direct LLM/API-key path. It now includes a proper `src/cool_financial_research/` package, Pydantic developer models that mirror the strict JSON schemas, importable helper modules, and an optional Typer/Rich developer CLI. The stdlib `scripts/cfr_helper.py` path remains available for OpenClaw.
+
+Version 0.5 adds operational hardening from the first ECH ETF run: gzip-safe SEC fetching, ETF/fund ticker fallback, explicit ETF security-type override for source bundling, conservative iShares/BlackRock source discovery, bad CSV/HTML detection, preflight dependency checks, artifact verification/repair workflow, PDF text extraction, optional PDF rendering fallback, and manifest operational issues.
+
+Version 0.4 added explicit quality gates, deterministic data helpers, and a paid-service value ledger on top of the original prompts:
+
+- Primary-source preference is binding across research, validation, and fix agents.
+- Every material quantitative claim must be represented in JSON with source id, source date, access date, confidence, verification status, and stale flag.
+- Validation counts are checked deterministically against the issue list.
+- Fix outputs can be validated against the previous validation JSON to confirm every prior open Critical/Moderate issue id was addressed.
+- Validation outputs include `data_gaps` and the helper maintains a cumulative `provider_value_ledger.json`.
+- Source bundles, XBRL extracts, ETF holdings CSV/issuer-JSON parsers, citation linting, and verified-data chart generation are available as deterministic helper commands.
+- Finalization copies unresolved Critical/Moderate issues into `run_manifest.json`.
+- Final manifests scan the output directory recursively so intermediate files and source bundles remain visible for audit.
 
 ## Workflow
 
-The skill workflow supports these stages:
+1. Classify the input ticker as equity, ADR, or ETF.
+2. Run preflight and record missing optional PDF/PDF-text dependencies in the manifest.
+3. If classification fails but the user supplied a known `security_type`, proceed with a low-confidence override and require validation to verify it.
+4. For equity/ADR, use the equity prompts. For ETF, use the ETF prompts.
+5. Build a source bundle from EDGAR/fund ticker data, conservative issuer discovery, and any explicit issuer/fact-sheet/methodology URLs supplied by the user. For equities/ADRs, optionally extract common SEC XBRL metrics. For ETFs, parse a user-supplied issuer holdings CSV when available.
+6. Launch a research sub-agent and save:
+   - `<SYMBOL>-first_run.md`
+   - `<SYMBOL>-first_run.json`
+7. Verify artifacts with `verify-artifacts`; if missing/malformed, run the artifact-repair prompt once before continuing.
+8. Launch a validation sub-agent and save:
+   - `<SYMBOL>-validation1.md`
+   - `<SYMBOL>-validation1.json`
+9. Verify validation artifacts and update the paid-service value ledger from validation `data_gaps`. If the validator finds open critical/moderate issues, launch a fix sub-agent and save:
+   - `<SYMBOL>-validation-fix1.md`
+   - `<SYMBOL>-validation-fix1.json`
+10. Verify fix artifacts against the previous validation JSON so every prior open Critical/Moderate issue ID is addressed. Repeat validation/fix until either:
+   - zero critical and zero moderate issues remain; or
+   - all remaining critical/moderate issues are marked `unresolved_data_unavailable`; or
+   - five validation iterations have completed.
+11. Produce final artifacts:
+   - `<SYMBOL>-final.md`
+   - `<SYMBOL>-final.json`
+   - `<SYMBOL>-final.pdf` when PDF rendering is available
+   - `run_manifest.json`
 
-1. Classify the input symbol as `equity`, `adr`, or `etf` using EDGAR by default.
-2. Run the correct initial research agent.
-3. Save `<SYMBOL>-first_run.md` and `<SYMBOL>-first_run.json`.
-4. Run a forensic validation agent using the first agent's output as input.
-5. Save `<SYMBOL>-validation1.md` and `<SYMBOL>-validation1.json`.
-6. If the validation contains open Critical or Moderate issues, run a fix/revision agent.
-7. Save `<SYMBOL>-validation-fix1.md` and `<SYMBOL>-validation-fix1.json`.
-8. Repeat validation/fix until no open Critical or Moderate issues remain, remaining issues are explicitly unresolved because data is unavailable, or the max iteration cap is reached.
-9. Save final markdown, JSON, manifest, and PDF if the optional PDF stack is installed.
+## Output directory
 
-## OpenClaw Helpers
-
-The packaged helpers are intended for deterministic local work around OpenClaw's model calls:
-
-```bash
-python -m cool_financial_research.openclaw_helper --help
-python -m cool_financial_research.openclaw_helper prompt equity research
-```
-
-Use `scripts/check-openclaw-skill.sh` after setup to verify the expected skill metadata, local package install, and prompt loading path.
-
-## Legacy Direct CLI Mode
-
-The direct CLI mode is retained for running the original local multi-agent workflow outside OpenClaw. It uses the package's own provider configuration and environment variables.
-
-```bash
-cd cool-financial-research
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[pdf,dev]'
-cp .env.example .env
-# edit .env and set provider credentials such as OPENAI_API_KEY
-```
-
-If WeasyPrint system dependencies are not available, omit `[pdf]` and run with `--no-pdf`.
-
-### Legacy Usage
-
-```bash
-cool-financial-research run AAPL
-cool-financial-research run SPY --type auto
-cool-financial-research run BABA --security-type adr
-cool-financial-research run AAPL --max-iterations 5 --pdf
-cool-financial-research classify AAPL
-```
-
-Outputs are written to:
+Default:
 
 ```text
-./cool-financial-research/
-  AAPL/
-    AAPL-first_run.md
-    AAPL-first_run.json
-    AAPL-validation1.md
-    AAPL-validation1.json
-    AAPL-validation-fix1.md
-    AAPL-validation-fix1.json
-    ...
-    AAPL-final.md
-    AAPL-final.json
-    AAPL-final.pdf
-    run_manifest.json
+./cool-financial-research/<SYMBOL>/
 ```
 
-## Defaults
-
-Model IDs are configurable through environment variables. The default model map is:
+Example:
 
 ```text
-CFR_ORCHESTRATOR_MODEL=gpt-5.5
-CFR_RESEARCH_MODEL=gpt-5.5-pro
-CFR_VALIDATION_MODEL=gpt-5.5-pro
-CFR_FIX_MODEL=gpt-5.5-pro
-CFR_JSON_REPAIR_MODEL=gpt-5.5
+./cool-financial-research/AAPL/
+  AAPL-first_run.md
+  AAPL-first_run.json
+  AAPL-validation1.md
+  AAPL-validation1.json
+  AAPL-validation-fix1.md
+  AAPL-validation-fix1.json
+  AAPL-final.md
+  AAPL-final.json
+  AAPL-final.pdf
+  run_manifest.json
 ```
 
-The code intentionally keeps these model names in config rather than scattering them through the codebase.
+## Helper commands
 
-## Classification
+The helper is intentionally deterministic:
 
-The default classifier uses:
+```bash
+python3 scripts/cfr_helper.py init-run AAPL
+python3 scripts/cfr_helper.py preflight --symbol AAPL
+python3 scripts/cfr_helper.py classify AAPL --provider edgar
+python3 scripts/cfr_helper.py classify ECH --mode etf --provider edgar
+python3 scripts/cfr_helper.py prompts equity
+python3 scripts/cfr_helper.py build-source-bundle AAPL --output-root ./cool-financial-research
+python3 scripts/cfr_helper.py build-source-bundle ECH --output-root ./cool-financial-research --security-type etf --issuer ishares --ishares-product-id 239618
+python3 scripts/cfr_helper.py extract-xbrl-metrics ./cool-financial-research/AAPL/source_bundle/sec_companyfacts.json
+python3 scripts/cfr_helper.py verify-artifacts AAPL research research ./cool-financial-research/AAPL/AAPL-first_run.md ./cool-financial-research/AAPL/AAPL-first_run.json
+python3 scripts/cfr_helper.py validate-json research ./cool-financial-research/AAPL/AAPL-first_run.json
+python3 scripts/cfr_helper.py extract-issuer-holdings-json ./cool-financial-research/ECH/source_bundle/issuer_fund.json --output-csv ./cool-financial-research/ECH/source_bundle/holdings_extracted.csv --output-json ./cool-financial-research/ECH/source_bundle/etf_holdings_summary.json
+python3 scripts/cfr_helper.py lint-citations ./cool-financial-research/AAPL/AAPL-first_run.md ./cool-financial-research/AAPL/AAPL-first_run.json
+python3 scripts/cfr_helper.py validate-json validation ./cool-financial-research/AAPL/AAPL-validation1.json
+python3 scripts/cfr_helper.py assess-data-gaps ./cool-financial-research/AAPL/AAPL-validation1.json --symbol AAPL --output-root ./cool-financial-research
+python3 scripts/cfr_helper.py check-stop ./cool-financial-research/AAPL/AAPL-validation1.json
+python3 scripts/cfr_helper.py validate-json research ./cool-financial-research/AAPL/AAPL-validation-fix1.json --previous-validation ./cool-financial-research/AAPL/AAPL-validation1.json
+python3 scripts/cfr_helper.py finalize AAPL current.md current.json --stopped-reason no_blocking_issues --validation-json ./cool-financial-research/AAPL/AAPL-validation1.json
+python3 scripts/cfr_helper.py render-pdf ./cool-financial-research/AAPL/AAPL-final.md ./cool-financial-research/AAPL/AAPL-final.pdf --optional
+python3 scripts/cfr_helper.py extract-pdf-text ./cool-financial-research/AAPL/source_bundle/prospectus.pdf --optional
+python3 scripts/cfr_helper.py provider-summary --output-root ./cool-financial-research --min-runs 20
+```
 
-- SEC ticker/exchange mapping
-- SEC submissions metadata
-- filing-form heuristics:
-  - ETF/fund forms: `N-1A`, `485BPOS`, `N-CSR`, `NPORT-P`, `N-CEN`, `497`, `497K`
-  - ADR/foreign issuer forms: `F-6`, `20-F`, `6-K`
-  - operating company forms: `10-K`, `10-Q`, `8-K`, `DEF 14A`
+## Learning which paid service is worth buying
 
-If classification cannot be performed, the workflow fails rather than guessing.
-
-A paid-provider classifier extension point is included in `providers/paid.py`.
-
-## Validation loop stopping rules
-
-The loop stops when one of the following is true:
-
-- no Critical or Moderate issues remain;
-- all remaining Critical or Moderate issues are explicitly marked `unresolved_data_unavailable`;
-- the configured maximum iteration count is reached, default `5`.
-
-## Strict JSON
-
-Every agent is asked to return a strict JSON envelope containing:
-
-- `markdown_report`: full markdown for human consumption;
-- `structured_data`: machine-readable sections, facts, interpretations, claims, sources, issues, and open questions.
-
-The markdown remains the canonical human report. The JSON is optimized for downstream automation, search, audits, and regression tests.
-
-## Prompt files
-
-The original prompts are included under:
+Each run records which data gaps most limited research quality. The helper writes:
 
 ```text
-src/cool_financial_research/prompts/
+./cool-financial-research/<SYMBOL>/<SYMBOL>-provider-gap-assessment.json
+./cool-financial-research/provider_value_ledger.json
+```
+
+After fewer than 20 runs, treat the provider ranking as directional. After 20+ runs, the top one or two services in `provider_value_ledger.json` are the best candidates to evaluate, because they repeatedly addressed actual gaps encountered by this workflow.
+
+The built-in catalog favors retail-accessible services rather than institutional feeds. It includes broad research platforms such as Fiscal.ai, TIKR, Koyfin, Morningstar Investor, Seeking Alpha Premium, TradingView, Unusual Whales, Market Chameleon, Fintel, ORTEX, and ImportGenius. The ledger does not imply the skill accessed those services; it only estimates which service would likely have improved the run if licensed local exports had been available.
+
+## Paid provider option
+
+The default classifier uses EDGAR. For a paid provider, export a local classification JSON and point the helper at it. This keeps provider secrets outside the skill.
+
+Example file:
+
+```text
+examples/paid-provider-classifications.example.json
+```
+
+Example command:
+
+```bash
+python3 scripts/cfr_helper.py classify BABA \
+  --provider paid-json \
+  --paid-provider-config examples/paid-provider-classifications.example.json
+```
+
+## PDF rendering
+
+PDF rendering tries, in order:
+
+1. Python `markdown` + `weasyprint`
+2. `pandoc`
+3. HTML fallback with an error file
+
+Optional local install:
+
+```bash
+python3 -m pip install markdown weasyprint
+```
+
+If rendering fails with `--optional`, the command exits successfully after producing HTML fallback and a structured `.pdf-error.txt` JSON status. The skill should not claim a PDF was created; it should link the HTML fallback and error file.
+
+PDF text extraction tries `pdftotext`, `pypdf`, `PyPDF2`, then `pdfplumber`. If all are missing and `--optional` is used, it writes `pdf_extract_manifest.json` and the validator should record the limitation as a data gap when it affects source review.
+
+## Tests
+
+```bash
+python3 -m pip install pytest
+pytest -q
+```
+
+## Files
+
+```text
+SKILL.md
+README.md
+prompts/
   equity-research.md
   equity-validation.md
   equity-research-fix-validation.md
   etf-research.md
   etf-validation.md
   etf-research-fix-validation.md
-```
-
-A runtime output contract is appended in code so the source prompts remain intact.
-
-## PDF and charts
-
-Final PDF generation renders the final markdown. Chart generation is intentionally conservative: the default hook creates charts only when chart-ready reliable data has been added by a data adapter. This avoids fabricating or visually implying unsupported data.
-
-## Development
-
-```bash
-pytest
-ruff check .
-mypy src
+  artifact-repair.md
+schemas/
+  research-output.schema.json
+  validation-output.schema.json
+scripts/
+  cfr_helper.py
+examples/
+  openclaw-config.example.json5
+  paid-provider-classifications.example.json
+  retail-data-services.example.json
+  issuer-product-map.example.json
+prompts/
+  _quality-gate-addendum.md
+tests/
+  test_cfr_helper.py
 ```
 
 ## Notes
 
-This tool produces research, not personalized financial advice. Users should independently verify live prices, NAV/premium-discount, SEC filings, issuer data, and any stale or unresolved inputs before acting.
+This skill produces research artifacts only. It should not present output as personalized financial advice.

@@ -1,46 +1,39 @@
 [build-system]
-requires = ["hatchling>=1.25"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "cool-financial-research"
-version = "0.1.0"
-description = "Local CLI multi-agent workflow for equity, ADR, and ETF research reports with validation/fix loops."
+name = "cool-financial-research-openclaw-skill"
+version = "0.6.0"
+description = "OpenClaw local multi-agent skill for financial research with quality gates, source bundling, and provider-value ledger"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Rom Vz" }]
 dependencies = [
-  "openai>=2.0.0",
   "pydantic>=2.8.0",
   "typer>=0.12.0",
   "rich>=13.7.0",
-  "requests>=2.32.0",
-  "python-dotenv>=1.0.1",
-  "markdown>=3.6",
-  "beautifulsoup4>=4.12.3",
 ]
 
 [project.optional-dependencies]
-pdf = ["weasyprint>=62.0"]
-dev = ["pytest>=8.2.0", "ruff>=0.5.0", "mypy>=1.10.0"]
+pdf = ["markdown", "weasyprint"]
+pdftext = ["pypdf", "PyPDF2", "pdfplumber"]
+charts = ["matplotlib"]
+dev = ["pytest", "ruff", "mypy"]
 
 [project.scripts]
-cool-financial-research = "cool_financial_research.cli:app"
-cool-financial-research-helper = "cool_financial_research.openclaw_helper:app"
+cfr-helper = "cool_financial_research.openclaw_helper:main"
+cool-financial-research-dev = "cool_financial_research.cli:app"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/cool_financial_research"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cool_financial_research = ["prompts/*.md", "schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
 
 [tool.ruff]
-line-length = 100
-
-[tool.mypy]
-python_version = "3.10"
-ignore_missing_imports = true
-
-[tool.hatch.build]
-include = [
-  "src/cool_financial_research/**/*.py",
-  "src/cool_financial_research/prompts/*.md",
-  "README.md",
-]
+line-length = 120

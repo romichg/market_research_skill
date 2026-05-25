@@ -1,0 +1,20 @@
+{
+  "BABA": {
+    "security_type": "adr",
+    "name": "Alibaba Group Holding Limited American Depositary Shares",
+    "exchange": "NYSE",
+    "cik": "0001577552",
+    "is_adr": true,
+    "confidence": "high",
+    "notes": ["Example paid-provider override; replace with your provider adapter/export."]
+  },
+  "SPY": {
+    "security_type": "etf",
+    "name": "SPDR S&P 500 ETF Trust",
+    "exchange": "NYSE Arca",
+    "cik": "0000884394",
+    "is_adr": false,
+    "confidence": "high",
+    "notes": ["Example ETF classification override."]
+  }
+}
