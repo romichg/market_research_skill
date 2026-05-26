@@ -1,4 +1,4 @@
-"""Pydantic developer models for the v0.6 research/validation JSON contract.
+"""Pydantic developer models for the v0.7 research/validation JSON contract.
 
 The OpenClaw skill still treats the JSON Schema files under ./schemas as the
 portable contract. These models mirror that stricter contract for local tests,
@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SecurityType(str, Enum):

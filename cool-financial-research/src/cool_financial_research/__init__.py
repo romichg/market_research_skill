@@ -1,9 +1,10 @@
-"""Cool Financial Research OpenClaw skill helper package.
+"""OpenClaw-only deterministic helpers for Cool Financial Research.
 
-This package intentionally performs no LLM calls. OpenClaw remains the agent
-harness; the package exposes deterministic helpers, optional developer schemas,
-and thin modules for source bundling, ETF holdings, XBRL, PDF, charts, and the
+This package intentionally performs no LLM calls and exposes no standalone
+research CLI. OpenClaw remains the agent harness; the importable modules and
+``scripts/cfr_helper.py`` provide deterministic support for classification,
+artifact validation, source bundling, PDF fallbacks, charts, and the
 provider-value ledger.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

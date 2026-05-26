@@ -4,15 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cool-financial-research-openclaw-skill"
-version = "0.6.0"
+version = "0.7.0"
 description = "OpenClaw local multi-agent skill for financial research with quality gates, source bundling, and provider-value ledger"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Rom Vz" }]
 dependencies = [
   "pydantic>=2.8.0",
-  "typer>=0.12.0",
-  "rich>=13.7.0",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +21,6 @@ dev = ["pytest", "ruff", "mypy"]
 
 [project.scripts]
 cfr-helper = "cool_financial_research.openclaw_helper:main"
-cool-financial-research-dev = "cool_financial_research.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

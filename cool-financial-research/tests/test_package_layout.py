@@ -4,14 +4,15 @@ from cool_financial_research.schemas import (
     IssueSeverity,
     ValidationStructuredData,
 )
-from cool_financial_research import etf_holdings, ledger, pdf, source_bundle, xbrl
+from cool_financial_research import charts, etf_holdings, ledger, pdf, source_bundle, xbrl
 
 
-def test_package_version():
-    assert __version__ == "0.6.0"
+def test_version_is_v0_7():
+    assert __version__ == "0.7.0"
 
 
-def test_thin_modules_import_research_helpers():
+def test_openclaw_support_modules_are_still_importable():
+    assert callable(charts.cmd_generate_charts)
     assert callable(etf_holdings.extract_holdings_rows_from_json)
     assert callable(ledger.assessment_from_validation)
     assert callable(pdf.simple_markdown_to_html)

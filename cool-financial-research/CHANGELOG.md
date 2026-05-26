@@ -1,12 +1,20 @@
 # Changelog
 
+## 0.7.0 — OpenClaw-only runtime surface
+
+- Removed the legacy standalone developer CLI and direct orchestrator workflow stack.
+- Narrowed package metadata to the deterministic `cfr-helper` entry point.
+- Kept `scripts/cfr_helper.py` as the stable OpenClaw helper wrapper and preserved importable deterministic helper modules.
+- Updated docs and checks so the skill is described as OpenClaw-only, driven by OpenClaw sub-agents plus deterministic helper commands.
+- Replaced stale direct-workflow tests with OpenClaw-only package-surface and helper coverage.
+
 ## 0.6.0 — Package ergonomics merge while preserving v0.5 quality gates
 
 - Reorganized the deterministic helper into an importable `src/cool_financial_research/` package.
 - Kept `scripts/cfr_helper.py` as a stable stdlib compatibility wrapper for OpenClaw skill instructions.
 - Added Pydantic developer models mirroring the strict research and validation JSON schemas, including structured quantitative claims, source confidence/date fields, issue count consistency, unresolved issue carry-forward, and artifact/operational manifest fields.
 - Added importable modules for source bundling, ETF holdings, XBRL extraction, PDF/render fallback, verified-data charts, and paid-provider ledger logic.
-- Added optional Typer/Rich developer CLI for creating ready-to-copy OpenClaw run messages and forwarding helper commands.
+- Added a developer CLI for creating ready-to-copy OpenClaw run messages and forwarding helper commands.
 - Updated `pyproject.toml` with package metadata and console entry points while intentionally avoiding OpenAI SDK, dotenv, and direct LLM-provider dependencies.
 - Added package layout tests and Pydantic model tests; the full helper/test suite passes.
 

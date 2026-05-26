@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 from cool_financial_research import openclaw_helper as mod
 
@@ -85,6 +86,16 @@ def test_stop_when_no_blocking_issues():
     result = mod.validation_stop_result(validation_payload([]))
     assert result["should_stop"] is True
     assert result["reason"] == "no_blocking_issues"
+
+
+def test_cfr_helper_help_succeeds():
+    result = subprocess.run(
+        ["python3", "scripts/cfr_helper.py", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
 
 
 def test_continue_when_open_critical_issue_exists():

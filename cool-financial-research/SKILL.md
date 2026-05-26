@@ -52,7 +52,7 @@ The helper can:
 - run preflight dependency checks,
 - verify sub-agent artifacts and record operational issues in the manifest.
 
-It performs no LLM calls. In v0.6 the helper implementation also exists as an importable package under `src/cool_financial_research/`, while `scripts/cfr_helper.py` remains the stable OpenClaw command wrapper.
+It performs no LLM calls. In v0.7 the helper implementation exists as an importable package under `src/cool_financial_research/`, while `scripts/cfr_helper.py` remains the stable OpenClaw command wrapper. There is no standalone package CLI or direct research workflow; OpenClaw sub-agents perform orchestration and LLM work.
 
 
 ## Research quality gates
@@ -72,15 +72,15 @@ The prompts in `prompts/` include `_quality-gate-addendum.md`. Treat it as bindi
 - Every validation JSON must include `data_gaps` describing which unavailable or low-confidence data most limited quality, why public/free sources were insufficient, and which retail-accessible paid services would likely help.
 - After each validation pass, run `assess-data-gaps` so the skill can learn across runs which one or two paid services would provide the best recurring lift. Treat the ledger as directional until at least 20 completed runs.
 
-## v0.6 developer/package ergonomics
+## v0.7 OpenClaw-only package surface
 
-The v0.6 layout borrows the useful packaging ideas from the superpowers build while preserving the stricter v0.5 research gates:
+The v0.7 layout keeps the useful packaging ideas from the superpowers build while removing the legacy direct runtime path:
 
 - `src/cool_financial_research/openclaw_helper.py` contains the deterministic helper implementation.
 - `scripts/cfr_helper.py` is a compatibility wrapper so existing skill instructions keep working.
 - `src/cool_financial_research/schemas.py` contains Pydantic developer models mirroring the JSON Schema contract, including structured quantitative claims and validation issue-count checks.
 - Thin modules (`source_bundle.py`, `etf_holdings.py`, `xbrl.py`, `pdf.py`, `charts.py`, `ledger.py`) make the deterministic pieces importable for tests or future extension.
-- Optional `cool-financial-research-dev` CLI is for local developer convenience only and makes no LLM calls.
+- OpenClaw sub-agents and deterministic helper commands are the only supported runtime surfaces.
 
 ## Output directory convention
 

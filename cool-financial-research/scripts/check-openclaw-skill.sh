@@ -6,6 +6,16 @@ cd "$(dirname "$0")/.."
 test -f SKILL.md
 test -f pyproject.toml
 
+if grep -q 'cool-financial-research-dev' pyproject.toml README.md SKILL.md; then
+  echo "OpenClaw-only package must not expose cool-financial-research-dev" >&2
+  exit 1
+fi
+
+if [ -f src/cool_financial_research/cli.py ]; then
+  echo "OpenClaw-only package must not include src/cool_financial_research/cli.py" >&2
+  exit 1
+fi
+
 if ! grep -q '^name: cool-financial-research$' SKILL.md; then
   echo "SKILL.md is missing the expected OpenClaw skill name" >&2
   exit 1
@@ -20,18 +30,20 @@ if awk '
   exit 1
 fi
 
-if [ ! -x .venv/bin/python ]; then
-  echo "Missing .venv. Run: python -m venv .venv && source .venv/bin/activate && pip install -e '.[dev]'" >&2
+PYTHON_BIN="${PYTHON:-python3}"
+if [ -z "${PYTHON:-}" ] &&
+  [ -x .venv/bin/python ] &&
+  .venv/bin/python -m cool_financial_research.openclaw_helper --help >/dev/null 2>&1; then
+  PYTHON_BIN=".venv/bin/python"
+fi
+
+if ! "$PYTHON_BIN" -m cool_financial_research.openclaw_helper --help >/dev/null 2>&1; then
+  echo "OpenClaw helper is not installed. Run: python3 -m pip install -e '.[dev]'" >&2
   exit 1
 fi
 
-if ! .venv/bin/python -m cool_financial_research.openclaw_helper --help >/dev/null 2>&1; then
-  echo "OpenClaw helper is not installed. Run: source .venv/bin/activate && pip install -e '.[dev]'" >&2
-  exit 1
-fi
-
-if ! .venv/bin/python -m cool_financial_research.openclaw_helper prompt equity research >/dev/null 2>&1; then
-  echo "OpenClaw helper prompt loading failed. Reinstall with: source .venv/bin/activate && pip install -e '.[dev]'" >&2
+if ! "$PYTHON_BIN" -m cool_financial_research.openclaw_helper prompts equity >/dev/null 2>&1; then
+  echo "OpenClaw helper prompt loading failed. Reinstall with: python3 -m pip install -e '.[dev]'" >&2
   exit 1
 fi
 

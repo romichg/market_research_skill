@@ -18,7 +18,6 @@ import re
 import shutil
 import subprocess
 import sys
-import textwrap
 import urllib.error
 import urllib.request
 import zlib
@@ -27,7 +26,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 BASE_DIR = Path(__file__).resolve().parents[2]  # package root when imported from src/cool_financial_research
 DEFAULT_OUTPUT_ROOT = Path("./cool-financial-research")
@@ -115,7 +114,7 @@ def _json_dump(obj: Any) -> None:
     print(json.dumps(obj, indent=2, sort_keys=True))
 
 
-def _die(message: str, code: int = 2) -> None:
+def _die(message: str, code: int = 2) -> NoReturn:
     print(json.dumps({"error": message}, indent=2), file=sys.stderr)
     raise SystemExit(code)
 
@@ -785,14 +784,15 @@ def append_operational_issue(output_root: Path, symbol: str, issue: dict[str, An
     out = symbol_dir(output_root, symbol)
     out.mkdir(parents=True, exist_ok=True)
     manifest_path = out / "run_manifest.json"
-    manifest = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
+    manifest: dict[str, Any] = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
     issue = dict(issue)
     issue.setdefault("created_at", datetime.now(timezone.utc).isoformat())
     issue.setdefault("severity", "warning")
     issue.setdefault("category", "helper_error")
     if issue.get("category") not in OPERATIONAL_CATEGORIES:
         issue["category"] = "helper_error"
-    manifest.setdefault("operational_issues", []).append(issue)
+    operational_issues = manifest.setdefault("operational_issues", [])
+    operational_issues.append(issue)
     manifest["files"] = scan_files(out)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
@@ -814,15 +814,17 @@ def cmd_record_operational_issue(args: argparse.Namespace) -> None:
 def set_artifact_compliance(output_root: Path, symbol: str, *, stage: str, ok: bool, source: str, repair_attempts: int = 0, notes: list[str] | None = None) -> dict[str, Any]:
     out = symbol_dir(output_root, symbol)
     manifest_path = out / "run_manifest.json"
-    manifest = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
-    comp = manifest.setdefault("artifact_compliance", {})
+    manifest: dict[str, Any] = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
+    comp: dict[str, Any] = manifest.setdefault("artifact_compliance", {})
     key = f"{stage}_artifacts_written_by_child"
     if stage in {"research", "validation", "fix"}:
         comp[key] = bool(ok) and source == "child"
-    comp.setdefault("artifact_sources", {})[stage] = source
+    artifact_sources = comp.setdefault("artifact_sources", {})
+    artifact_sources[stage] = source
     comp["repair_attempts"] = int(comp.get("repair_attempts", 0)) + int(repair_attempts)
     if notes:
-        comp.setdefault("notes", []).extend(notes)
+        compliance_notes = comp.setdefault("notes", [])
+        compliance_notes.extend(notes)
     manifest["files"] = scan_files(out)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
@@ -918,9 +920,10 @@ def cmd_preflight(args: argparse.Namespace) -> None:
         out.mkdir(parents=True, exist_ok=True)
         (out / "preflight.json").write_text(json.dumps(status, indent=2), encoding="utf-8")
         manifest_path = out / "run_manifest.json"
-        manifest = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
+        manifest: dict[str, Any] = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
         manifest["preflight"] = str(out / "preflight.json")
-        manifest.setdefault("operational_issues", []).extend(status["operational_issues"])
+        operational_issues = manifest.setdefault("operational_issues", [])
+        operational_issues.extend(status["operational_issues"])
         manifest.setdefault("quality_gates", {})["preflight_recorded"] = True
         manifest["files"] = scan_files(out)
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -1297,7 +1300,6 @@ def iShares_sources_for(symbol: str, *, product_id: str | None = None, slug: str
         sources.append({"name": "ishares_product_page.html", "url": f"https://www.ishares.com/us/products/{product_id}/{slug}", "kind": "product_page"})
         sources.append({"name": "blackrock_product_page.html", "url": f"https://www.blackrock.com/us/individual/products/{product_id}/{slug}", "kind": "product_page"})
     # Ticker-based literature URLs are stable enough to try, but are treated as candidates.
-    lower = symbol.lower()
     if symbol == "ECH":
         sources.extend([
             {"name": "ishares_fact_sheet.pdf", "url": "https://www.blackrock.com/us/individual/literature/fact-sheet/ech-ishares-msci-chile-etf-fund-fact-sheet-en-us.pdf", "kind": "fact_sheet"},
@@ -1361,17 +1363,27 @@ def maybe_parse_downloaded_holdings(out: Path, records: list[dict[str, Any]]) ->
     for rec in records:
         if rec.get("kind") == "holdings_csv" and rec.get("status") == "downloaded" and rec.get("path"):
             try:
-                class A: pass
-                a = A(); a.holdings_csv = rec["path"]; a.output_json = str(out / "etf_holdings_summary.json"); a.weight_column = "weight"; a.name_column = "name"; a.ticker_column = "ticker"; a.sector_column = "sector"; a.country_column = "country"
-                cmd_parse_etf_holdings(a)
+                args = argparse.Namespace(
+                    holdings_csv=rec["path"],
+                    output_json=str(out / "etf_holdings_summary.json"),
+                    weight_column="weight",
+                    name_column="name",
+                    ticker_column="ticker",
+                    sector_column="sector",
+                    country_column="country",
+                )
+                cmd_parse_etf_holdings(args)
                 created.append(str(out / "etf_holdings_summary.json"))
             except (SystemExit, Exception):
                 pass
         if rec.get("kind") == "fund_json" and rec.get("status") == "downloaded" and rec.get("path"):
             try:
-                class A: pass
-                a = A(); a.json_file = rec["path"]; a.output_csv = str(out / "holdings_extracted.csv"); a.output_json = str(out / "etf_holdings_summary.json")
-                cmd_extract_issuer_holdings_json(a)
+                args = argparse.Namespace(
+                    json_file=rec["path"],
+                    output_csv=str(out / "holdings_extracted.csv"),
+                    output_json=str(out / "etf_holdings_summary.json"),
+                )
+                cmd_extract_issuer_holdings_json(args)
                 created.extend([str(out / "holdings_extracted.csv"), str(out / "etf_holdings_summary.json")])
             except (SystemExit, Exception):
                 pass
@@ -1657,7 +1669,7 @@ def cmd_lint_citations(args: argparse.Namespace) -> None:
     md = Path(args.markdown_file).read_text(encoding="utf-8")
     js = read_json(Path(args.json_file))
     sd = js.get("structured_data") or {}
-    claims = []
+    claims: list[dict[str, Any]] = []
     for section in sd.get("sections", []) or []:
         claims.extend(section.get("quantitative_claims", []) or [])
     errors: list[str] = []
@@ -1697,7 +1709,8 @@ def cmd_generate_charts(args: argparse.Namespace) -> None:
                     date = row.get("date") or row.get("Date")
                     close = parse_percent(row.get("close") or row.get("Close") or row.get("adj_close") or row.get("Adj Close"))
                     if date and close is not None:
-                        dates.append(date); closes.append(close)
+                        dates.append(date)
+                        closes.append(close)
             if dates and closes:
                 plt.figure(figsize=(10, 5))
                 plt.plot(dates, closes)
@@ -1707,7 +1720,9 @@ def cmd_generate_charts(args: argparse.Namespace) -> None:
                 plt.xticks(rotation=45, ha="right")
                 plt.tight_layout()
                 p = out / "price_history.png"
-                plt.savefig(p, dpi=160); plt.close(); created.append(str(p))
+                plt.savefig(p, dpi=160)
+                plt.close()
+                created.append(str(p))
         except Exception as exc:  # noqa: BLE001
             errors.append(f"prices_csv: {exc}")
     if args.holdings_summary_json:
@@ -1724,7 +1739,9 @@ def cmd_generate_charts(args: argparse.Namespace) -> None:
                 plt.xticks(rotation=45, ha="right")
                 plt.tight_layout()
                 p = out / "etf_sector_weights.png"
-                plt.savefig(p, dpi=160); plt.close(); created.append(str(p))
+                plt.savefig(p, dpi=160)
+                plt.close()
+                created.append(str(p))
         except Exception as exc:  # noqa: BLE001
             errors.append(f"holdings_summary_json: {exc}")
     _json_dump({"created": created, "errors": errors})
@@ -1809,7 +1826,7 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     latest_validation = read_json(Path(args.validation_json)) if args.validation_json else None
     unresolved = unresolved_from_validation(latest_validation)
     manifest_path = out / "run_manifest.json"
-    manifest = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
+    manifest: dict[str, Any] = read_json(manifest_path) if manifest_path.exists() else {"symbol": symbol, "files": []}
     manifest.update(
         {
             "symbol": symbol,
@@ -1828,7 +1845,8 @@ def cmd_finalize(args: argparse.Namespace) -> None:
             manifest["pdf_render_status"] = json.loads(pdf_error.read_text(encoding="utf-8"))
         except Exception:
             manifest["pdf_render_status"] = {"error_file": str(pdf_error)}
-        manifest.setdefault("operational_issues", []).append({
+        operational_issues = manifest.setdefault("operational_issues", [])
+        operational_issues.append({
             "created_at": datetime.now(timezone.utc).isoformat(),
             "stage": "finalize",
             "severity": "warning",

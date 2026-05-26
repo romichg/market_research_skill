@@ -24,17 +24,15 @@ OpenClaw local installs expect a directory containing `SKILL.md` at the root. So
 
 ## Optional package install for local development
 
-Manual OpenClaw installation does not require `pip install`; the helper wrapper remains stdlib-only. For local development, schema imports, and the optional developer CLI:
+Manual OpenClaw installation does not require `pip install`; the helper wrapper remains stdlib-only. For local development and schema imports:
 
 ```bash
 python3 -m pip install -e .[dev,pdf,pdftext,charts]
 # deterministic helper entry point
 cfr-helper preflight --output-root ./cool-financial-research
-# optional developer convenience CLI; no LLM calls are made
-cool-financial-research-dev openclaw-message ECH --security-type etf
 ```
 
-The package intentionally contains no OpenAI SDK dependency, no `python-dotenv`, and no `.env` workflow.
+The package intentionally contains no OpenAI SDK dependency, no `python-dotenv`, no `.env` workflow, and no standalone `cool-financial-research` package CLI. OpenClaw is the only supported orchestration runtime; `scripts/cfr_helper.py` and the packaged `cfr-helper` entry point are deterministic helper surfaces only.
 
 ## OpenClaw config requirements
 
@@ -86,7 +84,9 @@ The parent OpenClaw agent acts as the orchestrator and spawns research, validati
 
 ## Research quality hardening
 
-Version 0.6 keeps the v0.5 research-quality gates and ECH hardening, and adds package ergonomics from the superpowers build without adding any direct LLM/API-key path. It now includes a proper `src/cool_financial_research/` package, Pydantic developer models that mirror the strict JSON schemas, importable helper modules, and an optional Typer/Rich developer CLI. The stdlib `scripts/cfr_helper.py` path remains available for OpenClaw.
+Version 0.7 narrows the repository to an OpenClaw-only runtime model. The legacy direct workflow stack and developer convenience CLI have been removed. The supported command surface is the deterministic helper wrapper at `scripts/cfr_helper.py`, plus the equivalent packaged `cfr-helper` entry point when the package is installed locally.
+
+Version 0.6 kept the v0.5 research-quality gates and ECH hardening, and added package ergonomics from the superpowers build without adding any direct LLM/API-key path. It includes a proper `src/cool_financial_research/` package, Pydantic developer models that mirror the strict JSON schemas, and importable deterministic helper modules. The stdlib `scripts/cfr_helper.py` path remains available for OpenClaw.
 
 Version 0.5 adds operational hardening from the first ECH ETF run: gzip-safe SEC fetching, ETF/fund ticker fallback, explicit ETF security-type override for source bundling, conservative iShares/BlackRock source discovery, bad CSV/HTML detection, preflight dependency checks, artifact verification/repair workflow, PDF text extraction, optional PDF rendering fallback, and manifest operational issues.
 
