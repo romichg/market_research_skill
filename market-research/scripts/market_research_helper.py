@@ -4,12 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+SOURCE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ETF_REQUIRED_FIELDS = ["fund_name", "expense_ratio", "benchmark", "holdings_summary"]
 EQUITY_REQUIRED_FIELDS = ["company_name", "latest_annual_filing", "revenue", "net_income"]
 
@@ -27,6 +29,18 @@ def normalize_symbol(symbol: str) -> str:
     value = symbol.strip().upper()
     if not SYMBOL_RE.fullmatch(value):
         die(f"Invalid symbol: {symbol!r}")
+    return value
+
+
+def validate_source_date(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    if not SOURCE_DATE_RE.fullmatch(value):
+        die(f"Invalid source date {value!r}; expected YYYY-MM-DD.")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        die(f"Invalid source date {value!r}; expected a real calendar date.")
     return value
 
 
@@ -120,13 +134,58 @@ def cmd_record_source(args: argparse.Namespace) -> None:
         "url": args.url,
         "kind": args.kind,
         "accessed_at": utc_now(),
-        "source_date": args.source_date,
+        "source_date": validate_source_date(args.source_date),
         "confidence": args.confidence,
     }
+    if args.artifact:
+        artifact = copy_source_artifact(out, args.id, Path(args.artifact), args.allow_type_mismatch)
+        source["local_artifact"] = str(artifact)
     payload["sources"] = [s for s in payload["sources"] if s.get("id") != args.id]
     payload["sources"].append(source)
     write_json(out / "sources.json", payload)
     print(json.dumps(source, indent=2, sort_keys=True))
+
+
+def safe_artifact_name(source_id: str, artifact: Path) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", source_id).strip("._") or "source"
+    return f"{safe_id}{artifact.suffix.lower()}"
+
+
+def artifact_looks_like_html(path: Path) -> bool:
+    sample = path.read_bytes()[:4096].lstrip().lower()
+    return sample.startswith(b"<!doctype html") or sample.startswith(b"<html") or b"<html" in sample[:512]
+
+
+def artifact_looks_like_pdf(path: Path) -> bool:
+    return path.read_bytes()[:8].startswith(b"%PDF-")
+
+
+def artifact_looks_like_json(path: Path) -> bool:
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+        return True
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+
+
+def validate_artifact_type(path: Path, allow_type_mismatch: bool) -> None:
+    suffix = path.suffix.lower()
+    if suffix == ".csv" and artifact_looks_like_html(path) and not allow_type_mismatch:
+        die(f"Artifact {path} has .csv extension but looks like HTML; inspect the source or pass --allow-type-mismatch.")
+    if suffix == ".pdf" and not artifact_looks_like_pdf(path) and not allow_type_mismatch:
+        die(f"Artifact {path} has .pdf extension but does not look like a PDF; inspect the source or pass --allow-type-mismatch.")
+    if suffix == ".json" and not artifact_looks_like_json(path) and not allow_type_mismatch:
+        die(f"Artifact {path} has .json extension but is not valid JSON; inspect the source or pass --allow-type-mismatch.")
+
+
+def copy_source_artifact(out: Path, source_id: str, artifact: Path, allow_type_mismatch: bool) -> Path:
+    if not artifact.exists() or not artifact.is_file():
+        die(f"Source artifact not found: {artifact}")
+    validate_artifact_type(artifact, allow_type_mismatch)
+    target = out / "source_bundle" / safe_artifact_name(source_id, artifact)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(artifact, target)
+    return target
 
 
 def context_required_fields(security_type: str | None) -> list[str]:
@@ -194,18 +253,19 @@ def cmd_record_gap_fill(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
     output_root = Path(args.output_root)
     out = ensure_run(output_root, symbol)
+    fill_args = resolve_gap_fill_args(args)
     context = build_context(output_root, symbol)
     point = {
-        "key": args.field,
-        "label": args.field.replace("_", " ").title(),
-        "value": args.value,
-        "source_id": args.source_id,
-        "confidence": args.confidence,
-        "note": args.note,
+        "key": fill_args["field"],
+        "label": fill_args["field"].replace("_", " ").title(),
+        "value": fill_args["value"],
+        "source_id": fill_args["source_id"],
+        "confidence": fill_args["confidence"],
+        "note": fill_args["note"],
         "filled_by": "procedural",
         "recorded_at": utc_now(),
     }
-    data_points = [p for p in context.get("data_points", []) if p.get("key") != args.field]
+    data_points = [p for p in context.get("data_points", []) if p.get("key") != fill_args["field"]]
     data_points.append(point)
     context["data_points"] = data_points
     keys = {p.get("key") for p in data_points}
@@ -218,9 +278,40 @@ def cmd_record_gap_fill(args: argparse.Namespace) -> None:
     write_context_files(out, context)
     manifest = read_json(out / "run_manifest.json")
     fills = manifest.get("procedural_gap_fills", [])
-    fills.append({"field": args.field, "value": args.value, "source_id": args.source_id, "confidence": args.confidence, "note": args.note, "recorded_at": utc_now()})
+    fills.append({**fill_args, "recorded_at": utc_now()})
     update_manifest(output_root, symbol, procedural_gap_fills=fills, research_context=str(out / "research_context.json"))
     print(json.dumps(point, indent=2, sort_keys=True))
+
+
+def resolve_gap_fill_args(args: argparse.Namespace) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if args.json_file and args.stdin_json:
+        die("Use only one of --json-file or --stdin-json.")
+    if args.json_file:
+        payload = read_json(Path(args.json_file))
+    elif args.stdin_json:
+        try:
+            payload = json.loads(sys.stdin.read())
+        except json.JSONDecodeError as exc:
+            die(f"Could not parse stdin JSON: {exc}")
+
+    field = payload.get("field", args.field)
+    value = payload.get("value", args.value)
+    source_id = payload.get("source_id", args.source_id)
+    confidence = payload.get("confidence", args.confidence)
+    note = payload.get("note", args.note)
+    missing = [name for name, item in {"field": field, "value": value, "source_id": source_id}.items() if item in (None, "")]
+    if missing:
+        die(f"record-gap-fill missing required input: {', '.join(missing)}")
+    if confidence not in {"high", "medium", "low"}:
+        die("record-gap-fill confidence must be one of: high, medium, low")
+    return {
+        "field": str(field),
+        "value": value,
+        "source_id": str(source_id),
+        "confidence": str(confidence),
+        "note": "" if note is None else str(note),
+    }
 
 
 def nested_get(payload: dict[str, Any], *keys: str) -> Any:
@@ -357,6 +448,8 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--url", required=True)
     source.add_argument("--kind", required=True)
     source.add_argument("--source-date")
+    source.add_argument("--artifact", help="Optional downloaded/local artifact to copy into source_bundle.")
+    source.add_argument("--allow-type-mismatch", action="store_true", help="Record artifact even if extension and content sniffing disagree.")
     source.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
     source.set_defaults(func=cmd_record_source)
 
@@ -368,11 +461,13 @@ def build_parser() -> argparse.ArgumentParser:
     fill = sub.add_parser("record-gap-fill", help="Record a targeted procedural gap fill.")
     fill.add_argument("symbol")
     fill.add_argument("--output-root", default="./market-research-runs")
-    fill.add_argument("--field", required=True)
-    fill.add_argument("--value", required=True)
-    fill.add_argument("--source-id", required=True)
+    fill.add_argument("--field")
+    fill.add_argument("--value")
+    fill.add_argument("--source-id")
     fill.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
     fill.add_argument("--note", default="")
+    fill.add_argument("--json-file", help="Read field/value/source_id/confidence/note from a JSON object.")
+    fill.add_argument("--stdin-json", action="store_true", help="Read field/value/source_id/confidence/note from stdin JSON.")
     fill.set_defaults(func=cmd_record_gap_fill)
 
     blackrock = sub.add_parser("extract-blackrock", help="Promote BlackRock/iShares product API JSON into research context.")

@@ -25,7 +25,7 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 
 ## Workflow
 
-1. Inspect the run directory shape:
+1. Inspect the run directory shape. The helper writes a deterministic scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
 
 ```bash
 python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-runs/SYMBOL
@@ -60,3 +60,5 @@ python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-r
 ## Output Rule
 
 The validator may create validation files only. It must not modify the producer's research markdown, JSON, source files, or manifest.
+
+Do not overwrite a completed judgment validation with the deterministic scaffold. If rerunning the helper, keep the default `-validation-scaffold` output or pass a separate `--output-prefix`.

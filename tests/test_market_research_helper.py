@@ -70,6 +70,63 @@ def test_record_source_and_prepare_sparse_context(tmp_path):
     assert context["symbol"] == "ECH"
     assert context["context_quality"]["is_sparse"] is True
     assert "expense_ratio" in context["context_quality"]["missing_material_fields"]
+    assert (tmp_path / "ECH" / "research_context.md").exists()
+
+
+def test_record_source_preserves_source_date_and_copies_artifact(tmp_path):
+    artifact = tmp_path / "fact-sheet.pdf"
+    artifact.write_bytes(b"%PDF-1.7\n")
+    run_helper("init-run", "ECH", "--output-root", str(tmp_path))
+    result = run_helper(
+        "record-source",
+        "ECH",
+        "--output-root",
+        str(tmp_path),
+        "--id",
+        "issuer_fact_sheet",
+        "--title",
+        "iShares ECH fact sheet",
+        "--url",
+        "https://example.com/fact-sheet.pdf",
+        "--kind",
+        "issuer_fact_sheet",
+        "--source-date",
+        "2026-03-31",
+        "--artifact",
+        str(artifact),
+    )
+    assert result.returncode == 0, result.stderr
+    source = json.loads(result.stdout)
+    assert source["source_date"] == "2026-03-31"
+    copied = Path(source["local_artifact"])
+    assert copied.exists()
+    assert copied.parent == tmp_path / "ECH" / "source_bundle"
+    sources = json.loads((tmp_path / "ECH" / "sources.json").read_text())
+    assert sources["sources"][0]["local_artifact"] == str(copied)
+
+
+def test_record_source_rejects_csv_artifact_that_contains_html(tmp_path):
+    artifact = tmp_path / "holdings.csv"
+    artifact.write_text("<!doctype html><html><body>not csv</body></html>", encoding="utf-8")
+    run_helper("init-run", "ECH", "--output-root", str(tmp_path))
+    result = run_helper(
+        "record-source",
+        "ECH",
+        "--output-root",
+        str(tmp_path),
+        "--id",
+        "holdings_csv",
+        "--title",
+        "Holdings CSV",
+        "--url",
+        "https://example.com/holdings.csv",
+        "--kind",
+        "holdings",
+        "--artifact",
+        str(artifact),
+    )
+    assert result.returncode != 0
+    assert "looks like HTML" in result.stderr
 
 
 def test_record_gap_fill_updates_context_and_manifest(tmp_path):
@@ -96,6 +153,29 @@ def test_record_gap_fill_updates_context_and_manifest(tmp_path):
     assert context["data_points"][0]["key"] == "expense_ratio"
     manifest = json.loads((tmp_path / "ECH" / "run_manifest.json").read_text())
     assert manifest["procedural_gap_fills"][0]["field"] == "expense_ratio"
+
+
+def test_record_gap_fill_from_json_file_preserves_dollar_values(tmp_path):
+    fill = tmp_path / "fill.json"
+    fill.write_text(
+        json.dumps(
+            {
+                "field": "net_assets",
+                "value": "$994.36 million and $1.227029 billion",
+                "source_id": "issuer_fact_sheet",
+                "confidence": "high",
+                "note": "Structured input avoids shell expansion.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    run_helper("init-run", "ECH", "--output-root", str(tmp_path))
+    run_helper("classify", "ECH", "--output-root", str(tmp_path), "--security-type", "etf")
+    result = run_helper("record-gap-fill", "ECH", "--output-root", str(tmp_path), "--json-file", str(fill))
+    assert result.returncode == 0, result.stderr
+    context = json.loads((tmp_path / "ECH" / "research_context.json").read_text())
+    by_key = {point["key"]: point for point in context["data_points"]}
+    assert by_key["net_assets"]["value"] == "$994.36 million and $1.227029 billion"
 
 
 def test_extract_blackrock_payload_promotes_key_fields(tmp_path):

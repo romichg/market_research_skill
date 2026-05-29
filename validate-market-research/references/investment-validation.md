@@ -8,6 +8,7 @@ Check these areas:
 - Claim support: every material quantitative claim has a source or is marked unavailable.
 - Dates: source date, accessed date, and stale-data caveats are present for fast-changing facts.
 - Source quality: primary sources are preferred; secondary sources are labeled.
+- Source reproducibility: cited `source_id` values should be present in `sources.json`; cited public documents/pages should be frozen in `source_bundle/` when saveable.
 - Internal consistency: markdown and JSON do not contradict each other.
 - Facts versus interpretation: major sections keep sourced facts distinct from judgment.
 - Data gaps: missing or low-confidence data is disclosed rather than hidden.
@@ -40,3 +41,5 @@ Issue statuses:
 - `open`: fixable with better research, writing, citation, or correction.
 - `resolved`: already addressed in the artifact under validation.
 - `unresolved_data_unavailable`: public/free data appears unavailable or not accessible in this session.
+
+Validation output should include a "Sources Inspected" section. For each inspected source, distinguish frozen local artifacts from live public pages inspected during validation and include source dates when visible.

@@ -47,8 +47,10 @@ python3 {baseDir}/scripts/market_research_helper.py classify SYMBOL --output-roo
 3. Gather public/free sources. Prefer primary sources. Record each material source:
 
 ```bash
-python3 {baseDir}/scripts/market_research_helper.py record-source SYMBOL --output-root ./market-research-runs --id source_id --title "Source title" --url "https://example.com/source" --kind issuer_fact_sheet --confidence high
+python3 {baseDir}/scripts/market_research_helper.py record-source SYMBOL --output-root ./market-research-runs --id source_id --title "Source title" --url "https://example.com/source" --kind issuer_fact_sheet --source-date YYYY-MM-DD --artifact ./downloaded-source.pdf --confidence high
 ```
+
+Use `--source-date` whenever a document or page has a visible as-of, filing, publication, or effective date. Use `--artifact` for every cited public web page or document you saved locally; the helper copies it into `source_bundle/` and rejects obvious extension/content mismatches such as HTML saved as `.csv`.
 
 4. Prepare compact context:
 
@@ -61,6 +63,14 @@ python3 {baseDir}/scripts/market_research_helper.py prepare-research-context SYM
 ```bash
 python3 {baseDir}/scripts/market_research_helper.py record-gap-fill SYMBOL --output-root ./market-research-runs --field expense_ratio --value "0.59%" --source-id issuer_fact_sheet --confidence high --note "Filled from issuer fact sheet."
 ```
+
+For shell-sensitive values such as dollar amounts, prefer structured input:
+
+```bash
+python3 {baseDir}/scripts/market_research_helper.py record-gap-fill SYMBOL --output-root ./market-research-runs --json-file ./gap-fill.json
+```
+
+The JSON object may contain `field`, `value`, `source_id`, `confidence`, and `note`.
 
 6. For BlackRock/iShares ETF payloads already downloaded or user-supplied, promote the useful structured data:
 
@@ -88,6 +98,8 @@ market-research-runs/SYMBOL/
 ## Source Discipline
 
 Every material quantitative claim must be cited or marked `Data not available` / `unverified`. Include source date, accessed date, and confidence when possible.
+
+Every cited `source_id` should appear in `sources.json`; every cited public page or document should have a frozen `local_artifact` in `source_bundle/` when the source can be saved. If a dynamic page cannot be captured cleanly, describe the limitation as a workflow extraction gap rather than public-data unavailability.
 
 Keep facts separate from interpretation in major sections. Do not let procedural gap filling become open-ended browsing; search for named missing fields only.
 

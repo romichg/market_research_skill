@@ -21,8 +21,14 @@ def test_validator_discovers_research_bundle(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["symbol"] == "AAPL"
     assert payload["blocking_issue_count"] == 0
-    assert (run_dir / "AAPL-validation.json").exists()
-    assert (run_dir / "AAPL-validation.md").exists()
+    assert payload["scaffold"] is True
+    assert (run_dir / "AAPL-validation-scaffold.json").exists()
+    assert (run_dir / "AAPL-validation-scaffold.md").exists()
+    markdown = (run_dir / "AAPL-validation-scaffold.md").read_text(encoding="utf-8")
+    assert "Deterministic Validation Scaffold" in markdown
+    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["scaffold"] is True
+    assert validation["sources_inspected"] == []
 
 
 def test_validator_flags_missing_json(tmp_path):
@@ -32,3 +38,39 @@ def test_validator_flags_missing_json(tmp_path):
     result = run_validator(str(run_dir))
     assert result.returncode != 0
     assert "research JSON" in result.stderr
+
+
+def test_validator_refuses_to_overwrite_existing_judgment_validation_without_force(tmp_path):
+    run_dir = tmp_path / "AAPL"
+    run_dir.mkdir()
+    (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
+    existing = run_dir / "AAPL-validation.md"
+    existing.write_text("# AAPL Validation\n\nHuman judgment validation.\n", encoding="utf-8")
+    result = run_validator(str(run_dir), "--output-prefix", str(run_dir / "AAPL-validation"))
+    assert result.returncode != 0
+    assert "Refusing to overwrite" in result.stderr
+    assert existing.read_text(encoding="utf-8") == "# AAPL Validation\n\nHuman judgment validation.\n"
+
+
+def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
+    run_dir = tmp_path / "ECH"
+    run_dir.mkdir()
+    (run_dir / "ECH-research.md").write_text("# ECH Research\n", encoding="utf-8")
+    (run_dir / "ECH-research.json").write_text(
+        json.dumps(
+            {
+                "symbol": "ECH",
+                "security_type": "etf",
+                "material_claims": [{"claim": "Expense ratio is 0.59%.", "source_id": "issuer_fact_sheet", "confidence": "high"}],
+                "data_gaps": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "sources.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    result = run_validator(str(run_dir))
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "ECH-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["issues"][0]["id"] == "claim-0-source-missing"
+    assert validation["issues"][0]["severity"] == "moderate"

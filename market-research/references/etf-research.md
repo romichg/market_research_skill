@@ -29,6 +29,8 @@ BlackRock/iShares handling:
 - If a product ID is known or user supplied, try to use official BlackRock/iShares product payloads.
 - Run `extract-blackrock` when a product API JSON payload is available.
 - If raw issuer payloads contain useful data but `research_context.json` is sparse, enrich context before writing the report.
+- For dated fact sheets, prospectuses, annual/semiannual reports, holdings files, and product pages, record `--source-date` and freeze the local artifact with `record-source --artifact`.
+- If a holdings CSV endpoint returns HTML or another unexpected payload, do not treat it as holdings data; record the failed capture as a workflow extraction gap if it affects the report.
 - If product ID mapping is unavailable, record that as a source gap and use issuer pages/fact sheets procedurally.
 
 For ETF EDGAR data, treat SEC fund ticker and series mappings as useful but not sufficient by themselves. Prefer issuer sources for current operating facts unless SEC filings are clearly identified.

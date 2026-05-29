@@ -26,6 +26,7 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -51,7 +52,18 @@ def issue_counts(issues: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def deterministic_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
+def load_sources(run_dir: Path) -> dict[str, dict[str, Any]]:
+    path = run_dir / "sources.json"
+    if not path.exists():
+        return {}
+    payload = read_json(path)
+    sources = payload.get("sources", [])
+    if not isinstance(sources, list):
+        return {}
+    return {str(source.get("id")): source for source in sources if isinstance(source, dict) and source.get("id")}
+
+
+def deterministic_issues(report: dict[str, Any], sources_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for field in ["symbol", "security_type", "material_claims", "data_gaps"]:
         if field not in report:
@@ -61,34 +73,59 @@ def deterministic_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
         for index, claim in enumerate(claims):
             if isinstance(claim, dict) and not claim.get("source_id"):
                 issues.append({"id": f"claim-{index}-source", "severity": "moderate", "status": "open", "description": "Material claim is missing source_id."})
+            elif isinstance(claim, dict) and claim.get("source_id") not in sources_by_id:
+                issues.append({"id": f"claim-{index}-source-missing", "severity": "moderate", "status": "open", "description": f"Material claim cites source_id {claim.get('source_id')!r}, but that source is missing from sources.json."})
     return issues
+
+
+def prevent_accidental_overwrite(out_prefix: Path, force: bool) -> None:
+    if force:
+        return
+    md_path = out_prefix.with_suffix(".md")
+    json_path = out_prefix.with_suffix(".json")
+    if not md_path.exists() and not json_path.exists():
+        return
+    if out_prefix.name.endswith("-validation-scaffold"):
+        return
+    die(f"Refusing to overwrite existing validation artifacts at {out_prefix}. Use --force or write to a scaffold output prefix.")
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir)
     symbol, md_path, json_path = discover(run_dir, args.report_md, args.report_json)
     report = read_json(json_path)
-    issues = deterministic_issues(report)
+    sources_by_id = load_sources(run_dir)
+    issues = deterministic_issues(report, sources_by_id)
     counts = issue_counts(issues)
     blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")
     validation = {
         "symbol": symbol,
         "created_at": utc_now(),
+        "scaffold": True,
         "report_markdown": str(md_path),
         "report_json": str(json_path),
         "issues": issues,
         "issue_counts": counts,
         "blocking_issue_count": blocking,
         "data_gaps": report.get("data_gaps", []),
+        "sources_inspected": [],
         "fresh_context_instruction": "Use this helper output as deterministic lint only; perform independent source and reasoning validation before accepting the report.",
     }
-    out_prefix = Path(args.output_prefix) if args.output_prefix else run_dir / f"{symbol}-validation"
+    out_prefix = Path(args.output_prefix) if args.output_prefix else run_dir / f"{symbol}-validation-scaffold"
+    prevent_accidental_overwrite(out_prefix, args.force)
     write_json(out_prefix.with_suffix(".json"), validation)
-    lines = [f"# {symbol} Validation", "", f"Blocking issues: {blocking}", ""]
+    lines = [
+        f"# {symbol} Deterministic Validation Scaffold",
+        "",
+        "This file is deterministic lint output only. It is not a completed judgment validation.",
+        "",
+        f"Blocking issues: {blocking}",
+        "",
+    ]
     for issue in issues:
         lines.append(f"- {issue['id']} [{issue['severity']} / {issue['status']}]: {issue['description']}")
     out_prefix.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(json.dumps({"symbol": symbol, "validation_json": str(out_prefix.with_suffix(".json")), "validation_markdown": str(out_prefix.with_suffix(".md")), "blocking_issue_count": blocking}, indent=2))
+    print(json.dumps({"symbol": symbol, "validation_json": str(out_prefix.with_suffix(".json")), "validation_markdown": str(out_prefix.with_suffix(".md")), "blocking_issue_count": blocking, "scaffold": True}, indent=2))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--report-md")
     parser.add_argument("--report-json")
     parser.add_argument("--output-prefix")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing validation artifacts.")
     parser.set_defaults(func=cmd_validate)
     return parser
 

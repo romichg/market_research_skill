@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Market Research Validation Output",
   "type": "object",
-  "required": ["symbol", "issues", "issue_counts", "blocking_issue_count"],
+  "required": ["symbol", "issues", "issue_counts", "blocking_issue_count", "sources_inspected"],
   "properties": {
     "symbol": {
       "type": "string"
@@ -52,6 +52,36 @@
       "items": {
         "type": "object"
       }
+    },
+    "sources_inspected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": ["string", "null"]
+          },
+          "path": {
+            "type": ["string", "null"]
+          },
+          "url": {
+            "type": ["string", "null"]
+          },
+          "frozen_local_artifact": {
+            "type": "boolean"
+          },
+          "inspected_live": {
+            "type": "boolean"
+          },
+          "source_date": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "scaffold": {
+      "type": "boolean"
     }
   },
   "additionalProperties": true
