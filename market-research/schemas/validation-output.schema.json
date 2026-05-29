@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Market Research Validation Output",
+  "type": "object",
+  "required": ["symbol", "issues", "issue_counts", "blocking_issue_count"],
+  "properties": {
+    "symbol": {
+      "type": "string"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "status", "description"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": ["critical", "moderate", "minor"]
+          },
+          "status": {
+            "enum": ["open", "resolved", "unresolved_data_unavailable"]
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "issue_counts": {
+      "type": "object",
+      "required": ["critical", "moderate", "minor"],
+      "properties": {
+        "critical": {
+          "type": "integer"
+        },
+        "moderate": {
+          "type": "integer"
+        },
+        "minor": {
+          "type": "integer"
+        }
+      }
+    },
+    "blocking_issue_count": {
+      "type": "integer"
+    },
+    "data_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}

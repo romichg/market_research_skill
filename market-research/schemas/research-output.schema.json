@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Market Research Output",
+  "type": "object",
+  "required": ["symbol", "security_type", "material_claims", "data_gaps"],
+  "properties": {
+    "symbol": {
+      "type": "string"
+    },
+    "security_type": {
+      "enum": ["equity", "adr", "etf"]
+    },
+    "as_of_date": {
+      "type": "string"
+    },
+    "material_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "source_id", "confidence"],
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "source_date": {
+            "type": ["string", "null"]
+          },
+          "accessed_date": {
+            "type": ["string", "null"]
+          },
+          "confidence": {
+            "enum": ["high", "medium", "low", "unverified"]
+          },
+          "verification_status": {
+            "enum": ["verified", "unverified", "data_not_available"]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "data_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}
