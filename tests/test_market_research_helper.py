@@ -96,3 +96,62 @@ def test_record_gap_fill_updates_context_and_manifest(tmp_path):
     assert context["data_points"][0]["key"] == "expense_ratio"
     manifest = json.loads((tmp_path / "ECH" / "run_manifest.json").read_text())
     assert manifest["procedural_gap_fills"][0]["field"] == "expense_ratio"
+
+
+def test_extract_blackrock_payload_promotes_key_fields(tmp_path):
+    payload = {
+        "fundHeader": {
+            "fundName": "iShares MSCI Chile ETF",
+            "ticker": "ECH",
+            "benchmark": "MSCI Chile IMI 25/50 Index",
+        },
+        "keyFundFacts": {
+            "netExpenseRatio": "0.59%",
+            "inceptionDate": "2007-11-12",
+        },
+        "performance": {
+            "asOfDate": "2026-03-31",
+            "oneYear": "12.3%",
+        },
+        "exposureBreakdowns": {
+            "country": [{"name": "Chile", "weight": "99.1%"}],
+            "sector": [{"name": "Financials", "weight": "28.4%"}],
+        },
+        "componentsByNameMap": {
+            "holdings": {
+                "containersByNameMap": {
+                    "all": {
+                        "dataPointsByNameMap": {
+                            "issueName": {"value": ["Banco de Chile"]},
+                            "ticker": {"value": ["CHILE"]},
+                            "holdingPercent": {"value": ["8.1"]},
+                            "sectorName": {"value": ["Financials"]},
+                            "countryOfRisk": {"value": ["Chile"]},
+                        }
+                    }
+                }
+            }
+        },
+    }
+    source_path = tmp_path / "blackrock_product.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+    run_helper("init-run", "ECH", "--output-root", str(tmp_path))
+    run_helper("classify", "ECH", "--output-root", str(tmp_path), "--security-type", "etf")
+    result = run_helper(
+        "extract-blackrock",
+        "ECH",
+        "--output-root",
+        str(tmp_path),
+        "--json-file",
+        str(source_path),
+        "--source-id",
+        "blackrock_product_api",
+    )
+    assert result.returncode == 0, result.stderr
+    context = json.loads((tmp_path / "ECH" / "research_context.json").read_text())
+    by_key = {point["key"]: point for point in context["data_points"]}
+    assert by_key["fund_name"]["value"] == "iShares MSCI Chile ETF"
+    assert by_key["expense_ratio"]["value"] == "0.59%"
+    assert by_key["benchmark"]["value"] == "MSCI Chile IMI 25/50 Index"
+    assert by_key["holdings_summary"]["value"]["top_holdings"][0]["name"] == "Banco de Chile"
+    assert context["context_quality"]["is_sparse"] is False

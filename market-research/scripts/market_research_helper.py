@@ -223,6 +223,115 @@ def cmd_record_gap_fill(args: argparse.Namespace) -> None:
     print(json.dumps(point, indent=2, sort_keys=True))
 
 
+def nested_get(payload: dict[str, Any], *keys: str) -> Any:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def first_present(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def blackrock_holdings_summary(payload: dict[str, Any]) -> dict[str, Any] | None:
+    data = nested_get(payload, "componentsByNameMap", "holdings", "containersByNameMap", "all", "dataPointsByNameMap")
+    if not isinstance(data, dict):
+        return None
+
+    def values(key: str) -> list[Any]:
+        item = data.get(key)
+        if isinstance(item, dict) and isinstance(item.get("value"), list):
+            return item["value"]
+        return []
+
+    names = values("issueName")
+    tickers = values("ticker")
+    weights = values("holdingPercent")
+    sectors = values("sectorName")
+    countries = values("countryOfRisk")
+    rows = []
+    for index, weight in enumerate(weights[:25]):
+        rows.append({
+            "name": names[index] if index < len(names) else None,
+            "ticker": tickers[index] if index < len(tickers) else None,
+            "weight": weight,
+            "sector": sectors[index] if index < len(sectors) else None,
+            "country": countries[index] if index < len(countries) else None,
+        })
+    if not rows:
+        return None
+    return {"top_holdings": rows, "holding_count_sampled": len(rows)}
+
+
+def context_point(key: str, value: Any, source_id: str, confidence: str = "high") -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": key.replace("_", " ").title(),
+        "value": value,
+        "source_id": source_id,
+        "confidence": confidence,
+        "recorded_at": utc_now(),
+    }
+
+
+def merge_data_points(output_root: Path, symbol: str, points: list[dict[str, Any]]) -> dict[str, Any]:
+    out = ensure_run(output_root, symbol)
+    context = build_context(output_root, symbol)
+    replacing = {point["key"] for point in points}
+    data_points = [p for p in context.get("data_points", []) if p.get("key") not in replacing]
+    data_points.extend(points)
+    context["data_points"] = data_points
+    keys = {p.get("key") for p in data_points}
+    required = context_required_fields(context.get("classification", {}).get("security_type"))
+    context["context_quality"] = {
+        "required_material_fields": required,
+        "missing_material_fields": [field for field in required if field not in keys],
+        "is_sparse": any(field not in keys for field in required),
+    }
+    write_context_files(out, context)
+    update_manifest(output_root, symbol, research_context=str(out / "research_context.json"))
+    return context
+
+
+def cmd_extract_blackrock(args: argparse.Namespace) -> None:
+    symbol = normalize_symbol(args.symbol)
+    output_root = Path(args.output_root)
+    ensure_run(output_root, symbol)
+    payload = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
+    fund_header = payload.get("fundHeader") if isinstance(payload.get("fundHeader"), dict) else {}
+    facts = payload.get("keyFundFacts") if isinstance(payload.get("keyFundFacts"), dict) else {}
+    performance = payload.get("performance") if isinstance(payload.get("performance"), dict) else {}
+    exposure = payload.get("exposureBreakdowns") if isinstance(payload.get("exposureBreakdowns"), dict) else {}
+    points = []
+    fund_name = first_present(fund_header.get("fundName"), fund_header.get("fund_name"))
+    if fund_name:
+        points.append(context_point("fund_name", fund_name, args.source_id))
+    benchmark = first_present(fund_header.get("benchmark"), facts.get("benchmark"))
+    if benchmark:
+        points.append(context_point("benchmark", benchmark, args.source_id))
+    expense = first_present(facts.get("netExpenseRatio"), facts.get("expenseRatio"), facts.get("totalExpenseRatio"))
+    if expense:
+        points.append(context_point("expense_ratio", expense, args.source_id))
+    inception = first_present(facts.get("inceptionDate"), fund_header.get("inceptionDate"))
+    if inception:
+        points.append(context_point("inception_date", inception, args.source_id))
+    if performance:
+        points.append(context_point("performance", performance, args.source_id))
+    if exposure:
+        points.append(context_point("exposure_breakdowns", exposure, args.source_id))
+    holdings = blackrock_holdings_summary(payload)
+    if holdings:
+        points.append(context_point("holdings_summary", holdings, args.source_id))
+    context = merge_data_points(output_root, symbol, points)
+    print(json.dumps({"added": [point["key"] for point in points], "is_sparse": context["context_quality"]["is_sparse"]}, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Best-effort deterministic helper for the Codex market-research skill.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -265,6 +374,13 @@ def build_parser() -> argparse.ArgumentParser:
     fill.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
     fill.add_argument("--note", default="")
     fill.set_defaults(func=cmd_record_gap_fill)
+
+    blackrock = sub.add_parser("extract-blackrock", help="Promote BlackRock/iShares product API JSON into research context.")
+    blackrock.add_argument("symbol")
+    blackrock.add_argument("--output-root", default="./market-research-runs")
+    blackrock.add_argument("--json-file", required=True)
+    blackrock.add_argument("--source-id", default="blackrock_product_api")
+    blackrock.set_defaults(func=cmd_extract_blackrock)
     return parser
 
 
