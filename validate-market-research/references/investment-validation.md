@@ -12,6 +12,7 @@ Check these areas:
 - Internal consistency: markdown and JSON do not contradict each other.
 - Facts versus interpretation: major sections keep sourced facts distinct from judgment.
 - Data gaps: missing or low-confidence data is disclosed rather than hidden.
+- Decision usefulness: the report should give a trader concrete monitored metrics, catalysts, bull/base/bear framing, and invalidation triggers without overstating precision.
 
 ETF-specific checks:
 
@@ -20,7 +21,11 @@ ETF-specific checks:
 - Holdings, sector, country, and concentration data have as-of dates.
 - Performance claims specify period and as-of date.
 - Liquidity/trading claims are current or caveated.
-- Risks cover concentration, country/currency, sector, methodology, liquidity, and tracking.
+- Tracking difference and tracking error are not conflated.
+- Competitor ETF comparisons use obvious alternatives when public/free data exists, or clearly disclose why peer data is unavailable.
+- Structural/tax claims cover legal wrapper, tax form/treatment, securities lending, AP/creation-redemption, premium/discount, and closure risks where material.
+- Leveraged, inverse, volatility-linked, futures-based, covered-call, buffered, or derivative-heavy ETPs include prominent path-dependency, decay, cap/participation, counterparty, K-1/60-40, or other wrapper-specific warnings.
+- Risks cover concentration, country/currency, sector, methodology, liquidity, tracking, tax, structure, and macro/regulatory exposure.
 
 Equity/ADR-specific checks:
 
@@ -28,13 +33,18 @@ Equity/ADR-specific checks:
 - Latest annual and interim filings are used or unavailable filings are disclosed.
 - Revenue, earnings, cash flow, balance sheet, and share data are sourced.
 - Valuation claims are supported by current or clearly dated inputs.
-- Risks include business, financial, regulatory, macro/cyclicality, FX, and ADR-specific issues where applicable.
+- Market snapshot claims such as price, 52-week range, market cap, volume, moving averages, short interest, analyst/consensus context, and options-positioning context are dated, sourced, and marked secondary/unverified when not primary.
+- SEC filing review covers risk factors, MD&A, recent 8-Ks, proxy/governance, and insider activity where material and publicly available.
+- Valuation work reconciles with the executive summary and bull/base/bear framework; scenario probabilities should sum to 100% when used.
+- Risks include business, financial, valuation, regulatory, macro/cyclicality, FX, governance, litigation, cybersecurity, customer/supplier concentration, and ADR-specific issues where applicable.
 
 Severity definitions:
 
 - `critical`: materially misleading, missing core source, wrong security type, fabricated/unsupported major quantitative claim.
 - `moderate`: important unsupported claim, stale material data without caveat, missing major risk, weak thesis support.
 - `minor`: clarity, formatting, citation polish, or non-blocking improvement.
+
+Missing sections from the expanded research references should be severity-rated by investor impact. Absence of a material risk, unsupported valuation/recommendation, wrong security structure, or fabricated market/financial data is critical or moderate. Unavailable public/free data that is clearly disclosed is not a blocking issue.
 
 Issue statuses:
 

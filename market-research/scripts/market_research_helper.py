@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
+import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -46,11 +50,33 @@ def validate_source_date(value: str | None) -> str | None:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@contextlib.contextmanager
+def file_lock(path: Path):
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def run_dir(output_root: Path, symbol: str) -> Path:
@@ -70,10 +96,36 @@ def ensure_run(output_root: Path, symbol: str) -> Path:
 
 def update_manifest(output_root: Path, symbol: str, **updates: Any) -> dict[str, Any]:
     path = manifest_path(output_root, symbol)
-    manifest = read_json(path)
-    manifest.update(updates)
-    manifest["updated_at"] = utc_now()
-    write_json(path, manifest)
+    with file_lock(path):
+        manifest = read_json(path)
+        manifest.update(updates)
+        manifest["updated_at"] = utc_now()
+        write_json(path, manifest)
+    return manifest
+
+
+def append_manifest_gap_fills(output_root: Path, symbol: str, fill_args: list[dict[str, Any]], recorded_at: str, research_context: Path) -> dict[str, Any]:
+    path = manifest_path(output_root, symbol)
+    with file_lock(path):
+        manifest = read_json(path)
+        fills = manifest.get("procedural_gap_fills", [])
+        fills.extend({**item, "recorded_at": recorded_at} for item in fill_args)
+        manifest["procedural_gap_fills"] = fills
+        manifest["research_context"] = str(research_context)
+        manifest["updated_at"] = utc_now()
+        write_json(path, manifest)
+    return manifest
+
+
+def append_manifest_source_gap(output_root: Path, symbol: str, gap: dict[str, Any]) -> dict[str, Any]:
+    path = manifest_path(output_root, symbol)
+    with file_lock(path):
+        manifest = read_json(path)
+        gaps = [item for item in manifest.get("source_gaps", []) if item.get("source_id") != gap.get("source_id")]
+        gaps.append(gap)
+        manifest["source_gaps"] = gaps
+        manifest["updated_at"] = utc_now()
+        write_json(path, manifest)
     return manifest
 
 
@@ -127,7 +179,6 @@ def load_sources(out: Path) -> dict[str, Any]:
 def cmd_record_source(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
     out = ensure_run(Path(args.output_root), symbol)
-    payload = load_sources(out)
     source = {
         "id": args.id,
         "title": args.title,
@@ -140,10 +191,31 @@ def cmd_record_source(args: argparse.Namespace) -> None:
     if args.artifact:
         artifact = copy_source_artifact(out, args.id, Path(args.artifact), args.allow_type_mismatch)
         source["local_artifact"] = str(artifact)
-    payload["sources"] = [s for s in payload["sources"] if s.get("id") != args.id]
-    payload["sources"].append(source)
-    write_json(out / "sources.json", payload)
+        source["artifact_sha256"] = sha256_file(artifact)
+        source["artifact_size_bytes"] = artifact.stat().st_size
+    sources_path = out / "sources.json"
+    with file_lock(sources_path):
+        payload = load_sources(out)
+        payload["sources"] = [s for s in payload["sources"] if s.get("id") != args.id]
+        payload["sources"].append(source)
+        write_json(sources_path, payload)
     print(json.dumps(source, indent=2, sort_keys=True))
+
+
+def cmd_record_source_gap(args: argparse.Namespace) -> None:
+    symbol = normalize_symbol(args.symbol)
+    output_root = Path(args.output_root)
+    ensure_run(output_root, symbol)
+    gap = {
+        "source_id": args.source_id,
+        "attempted_url": args.attempted_url,
+        "reason": args.reason,
+        "replacement_source_id": args.replacement_source_id,
+        "severity": args.severity,
+        "recorded_at": utc_now(),
+    }
+    append_manifest_source_gap(output_root, symbol, gap)
+    print(json.dumps(gap, indent=2, sort_keys=True))
 
 
 def safe_artifact_name(source_id: str, artifact: Path) -> str:
@@ -201,23 +273,125 @@ def build_context(output_root: Path, symbol: str) -> dict[str, Any]:
     classification = read_json(classification_path) if classification_path.exists() else {}
     context_path = out / "research_context.json"
     previous = read_json(context_path) if context_path.exists() else {}
-    data_points = previous.get("data_points", [])
+    sources = load_sources(out)
+    data_points = merge_context_points(previous.get("data_points", []), derived_context_points(out, classification, sources))
     keys = {p.get("key") for p in data_points}
     required = context_required_fields(classification.get("security_type") or manifest.get("security_type"))
     missing = [field for field in required if field not in keys]
-    sources = load_sources(out)
     return {
         "symbol": symbol,
         "created_at": previous.get("created_at") or utc_now(),
         "updated_at": utc_now(),
         "classification": classification,
         "sources": sources.get("sources", []),
+        "source_gaps": manifest.get("source_gaps", []),
         "data_points": data_points,
         "context_quality": {
             "required_material_fields": required,
             "missing_material_fields": missing,
             "is_sparse": bool(missing),
         },
+    }
+
+
+def merge_context_points(existing: list[dict[str, Any]], derived: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key = {point.get("key"): point for point in derived if point.get("key")}
+    for point in existing:
+        key = point.get("key")
+        if key:
+            by_key[key] = point
+    return list(by_key.values())
+
+
+def derived_context_points(out: Path, classification: dict[str, Any], sources_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    security_type = classification.get("security_type")
+    if security_type == "equity":
+        return derived_equity_points(out, classification, sources_payload)
+    if security_type == "etf":
+        return derived_etf_points(classification)
+    return []
+
+
+def derived_etf_points(classification: dict[str, Any]) -> list[dict[str, Any]]:
+    if classification.get("name"):
+        return [context_point("fund_name", classification["name"], "classification", "medium")]
+    return []
+
+
+def derived_equity_points(out: Path, classification: dict[str, Any], sources_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    points: list[dict[str, Any]] = []
+    name = classification.get("name")
+    companyfacts_path = out / "source_bundle" / "sec_companyfacts.json"
+    companyfacts = read_json(companyfacts_path) if companyfacts_path.exists() else {}
+    if not name:
+        name = companyfacts.get("entityName")
+    if name:
+        points.append(context_point("company_name", name, "classification", "medium"))
+    annual_source = latest_annual_filing_source(sources_payload)
+    if annual_source:
+        points.append(
+            context_point(
+                "latest_annual_filing",
+                annual_source.get("title"),
+                str(annual_source.get("id")),
+                str(annual_source.get("confidence", "medium")),
+            )
+        )
+    revenue = latest_companyfacts_usd_fact(companyfacts, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"])
+    if revenue:
+        points.append(context_point("revenue", revenue, "sec_companyfacts", "high"))
+    net_income = latest_companyfacts_usd_fact(companyfacts, ["NetIncomeLoss", "ProfitLoss"])
+    if net_income:
+        points.append(context_point("net_income", net_income, "sec_companyfacts", "high"))
+    return points
+
+
+def latest_source_by_kind(sources_payload: dict[str, Any], kinds: set[str]) -> dict[str, Any] | None:
+    sources = sources_payload.get("sources", [])
+    candidates = [source for source in sources if isinstance(source, dict) and source.get("kind") in kinds]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda source: str(source.get("source_date") or source.get("accessed_at") or ""))[-1]
+
+
+def latest_annual_filing_source(sources_payload: dict[str, Any]) -> dict[str, Any] | None:
+    direct = latest_source_by_kind(sources_payload, {"sec_10k", "sec_annual_report"})
+    if direct:
+        return direct
+    sources = sources_payload.get("sources", [])
+    candidates = [
+        source
+        for source in sources
+        if isinstance(source, dict)
+        and source.get("kind") == "sec_filing"
+        and "10-k" in f"{source.get('id', '')} {source.get('title', '')}".lower()
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda source: str(source.get("source_date") or source.get("accessed_at") or ""))[-1]
+
+
+def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    facts = nested_get(companyfacts, "facts", "us-gaap")
+    if not isinstance(facts, dict):
+        return None
+    candidates: list[dict[str, Any]] = []
+    for name in names:
+        values = nested_get(facts, name, "units", "USD")
+        if not isinstance(values, list):
+            continue
+        annual = [item for item in values if isinstance(item, dict) and item.get("form") == "10-K" and item.get("fp") == "FY" and "val" in item]
+        candidates.extend({**item, "_tag": name} for item in annual)
+    if not candidates:
+        return None
+    item = sorted(candidates, key=lambda row: (int(row.get("fy") or 0), str(row.get("end") or ""), str(row.get("filed") or "")))[-1]
+    return {
+        "tag": item.get("_tag"),
+        "value": item.get("val"),
+        "fy": item.get("fy"),
+        "period_end": item.get("end"),
+        "filed": item.get("filed"),
+        "form": item.get("form"),
     }
 
 
@@ -236,6 +410,10 @@ def write_context_files(out: Path, context: dict[str, Any]) -> None:
     lines.extend(["", "## Missing Material Fields"])
     for field in context["context_quality"]["missing_material_fields"]:
         lines.append(f"- {field}")
+    lines.extend(["", "## Source Gaps"])
+    for gap in context.get("source_gaps", []):
+        replacement = f"; replacement: {gap.get('replacement_source_id')}" if gap.get("replacement_source_id") else ""
+        lines.append(f"- {gap.get('source_id')}: {gap.get('reason')} ({gap.get('attempted_url')}{replacement})")
     (out / "research_context.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -253,38 +431,44 @@ def cmd_record_gap_fill(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
     output_root = Path(args.output_root)
     out = ensure_run(output_root, symbol)
-    fill_args = resolve_gap_fill_args(args)
-    context = build_context(output_root, symbol)
-    point = {
-        "key": fill_args["field"],
-        "label": fill_args["field"].replace("_", " ").title(),
-        "value": fill_args["value"],
-        "source_id": fill_args["source_id"],
-        "confidence": fill_args["confidence"],
-        "note": fill_args["note"],
-        "filled_by": "procedural",
-        "recorded_at": utc_now(),
-    }
-    data_points = [p for p in context.get("data_points", []) if p.get("key") != fill_args["field"]]
-    data_points.append(point)
-    context["data_points"] = data_points
-    keys = {p.get("key") for p in data_points}
-    required = context["context_quality"]["required_material_fields"]
-    context["context_quality"] = {
-        "required_material_fields": required,
-        "missing_material_fields": [field for field in required if field not in keys],
-        "is_sparse": any(field not in keys for field in required),
-    }
-    write_context_files(out, context)
-    manifest = read_json(out / "run_manifest.json")
-    fills = manifest.get("procedural_gap_fills", [])
-    fills.append({**fill_args, "recorded_at": utc_now()})
-    update_manifest(output_root, symbol, procedural_gap_fills=fills, research_context=str(out / "research_context.json"))
-    print(json.dumps(point, indent=2, sort_keys=True))
+    fills = resolve_gap_fill_args(args)
+    recorded_at = utc_now()
+    with file_lock(out / "research_context.json"):
+        context = build_context(output_root, symbol)
+        points = [
+            {
+                "key": fill_args["field"],
+                "label": fill_args["field"].replace("_", " ").title(),
+                "value": fill_args["value"],
+                "source_id": fill_args["source_id"],
+                "confidence": fill_args["confidence"],
+                "note": fill_args["note"],
+                "filled_by": "procedural",
+                "recorded_at": recorded_at,
+            }
+            for fill_args in fills
+        ]
+        replaced = {point["key"] for point in points}
+        data_points = [p for p in context.get("data_points", []) if p.get("key") not in replaced]
+        data_points.extend(points)
+        context["data_points"] = data_points
+        keys = {p.get("key") for p in data_points}
+        required = context["context_quality"]["required_material_fields"]
+        context["context_quality"] = {
+            "required_material_fields": required,
+            "missing_material_fields": [field for field in required if field not in keys],
+            "is_sparse": any(field not in keys for field in required),
+        }
+        write_context_files(out, context)
+    append_manifest_gap_fills(output_root, symbol, fills, recorded_at, out / "research_context.json")
+    if len(points) == 1:
+        print(json.dumps(points[0], indent=2, sort_keys=True))
+    else:
+        print(json.dumps({"recorded_fields": [point["key"] for point in points], "points": points}, indent=2, sort_keys=True))
 
 
-def resolve_gap_fill_args(args: argparse.Namespace) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
+def resolve_gap_fill_args(args: argparse.Namespace) -> list[dict[str, Any]]:
+    payload: dict[str, Any] | list[Any] = {}
     if args.json_file and args.stdin_json:
         die("Use only one of --json-file or --stdin-json.")
     if args.json_file:
@@ -295,6 +479,14 @@ def resolve_gap_fill_args(args: argparse.Namespace) -> dict[str, Any]:
         except json.JSONDecodeError as exc:
             die(f"Could not parse stdin JSON: {exc}")
 
+    if isinstance(payload, list):
+        return [normalize_gap_fill_payload(item, args) for item in payload]
+    return [normalize_gap_fill_payload(payload, args)]
+
+
+def normalize_gap_fill_payload(payload: Any, args: argparse.Namespace) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        die("record-gap-fill JSON input must be an object or an array of objects.")
     field = payload.get("field", args.field)
     value = payload.get("value", args.value)
     source_id = payload.get("source_id", args.source_id)
@@ -360,6 +552,106 @@ def blackrock_holdings_summary(payload: dict[str, Any]) -> dict[str, Any] | None
     return {"top_holdings": rows, "holding_count_sampled": len(rows)}
 
 
+def iter_blackrock_datapoint_maps(payload: Any):
+    if isinstance(payload, dict):
+        data_points = payload.get("dataPointsByNameMap")
+        if isinstance(data_points, dict):
+            yield data_points
+        for value in payload.values():
+            yield from iter_blackrock_datapoint_maps(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            yield from iter_blackrock_datapoint_maps(item)
+
+
+def collect_blackrock_datapoints(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    data: dict[str, dict[str, Any]] = {}
+    for data_points in iter_blackrock_datapoint_maps(payload):
+        for key, value in data_points.items():
+            if key not in data and isinstance(value, dict):
+                data[key] = value
+    return data
+
+
+def blackrock_value(data_points: dict[str, dict[str, Any]], *keys: str) -> Any:
+    for key in keys:
+        point = data_points.get(key)
+        if not point:
+            continue
+        value = first_present(point.get("formattedValue"), point.get("value"))
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def blackrock_rich_value(data_points: dict[str, dict[str, Any]], *keys: str) -> dict[str, Any] | None:
+    for key in keys:
+        point = data_points.get(key)
+        if not point:
+            continue
+        value = first_present(point.get("formattedValue"), point.get("value"))
+        if value in (None, "", [], {}):
+            continue
+        return {
+            "value": point.get("value"),
+            "formatted": point.get("formattedValue"),
+            "as_of": point.get("formattedAsOfDate") or point.get("asOfDate"),
+            "label": point.get("label"),
+        }
+    return None
+
+
+def blackrock_component_holdings_summary(payload: dict[str, Any]) -> dict[str, Any] | None:
+    holdings_payload = payload.get("TopHoldingsV3")
+    if not isinstance(holdings_payload, dict):
+        return None
+    rows = []
+    for row in holdings_payload.get("topHoldings", []):
+        if not isinstance(row, dict):
+            continue
+        rows.append({
+            "name": row.get("holdingsName") or row.get("name"),
+            "ticker": row.get("ticker"),
+            "weight": row.get("holdingPercent") or row.get("weight"),
+        })
+    if not rows:
+        return None
+    return {
+        "as_of": holdings_payload.get("holdingsAsOfDate"),
+        "top_holdings": rows,
+        "holding_count_sampled": len(rows),
+    }
+
+
+def blackrock_component_points(payload: dict[str, Any], source_id: str) -> list[dict[str, Any]]:
+    points: list[dict[str, Any]] = []
+    data_points = collect_blackrock_datapoints(payload)
+    fund_header = payload.get("FundHeaderV3") if isinstance(payload.get("FundHeaderV3"), dict) else {}
+    fund_name = first_present(fund_header.get("fundName"), payload.get("fundName"))
+    if not fund_name:
+        for component in payload.values():
+            if isinstance(component, dict):
+                fund_name = first_present(component.get("fundName"), fund_name)
+    if fund_name:
+        points.append(context_point("fund_name", fund_name, source_id))
+    benchmark = blackrock_value(data_points, "indexSeriesName", "indexName")
+    if benchmark:
+        points.append(context_point("benchmark", benchmark, source_id))
+    expense = blackrock_value(data_points, "netExpenseRatio", "expenseRatio", "qgrs", "grs")
+    if expense:
+        points.append(context_point("expense_ratio", expense, source_id))
+    net_assets = blackrock_rich_value(data_points, "totalNetAssetsFundLevel", "totalNetAssets")
+    if net_assets:
+        points.append(context_point("net_assets", net_assets, source_id))
+    nav = blackrock_rich_value(data_points, "navAmount", "marketPrice")
+    if nav:
+        points.append(context_point("nav_or_market_snapshot", nav, source_id))
+    holdings = blackrock_component_holdings_summary(payload)
+    if holdings:
+        points.append(context_point("holdings_summary", holdings, source_id))
+    return points
+
+
 def context_point(key: str, value: Any, source_id: str, confidence: str = "high") -> dict[str, Any]:
     return {
         "key": key,
@@ -419,6 +711,7 @@ def cmd_extract_blackrock(args: argparse.Namespace) -> None:
     holdings = blackrock_holdings_summary(payload)
     if holdings:
         points.append(context_point("holdings_summary", holdings, args.source_id))
+    points.extend(point for point in blackrock_component_points(payload, args.source_id) if point["key"] not in {existing["key"] for existing in points})
     context = merge_data_points(output_root, symbol, points)
     print(json.dumps({"added": [point["key"] for point in points], "is_sparse": context["context_quality"]["is_sparse"]}, indent=2))
 
@@ -453,6 +746,16 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
     source.set_defaults(func=cmd_record_source)
 
+    source_gap = sub.add_parser("record-source-gap", help="Record a failed or incomplete public-source capture.")
+    source_gap.add_argument("symbol")
+    source_gap.add_argument("--output-root", default="./market-research-runs")
+    source_gap.add_argument("--source-id", required=True)
+    source_gap.add_argument("--attempted-url", required=True)
+    source_gap.add_argument("--reason", required=True)
+    source_gap.add_argument("--replacement-source-id")
+    source_gap.add_argument("--severity", choices=["low", "medium", "high"], default="medium")
+    source_gap.set_defaults(func=cmd_record_source_gap)
+
     context = sub.add_parser("prepare-research-context", help="Build compact research context.")
     context.add_argument("symbol")
     context.add_argument("--output-root", default="./market-research-runs")
@@ -466,8 +769,8 @@ def build_parser() -> argparse.ArgumentParser:
     fill.add_argument("--source-id")
     fill.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
     fill.add_argument("--note", default="")
-    fill.add_argument("--json-file", help="Read field/value/source_id/confidence/note from a JSON object.")
-    fill.add_argument("--stdin-json", action="store_true", help="Read field/value/source_id/confidence/note from stdin JSON.")
+    fill.add_argument("--json-file", help="Read field/value/source_id/confidence/note from a JSON object or array of objects.")
+    fill.add_argument("--stdin-json", action="store_true", help="Read field/value/source_id/confidence/note from stdin JSON object or array.")
     fill.set_defaults(func=cmd_record_gap_fill)
 
     blackrock = sub.add_parser("extract-blackrock", help="Promote BlackRock/iShares product API JSON into research context.")

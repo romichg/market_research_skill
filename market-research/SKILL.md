@@ -22,7 +22,7 @@ Do not abandon the report solely because a helper failed unless no credible publ
 
 ## Resources
 
-- Use `scripts/market_research_helper.py` for deterministic run setup, manual classification, source recording, context preparation, procedural gap-fill recording, and BlackRock/iShares JSON promotion.
+- Use `scripts/market_research_helper.py` for deterministic run setup, manual classification, source recording, source-gap recording, context preparation, procedural gap-fill recording, and BlackRock/iShares JSON promotion.
 - Read `references/source-policy.md` before source gathering and citation work.
 - Read `references/equity-research.md` for equities and ADRs.
 - Read `references/etf-research.md` for ETFs.
@@ -38,6 +38,8 @@ Do not abandon the report solely because a helper failed unless no credible publ
 python3 {baseDir}/scripts/market_research_helper.py init-run SYMBOL --output-root ./market-research-runs
 ```
 
+Wait for `init-run` to complete before `classify`, `record-source`, or any other dependent helper command. Source registry writes are lock-protected, but run initialization is a required sequential step.
+
 2. Classify the security. If the helper cannot classify from public data, use clear procedural evidence or ask the user to choose `equity`, `adr`, or `etf`; then record it:
 
 ```bash
@@ -50,13 +52,23 @@ python3 {baseDir}/scripts/market_research_helper.py classify SYMBOL --output-roo
 python3 {baseDir}/scripts/market_research_helper.py record-source SYMBOL --output-root ./market-research-runs --id source_id --title "Source title" --url "https://example.com/source" --kind issuer_fact_sheet --source-date YYYY-MM-DD --artifact ./downloaded-source.pdf --confidence high
 ```
 
-Use `--source-date` whenever a document or page has a visible as-of, filing, publication, or effective date. Use `--artifact` for every cited public web page or document you saved locally; the helper copies it into `source_bundle/` and rejects obvious extension/content mismatches such as HTML saved as `.csv`.
+Use `--source-date` whenever a document or page has a visible as-of, filing, publication, or effective date. Use `--artifact` for every cited public web page or document you saved locally; the helper copies it into `source_bundle/`, records artifact size and SHA-256 checksum metadata, and rejects obvious extension/content mismatches such as HTML saved as `.csv`.
+
+The helper uses lock-protected registry writes, but source capture is still easier to audit when sources are recorded in small logical groups rather than hidden behind one large shell pipeline.
+
+When a public/free source capture fails or returns unusable content, record the attempted source as a structured gap:
+
+```bash
+python3 {baseDir}/scripts/market_research_helper.py record-source-gap SYMBOL --output-root ./market-research-runs --source-id holdings_csv --attempted-url "https://example.com/holdings.csv" --reason "CSV endpoint returned HTML." --replacement-source-id issuer_fact_sheet --severity medium
+```
 
 4. Prepare compact context:
 
 ```bash
 python3 {baseDir}/scripts/market_research_helper.py prepare-research-context SYMBOL --output-root ./market-research-runs
 ```
+
+For equities, this promotes basic SEC Companyfacts data when `source_bundle/sec_companyfacts.json` is present and a latest annual filing source is recorded. Revenue and income promotion chooses the latest annual fact across equivalent tags rather than trusting the first tag. Still inspect the promoted fiscal year, period end, filing date, and tag before using it in the report. For ETFs, this promotes the classified fund name but most issuer/fact-sheet fields still require targeted extraction or procedural gap fills.
 
 5. Inspect `market-research-runs/SYMBOL/research_context.json`. If material fields are missing, fill only targeted gaps procedurally from public sources. Record fills:
 
@@ -70,13 +82,15 @@ For shell-sensitive values such as dollar amounts, prefer structured input:
 python3 {baseDir}/scripts/market_research_helper.py record-gap-fill SYMBOL --output-root ./market-research-runs --json-file ./gap-fill.json
 ```
 
-The JSON object may contain `field`, `value`, `source_id`, `confidence`, and `note`.
+The JSON input may be either one object or an array of objects. Each object may contain `field`, `value`, `source_id`, `confidence`, and `note`. Prefer JSON input for any value containing dollar signs, quotes, percent signs, shell metacharacters, or multiple fields.
 
-6. For BlackRock/iShares ETF payloads already downloaded or user-supplied, promote the useful structured data:
+6. For BlackRock/iShares ETF payloads already downloaded, extracted from the product page, or user-supplied, promote the useful structured data:
 
 ```bash
 python3 {baseDir}/scripts/market_research_helper.py extract-blackrock SYMBOL --output-root ./market-research-runs --json-file ./market-research-runs/SYMBOL/source_bundle/blackrock_product_api.json --source-id blackrock_product_api
 ```
+
+This helper supports both legacy BlackRock API payloads and component-style product-page extracts such as `FundHeaderV3`, `KeyFundFactsV3`, `FeeTableV3`, and `TopHoldingsV3`.
 
 7. Write:
 

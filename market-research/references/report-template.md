@@ -17,9 +17,17 @@ As of: YYYY-MM-DD
 
 ## Business Or Fund Profile
 
+## Market Snapshot And Positioning
+
 ## Financials Or Portfolio Exposures
 
+## Filings, Governance, And Structure
+
+## Sector, Macro, And Competitive Context
+
 ## Valuation Or Performance Context
+
+## Catalysts And Decision Framework
 
 ## Risks
 
