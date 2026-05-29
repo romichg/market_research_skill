@@ -10,3 +10,6 @@ __pycache__/
 dist/
 build/
 cool-financial-research/cool-financial-research/
+experiments/
+market-research-runs/
+tmp-loop-smoke/
