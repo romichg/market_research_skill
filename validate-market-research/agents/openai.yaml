@@ -1,0 +1,4 @@
+interface:
+  display_name: "Validate Market Research"
+  short_description: "Validate frozen market research bundles."
+  default_prompt: "Validate the research bundle path provided by the user, write validation markdown and JSON artifacts, and report blocking issues."

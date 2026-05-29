@@ -1,0 +1,4 @@
+interface:
+  display_name: "Market Research"
+  short_description: "Research public equities and ETFs."
+  default_prompt: "Research the symbol provided by the user using public/free sources, write cited markdown and JSON artifacts, and disclose data gaps."
