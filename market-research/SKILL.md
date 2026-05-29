@@ -1,85 +1,96 @@
 ---
 name: market-research
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: Research US-listed equities, ADRs, and ETFs from a ticker symbol using public/free sources; create cited markdown and JSON artifacts; use deterministic helper scripts when useful but gracefully fall back to procedural research when helpers fail or are sparse. Use when Codex is asked for investment, equity, stock, ADR, ETF, fund, issuer, holdings, valuation, risk, or market research on a symbol.
 ---
 
 # Market Research
 
-## Overview
+Use this skill to produce a research bundle for one public equity, ADR, or ETF symbol. This is research support, not personalized financial advice.
 
-[TODO: 1-2 sentences explaining what this skill enables]
+## Core Rule
 
-## Structuring This Skill
+Use helper output as evidence, not authority.
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+```text
+helper succeeds -> use structured context
+helper partially succeeds -> use reliable helper output, try targeted procedural gap filling, disclose remaining gaps
+helper fails -> research procedurally, disclose helper failure
+helper gets bloated/flaky -> split, cap outputs, or demote to optional
+```
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" -> "Reading" -> "Creating" -> "Editing"
-- Structure: ## Overview -> ## Workflow Decision Tree -> ## Step 1 -> ## Step 2...
+Do not abandon the report solely because a helper failed unless no credible public source can be accessed and no user-provided files exist.
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" -> "Merge PDFs" -> "Split PDFs" -> "Extract Text"
-- Structure: ## Overview -> ## Quick Start -> ## Task Category 1 -> ## Task Category 2...
+## Resources
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" -> "Colors" -> "Typography" -> "Features"
-- Structure: ## Overview -> ## Guidelines -> ## Specifications -> ## Usage...
+- Use `scripts/market_research_helper.py` for deterministic run setup, manual classification, source recording, context preparation, procedural gap-fill recording, and BlackRock/iShares JSON promotion.
+- Read `references/source-policy.md` before source gathering and citation work.
+- Read `references/equity-research.md` for equities and ADRs.
+- Read `references/etf-research.md` for ETFs.
+- Read `references/report-template.md` before writing final artifacts.
+- Use `schemas/research-output.schema.json` for the report sidecar.
+- Use `schemas/validation-output.schema.json` as the shared validation contract.
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" -> numbered capability list
-- Structure: ## Overview -> ## Core Capabilities -> ### 1. Feature -> ### 2. Feature...
+## Workflow
 
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+1. Normalize the symbol to uppercase and create the run:
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+```bash
+python3 {baseDir}/scripts/market_research_helper.py init-run SYMBOL --output-root ./market-research-runs
+```
 
-## [TODO: Replace with the first main section based on chosen structure]
+2. Classify the security. If the helper cannot classify from public data, use clear procedural evidence or ask the user to choose `equity`, `adr`, or `etf`; then record it:
 
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
+```bash
+python3 {baseDir}/scripts/market_research_helper.py classify SYMBOL --output-root ./market-research-runs --security-type etf --name "Fund or company name"
+```
 
-## Resources (optional)
+3. Gather public/free sources. Prefer primary sources. Record each material source:
 
-Create only the resource directories this skill actually needs. Delete this section if no resources are required.
+```bash
+python3 {baseDir}/scripts/market_research_helper.py record-source SYMBOL --output-root ./market-research-runs --id source_id --title "Source title" --url "https://example.com/source" --kind issuer_fact_sheet --confidence high
+```
 
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
+4. Prepare compact context:
 
-**Examples from other skills:**
-- PDF skill: `fill_fillable_fields.py`, `extract_form_field_info.py` - utilities for PDF manipulation
-- DOCX skill: `document.py`, `utilities.py` - Python modules for document processing
+```bash
+python3 {baseDir}/scripts/market_research_helper.py prepare-research-context SYMBOL --output-root ./market-research-runs
+```
 
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
+5. Inspect `market-research-runs/SYMBOL/research_context.json`. If material fields are missing, fill only targeted gaps procedurally from public sources. Record fills:
 
-**Note:** Scripts may be executed without loading into context, but can still be read by Codex for patching or environment adjustments.
+```bash
+python3 {baseDir}/scripts/market_research_helper.py record-gap-fill SYMBOL --output-root ./market-research-runs --field expense_ratio --value "0.59%" --source-id issuer_fact_sheet --confidence high --note "Filled from issuer fact sheet."
+```
 
-### references/
-Documentation and reference material intended to be loaded into context to inform Codex's process and thinking.
+6. For BlackRock/iShares ETF payloads already downloaded or user-supplied, promote the useful structured data:
 
-**Examples from other skills:**
-- Product management: `communication.md`, `context_building.md` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
+```bash
+python3 {baseDir}/scripts/market_research_helper.py extract-blackrock SYMBOL --output-root ./market-research-runs --json-file ./market-research-runs/SYMBOL/source_bundle/blackrock_product_api.json --source-id blackrock_product_api
+```
 
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Codex should reference while working.
+7. Write:
 
-### assets/
-Files not intended to be loaded into context, but rather used within the output Codex produces.
+```text
+market-research-runs/SYMBOL/
+  SYMBOL-research.md
+  SYMBOL-research.json
+  research_context.json
+  research_context.md
+  sources.json
+  run_manifest.json
+  source_bundle/
+```
 
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
+8. Same-session self-check the artifacts for missing citations, stale dates, unsupported claims, and gaps. Label this as a self-check, not independent validation.
 
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
+9. Tell the user the artifact paths and recommend running `validate-market-research` in a fresh Codex context against the run directory.
 
----
+## Source Discipline
 
-**Not every skill requires all three types of resources.**
+Every material quantitative claim must be cited or marked `Data not available` / `unverified`. Include source date, accessed date, and confidence when possible.
+
+Keep facts separate from interpretation in major sections. Do not let procedural gap filling become open-ended browsing; search for named missing fields only.
+
+## Paid Data
+
+Do not require subscriptions or API keys. You may record exploratory notes about data that would have improved quality, but do not recommend purchasing a paid service from a single run.

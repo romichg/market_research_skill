@@ -1,85 +1,62 @@
 ---
 name: validate-market-research
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: Validate frozen market research bundles for equities, ADRs, and ETFs in a fresh Codex context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report. Use when Codex is asked to validate, review, audit, or check an investment research report or a market-research run directory.
 ---
 
 # Validate Market Research
 
-## Overview
+Use this skill to validate a frozen `market-research` run directory. The validator never edits the producer report.
 
-[TODO: 1-2 sentences explaining what this skill enables]
+## Fresh-Context Contract
 
-## Structuring This Skill
+Use only:
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+- Files under the provided run directory.
+- Sources cited in those files.
+- Public sources explicitly inspected in this validation session.
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" -> "Reading" -> "Creating" -> "Editing"
-- Structure: ## Overview -> ## Workflow Decision Tree -> ## Step 1 -> ## Step 2...
+Do not rely on the producer conversation as evidence. Treat the report as claims to test.
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" -> "Merge PDFs" -> "Split PDFs" -> "Extract Text"
-- Structure: ## Overview -> ## Quick Start -> ## Task Category 1 -> ## Task Category 2...
+## Resources
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" -> "Colors" -> "Typography" -> "Features"
-- Structure: ## Overview -> ## Guidelines -> ## Specifications -> ## Usage...
+- Run `scripts/validate_market_research.py` first for deterministic artifact discovery and structure checks.
+- Read `references/investment-validation.md` before judgment validation.
+- Use the validation JSON shape from the producer skill's `schemas/validation-output.schema.json` when available.
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" -> numbered capability list
-- Structure: ## Overview -> ## Core Capabilities -> ### 1. Feature -> ### 2. Feature...
+## Workflow
 
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+1. Inspect the run directory shape:
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+```bash
+python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-runs/SYMBOL
+```
 
-## [TODO: Replace with the first main section based on chosen structure]
+2. If the helper reports missing artifacts, stop and tell the user what the producer must regenerate.
 
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
+3. Read the report markdown, report JSON, `research_context.json`, `sources.json`, and `run_manifest.json` if present.
 
-## Resources (optional)
+4. Validate judgment:
 
-Create only the resource directories this skill actually needs. Delete this section if no resources are required.
+- Verify material quantitative claims against cited sources.
+- Check source dates and stale-data handling.
+- Check whether facts and interpretation are separated.
+- Check for unsupported valuation, performance, peer, or portfolio-fit claims.
+- Check for omitted risks.
+- Check ETF fee, holdings, exposure, and index methodology support.
+- Check equity/ADR filing, financial, valuation, and risk support.
 
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
+5. Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`.
 
-**Examples from other skills:**
-- PDF skill: `fill_fillable_fields.py`, `extract_form_field_info.py` - utilities for PDF manipulation
-- DOCX skill: `document.py`, `utilities.py` - Python modules for document processing
+6. Classify every issue:
 
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
+- `critical`: materially misleading, missing core source, wrong security type, fabricated/unsupported major quantitative claim.
+- `moderate`: important unsupported claim, stale material data without caveat, missing major risk, weak thesis support.
+- `minor`: clarity, formatting, secondary caveat, or non-blocking improvement.
 
-**Note:** Scripts may be executed without loading into context, but can still be read by Codex for patching or environment adjustments.
+7. Mark unavailable public-data gaps as `unresolved_data_unavailable`, not `open`.
 
-### references/
-Documentation and reference material intended to be loaded into context to inform Codex's process and thinking.
+8. Return validation artifact paths and the count of open critical/moderate issues.
 
-**Examples from other skills:**
-- Product management: `communication.md`, `context_building.md` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
+## Output Rule
 
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Codex should reference while working.
-
-### assets/
-Files not intended to be loaded into context, but rather used within the output Codex produces.
-
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
-
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
-
----
-
-**Not every skill requires all three types of resources.**
+The validator may create validation files only. It must not modify the producer's research markdown, JSON, source files, or manifest.
