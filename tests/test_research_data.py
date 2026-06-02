@@ -204,3 +204,35 @@ def test_live_fetch_urls_do_not_store_tokens_in_source_url(tmp_path, monkeypatch
     payload = json.loads(paths[0].read_text(encoding="utf-8"))
     assert "secret-token" in seen[0]
     assert "secret-token" not in payload["provider_result"]["url"]
+
+
+def test_explicit_asset_type_overrides_auto_classification(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "SPY",
+        "sec",
+        "submissions",
+        {"cik": "0000884394"},
+        {"name": "SPDR S&P 500 ETF TRUST", "filings": {"recent": {"form": ["10-K"]}}},
+        source_url="https://data.sec.gov/submissions/CIK0000884394.json",
+    )
+
+    result = module.build_bundle("SPY", "2026-06-01", cache, tmp_path / "output", providers=["sec"], asset_type="etf")
+
+    manifest = json.loads((Path(result["bundle_dir"]) / "manifest.json").read_text(encoding="utf-8"))
+    identity = json.loads((Path(result["bundle_dir"]) / "normalized" / "identity.json").read_text(encoding="utf-8"))
+    assert manifest["asset_type"] == "etf"
+    assert identity["asset_type"]["value"] == "etf"
+    assert identity["asset_type"]["provider"] == "cli"
+
+
+def test_provider_status_reports_cached_errors(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(cache, "AAPL", "eodhd", "fundamentals", {}, {}, source_url="https://example.test", status="unauthorized", error="HTTP 403")
+
+    statuses = module.collect_provider_status(cache, "AAPL", ["eodhd"])
+
+    assert statuses == [{"provider": "eodhd", "raw_files": 1, "status": "unauthorized", "errors": 1}]

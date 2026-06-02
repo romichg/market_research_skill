@@ -393,7 +393,16 @@ def collect_provider_status(cache_root: Path, symbol: str, providers: list[str])
     for provider in providers:
         root = cache_root / symbol / provider
         files = sorted(root.glob("*.json")) if root.exists() else []
-        statuses.append({"provider": provider, "raw_files": len(files), "status": "ok" if files else "missing"})
+        raw_statuses = []
+        for path in files:
+            payload = read_json(path)
+            raw_statuses.append(payload.get("provider_result", {}).get("status", "ok"))
+        errors = [status for status in raw_statuses if status != "ok"]
+        status = errors[-1] if errors else "ok" if files else "missing"
+        item = {"provider": provider, "raw_files": len(files), "status": status}
+        if errors:
+            item["errors"] = len(errors)
+        statuses.append(item)
     return statuses
 
 
@@ -643,7 +652,7 @@ def assert_no_secrets_in_tree(root: Path, config: ProviderConfig | None) -> None
                     die(f"Secret value leaked into output file: {path}")
 
 
-def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, providers: list[str] | None = None, offline: bool = False, config: ProviderConfig | None = None, command: str | None = None) -> dict[str, Any]:
+def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, providers: list[str] | None = None, offline: bool = False, config: ProviderConfig | None = None, command: str | None = None, asset_type: str = "auto") -> dict[str, Any]:
     symbol = normalize_symbol(symbol)
     providers = providers or DEFAULT_PROVIDERS
     bundle_dir = output_root / symbol / as_of
@@ -651,6 +660,8 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     normalized.mkdir(parents=True, exist_ok=True)
     raw_entries = copy_raw_files(cache_root, symbol, bundle_dir)
     identity = normalize_identity(cache_root, symbol)
+    if asset_type != "auto":
+        identity["asset_type"] = provenance(asset_type, "cli", "", "asset_type", Path(""))
     prices, price_raw, price_provider, price_url = normalize_prices(cache_root, symbol)
     snapshot = normalize_market_snapshot(cache_root, symbol, prices, price_raw, price_provider, price_url)
     technicals = technicals_from_prices(prices, price_provider, price_raw, price_url)
@@ -743,7 +754,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             after = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
             if after - before > budget:
                 die(f"Provider {provider} exceeded call budget {budget}")
-    result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv))
+    result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"))
     print(redact(json.dumps(result, indent=2, sort_keys=True), config))
 
 

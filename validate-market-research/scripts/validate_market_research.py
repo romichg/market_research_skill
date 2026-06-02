@@ -133,7 +133,7 @@ def normalized_value_issues(namespace: str, payload: Any, prefix: str = "") -> l
         if "value" in payload:
             status = payload.get("status", "ok")
             provider = payload.get("provider")
-            if status == "ok" and provider not in {"input", "deterministic_classifier", "unavailable"}:
+            if status == "ok" and provider not in {"input", "cli", "deterministic_classifier", "unavailable"}:
                 for field in ["provider", "source_url", "raw_path"]:
                     if payload.get(field) in (None, ""):
                         issue_id = f"normalized-{namespace}-{prefix.rstrip('.')}-{field}".replace("..", ".").replace(".", "-")

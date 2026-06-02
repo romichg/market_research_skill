@@ -117,3 +117,20 @@ def test_validator_flags_deterministic_values_missing_provenance(tmp_path):
     issue_ids = {issue["id"] for issue in validation["issues"]}
     assert "normalized-market_snapshot-latest_close-source_url" in issue_ids
     assert "normalized-market_snapshot-latest_close-raw_path" in issue_ids
+
+
+def test_validator_accepts_cli_asset_type_override_without_source_url(tmp_path):
+    run_dir = tmp_path / "SPY" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# SPY Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "SPY", "asset_type": "etf"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text(json.dumps({"asset_type": {"value": "etf", "provider": "cli", "raw_path": "", "source_url": ""}}), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "SPY-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["blocking_issue_count"] == 0
