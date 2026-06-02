@@ -74,3 +74,46 @@ def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
     validation = json.loads((run_dir / "ECH-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["issues"][0]["id"] == "claim-0-source-missing"
     assert validation["issues"][0]["severity"] == "moderate"
+
+
+def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path):
+    run_dir = tmp_path / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": [{"provider": "sec", "raw_path": str(run_dir / "raw" / "sec" / "x.json"), "status": "ok"}]}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": [{"field": "short_interest", "status": "unavailable_free_source"}]}), encoding="utf-8")
+    (normalized / "identity.json").write_text(
+        json.dumps({"company_name": {"value": "Apple Inc", "provider": "sec", "raw_path": str(run_dir / "raw" / "sec" / "x.json"), "source_url": "https://data.sec.gov/x"}}),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbol"] == "AAPL"
+    assert payload["scaffold"] is True
+    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["bundle_type"] == "deterministic_data_bundle"
+    assert validation["data_gaps"] == [{"field": "short_interest", "status": "unavailable_free_source"}]
+
+
+def test_validator_flags_deterministic_values_missing_provenance(tmp_path):
+    run_dir = tmp_path / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "market_snapshot.json").write_text(json.dumps({"latest_close": {"value": 123.45, "provider": "tiingo"}}), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    issue_ids = {issue["id"] for issue in validation["issues"]}
+    assert "normalized-market_snapshot-latest_close-source_url" in issue_ids
+    assert "normalized-market_snapshot-latest_close-raw_path" in issue_ids
