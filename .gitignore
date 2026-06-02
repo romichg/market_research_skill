@@ -1,4 +1,6 @@
 .env
+.env-starter
+.env-start
 .venv/
 .worktrees/
 __pycache__/

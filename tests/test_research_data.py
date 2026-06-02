@@ -1,0 +1,206 @@
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "market-research" / "scripts" / "research_data.py"
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("research_data", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_cli(*args, cwd=None, env=None):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_env_starter_parsing_redacts_secrets_and_detects_providers(tmp_path):
+    module = load_module()
+    env_file = tmp_path / ".env-starter"
+    env_file.write_text(
+        "\n".join(
+            [
+                "Twelve Data",
+                "API Token: twelve-secret",
+                "Docs:",
+                "https://twelvedata.com/docs",
+                "Limits:",
+                "8 credits per minute",
+                "",
+                "SEC_USER_AGENT=person@example.com",
+                "TIINGO_API_TOKEN=tiingo-secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = module.load_env_files(tmp_path)
+
+    assert config.values["SEC_USER_AGENT"] == "person@example.com"
+    assert config.values["TWELVE_DATA_API_KEY"] == "twelve-secret"
+    assert config.values["TIINGO_API_TOKEN"] == "tiingo-secret"
+    assert config.docs["twelve_data"] == ["https://twelvedata.com/docs"]
+    assert "8 credits per minute" in config.limits["twelve_data"]
+    assert module.redact("https://x.test?apikey=twelve-secret&token=tiingo-secret", config) == "https://x.test?apikey=REDACTED&token=REDACTED"
+    assert set(module.configured_providers(config)) >= {"sec", "twelve_data", "tiingo"}
+
+
+def test_cache_key_is_stable_and_order_independent():
+    module = load_module()
+
+    first = module.cache_key("tiingo", "prices", {"b": "2", "a": "1"})
+    second = module.cache_key("tiingo", "prices", {"a": "1", "b": "2"})
+
+    assert first == second
+    assert first.startswith("tiingo_prices_")
+
+
+def test_generate_env_example_contains_no_real_values(tmp_path):
+    module = load_module()
+    config = module.ProviderConfig(
+        values={"SEC_USER_AGENT": "person@example.com", "TIINGO_API_TOKEN": "secret"},
+        docs={},
+        limits={},
+        loaded_files=[],
+    )
+
+    output = module.write_env_example(tmp_path, config)
+    text = output.read_text(encoding="utf-8")
+
+    assert "SEC_USER_AGENT=" in text
+    assert "TIINGO_API_TOKEN=" in text
+    assert "person@example.com" not in text
+    assert "secret" not in text
+
+
+def test_offline_fetch_builds_bundle_with_provenance_analytics_and_gaps(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    output_root = tmp_path / "output"
+    symbol = "AAPL"
+    as_of = "2026-06-01"
+    prices = [
+        {"date": "2025-06-02", "open": 100, "high": 101, "low": 99, "close": 100, "adjClose": 100, "volume": 1000},
+        {"date": "2025-06-03", "open": 101, "high": 102, "low": 100, "close": 101, "adjClose": 101, "volume": 1100},
+        {"date": "2025-06-04", "open": 102, "high": 103, "low": 101, "close": 102, "adjClose": 102, "volume": 1200},
+        {"date": "2026-05-29", "open": 130, "high": 133, "low": 129, "close": 132, "adjClose": 132, "volume": 2000},
+    ]
+    module.write_raw(
+        cache,
+        symbol,
+        "sec",
+        "submissions",
+        {"cik": "0000320193"},
+        {"name": "APPLE INC", "tickers": ["AAPL"], "exchanges": ["Nasdaq"], "sic": "3571", "filings": {"recent": {"form": ["10-K"], "accessionNumber": ["0000320193-25-000079"], "filingDate": ["2025-10-31"], "primaryDocument": ["aapl-20250927.htm"]}}},
+        source_url="https://data.sec.gov/submissions/CIK0000320193.json",
+    )
+    module.write_raw(
+        cache,
+        symbol,
+        "eodhd",
+        "fundamentals",
+        {},
+        {"General": {"Name": "Apple Inc", "Exchange": "NASDAQ", "MarketCapitalization": 3000000000000}, "Highlights": {"PERatio": 30}},
+        source_url="https://eodhd.example/fundamentals/AAPL.US",
+    )
+    module.write_raw(
+        cache,
+        symbol,
+        "tiingo",
+        "prices",
+        {"startDate": "2025-06-01", "endDate": as_of},
+        prices,
+        source_url="https://api.tiingo.com/tiingo/daily/AAPL/prices",
+    )
+
+    bundle = module.build_bundle(symbol, as_of, cache, output_root, providers=["sec", "eodhd", "tiingo"], offline=True)
+
+    bundle_dir = Path(bundle["bundle_dir"])
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+    snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
+    technicals = json.loads((bundle_dir / "normalized" / "technical_signals.json").read_text(encoding="utf-8"))
+    gaps = json.loads((bundle_dir / "gaps.json").read_text(encoding="utf-8"))
+    pack = (bundle_dir / "research_input_pack.md").read_text(encoding="utf-8")
+
+    assert identity["company_name"]["value"] == "APPLE INC"
+    assert identity["company_name"]["provider"] == "sec"
+    assert identity["company_name"]["raw_path"].endswith(".json")
+    assert snapshot["latest_close"]["value"] == 132
+    assert technicals["sma_20"]["status"] == "insufficient_data"
+    assert any(gap["field"] == "short_interest" for gap in gaps["gaps"])
+    assert "Latest close: 132" in pack
+    assert "Source: tiingo" in pack
+
+
+def test_cli_doctor_redacts_secrets(tmp_path):
+    (tmp_path / ".env-starter").write_text("Tiingo\nAPI Token: secret-token\nDocs:\nhttps://www.tiingo.com/docs\n", encoding="utf-8")
+
+    result = run_cli("doctor", "--repo-root", str(tmp_path), "--no-network")
+
+    assert result.returncode == 0, result.stderr
+    assert "secret-token" not in result.stdout
+    assert "tiingo" in result.stdout
+
+
+def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
+    module = load_module()
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False):
+        calls.append(provider)
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "providers": "sec,tiingo",
+            "max_provider_calls": ["sec=0", "tiingo=1"],
+            "offline": False,
+            "refresh": False,
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    assert calls == ["tiingo"]
+
+
+def test_live_fetch_urls_do_not_store_tokens_in_source_url(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20):
+        seen.append(url)
+        return []
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"TIINGO_API_TOKEN": "secret-token"}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.fetch_provider("AAPL", "tiingo", "2026-06-01", tmp_path, config, refresh=True)
+
+    assert len(paths) == 1
+    payload = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert "secret-token" in seen[0]
+    assert "secret-token" not in payload["provider_result"]["url"]
