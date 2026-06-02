@@ -15,7 +15,7 @@ Use only:
 - Sources cited in those files.
 - Public sources explicitly inspected in this validation session.
 
-Do not rely on the producer conversation as evidence. Treat the report as claims to test.
+Do not rely on the producer conversation as evidence. Treat the report as claims to test. If the run directory is a deterministic `research_data.py` output bundle, do not rerun successful provider collection; inspect `manifest.json`, `source_manifest.json`, `gaps.json`, `normalized/`, raw cached artifacts, and `research_input_pack.md`.
 
 ## Resources
 
@@ -25,7 +25,7 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 
 ## Workflow
 
-1. Inspect the run directory shape. The helper writes a deterministic scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
+1. Inspect the run directory shape. The helper supports both legacy `SYMBOL-research.md/json` runs and deterministic `data/output/SYMBOL/AS_OF/` bundles. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
 
 ```bash
 python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-runs/SYMBOL
@@ -38,6 +38,8 @@ python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-r
 4. Validate judgment:
 
 - Verify material quantitative claims against cited sources.
+- For deterministic bundles, verify normalized values have provider, source URL, raw path, and status provenance.
+- Treat successful deterministic provider outputs as frozen evidence. Validate non-deterministic interpretation, generated prose, missing-data handling, stale-data caveats, and cited-source support.
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.
 - Check for unsupported valuation, performance, peer, or portfolio-fit claims.
@@ -45,6 +47,7 @@ python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-r
 - When `sources.json` includes `artifact_sha256` and `artifact_size_bytes`, treat them as frozen-artifact integrity metadata and verify that referenced local artifacts still exist.
 - Check ETF fee, holdings, exposure, and index methodology support.
 - Check equity/ADR filing, financial, valuation, and risk support.
+- Confirm `gaps.json` marks unavailable free-source data clearly instead of letting missing fields become unsupported prose.
 
 5. Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`.
 
