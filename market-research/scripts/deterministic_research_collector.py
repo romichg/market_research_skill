@@ -280,6 +280,18 @@ def write_raw(cache_root: Path, symbol: str, provider: str, endpoint: str, param
     return path
 
 
+def classify_provider_payload(provider: str, data: Any) -> tuple[str, str | None]:
+    if provider == "alphavantage" and isinstance(data, dict):
+        for key in ["Information", "Note"]:
+            if key in data:
+                return "rate_limited", f"{key}: {data[key]}"
+        if "Error Message" in data:
+            return "error", f"Error Message: {data['Error Message']}"
+    if provider == "twelve_data" and isinstance(data, dict) and data.get("status") == "error":
+        return "error", str(data.get("message") or data.get("code") or "Twelve Data error payload")
+    return "ok", None
+
+
 def read_raw_latest(cache_root: Path, symbol: str, provider: str, endpoint: str) -> tuple[Path, dict[str, Any]] | None:
     root = cache_root / normalize_symbol(symbol) / provider
     files = sorted(root.glob(f"{provider}_{endpoint}_*.json"))
@@ -366,7 +378,8 @@ def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str
         return path
     try:
         data = http_json(url, headers=headers, retry_policy=retry_policy_for_provider(provider))
-        return write_raw(cache_root, symbol, provider, endpoint, params, data, source_url=source_url)
+        status, semantic_error = classify_provider_payload(provider, data)
+        return write_raw(cache_root, symbol, provider, endpoint, params, data, source_url=source_url, status=status, error=semantic_error)
     except HTTPError as exc:
         status = "rate_limited" if exc.code == 429 else "unauthorized" if exc.code in {401, 403} else "error"
         return write_raw(cache_root, symbol, provider, endpoint, params, {}, source_url=redact(source_url, config), status=status, error=f"HTTP {exc.code}")
@@ -473,7 +486,8 @@ def collect_provider_status(cache_root: Path, symbol: str, providers: list[str])
         raw_statuses = []
         for path in files:
             payload = read_json(path)
-            raw_statuses.append(payload.get("provider_result", {}).get("status", "ok"))
+            semantic_status, _ = classify_provider_payload(provider, payload.get("data"))
+            raw_statuses.append(semantic_status if semantic_status != "ok" else payload.get("provider_result", {}).get("status", "ok"))
         errors = [status for status in raw_statuses if status != "ok"]
         status = errors[-1] if errors else "ok" if files else "missing"
         item = {"provider": provider, "raw_files": len(files), "status": status}
@@ -652,6 +666,9 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
             market_cap_candidates.append(data_point_candidate(market_cap, "alphavantage", url, "overview", raw))
         if pe_ratio is not None:
             pe_candidates.append(data_point_candidate(pe_ratio, "alphavantage", url, "overview", raw))
+        beta = number(data.get("Beta"))
+        if beta is not None:
+            snapshot["beta"] = provenance(beta, "alphavantage", url, "overview", raw)
     chosen_market_cap = choose_candidate(market_cap_candidates, attempted)
     if chosen_market_cap:
         snapshot["market_capitalization"] = chosen_market_cap
@@ -659,6 +676,36 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     if chosen_pe:
         snapshot["pe_ratio"] = chosen_pe
     return snapshot
+
+
+def normalize_equity_fundamentals(cache_root: Path, symbol: str) -> dict[str, Any]:
+    fundamentals: dict[str, Any] = {}
+    av = read_raw_latest(cache_root, symbol, "alphavantage", "overview")
+    if av:
+        raw, payload = av
+        data = payload.get("data", {})
+        url = payload.get("provider_result", {}).get("url", "")
+        fields = {
+            "revenue_ttm": ("RevenueTTM", None),
+            "gross_profit_ttm": ("GrossProfitTTM", None),
+            "ebitda": ("EBITDA", None),
+            "eps": ("EPS", None),
+            "diluted_eps_ttm": ("DilutedEPSTTM", None),
+            "book_value": ("BookValue", None),
+            "dividend_yield": ("DividendYield", None),
+            "shares_outstanding": ("SharesOutstanding", None),
+            "profit_margin": ("ProfitMargin", None),
+            "operating_margin_ttm": ("OperatingMarginTTM", None),
+            "return_on_assets_ttm": ("ReturnOnAssetsTTM", None),
+            "return_on_equity_ttm": ("ReturnOnEquityTTM", None),
+            "quarterly_revenue_growth_yoy": ("QuarterlyRevenueGrowthYOY", None),
+            "quarterly_earnings_growth_yoy": ("QuarterlyEarningsGrowthYOY", None),
+        }
+        for out_key, (provider_key, unit) in fields.items():
+            value = number(data.get(provider_key))
+            if value is not None:
+                fundamentals[out_key] = provenance(value, "alphavantage", url, "overview", raw, unit=unit, as_of=data.get("LatestQuarter"))
+    return fundamentals
 
 
 def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -679,22 +726,45 @@ def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any]) -> list[dic
     return gaps
 
 
-def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path) -> list[dict[str, Any]]:
+def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
     entries = []
+    path_map: dict[str, str] = {}
     for path in sorted((cache_root / symbol).glob("*/*.json")) if (cache_root / symbol).exists() else []:
         payload = read_json(path)
         provider = payload.get("provider_result", {}).get("provider", path.parent.name)
         target = bundle_dir / "raw" / provider / path.name
+        semantic_status, semantic_error = classify_provider_payload(provider, payload.get("data"))
+        if isinstance(payload.get("provider_result"), dict):
+            payload["provider_result"]["raw_path"] = str(target)
+            if semantic_status != "ok":
+                payload["provider_result"]["status"] = semantic_status
+                payload["provider_result"]["error"] = semantic_error
         write_json(target, payload)
+        path_map[str(path)] = str(target)
         entries.append({
             "provider": provider,
             "endpoint": payload.get("provider_result", {}).get("endpoint"),
             "url": payload.get("provider_result", {}).get("url"),
             "raw_path": str(target),
+            "cache_raw_path": str(path),
             "status": payload.get("provider_result", {}).get("status"),
             "sha256": sha256_file(target),
         })
-    return entries
+    return entries, path_map
+
+
+def rewrite_raw_paths(payload: Any, path_map: dict[str, str]) -> Any:
+    if isinstance(payload, dict):
+        rewritten = {}
+        for key, value in payload.items():
+            if key == "raw_path" and isinstance(value, str) and value in path_map:
+                rewritten[key] = path_map[value]
+            else:
+                rewritten[key] = rewrite_raw_paths(value, path_map)
+        return rewritten
+    if isinstance(payload, list):
+        return [rewrite_raw_paths(item, path_map) for item in payload]
+    return payload
 
 
 def sha256_file(path: Path) -> str:
@@ -713,7 +783,7 @@ def git_commit(repo_root: Path | None = None) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], snapshot: dict[str, Any], technicals: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
+def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], snapshot: dict[str, Any], technicals: dict[str, Any], fundamentals: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
     lines = [f"# {symbol} Deterministic Research Input Pack", "", f"As of: {as_of}", "", "This is a deterministic data package, not investment advice.", "", "## Executive Summary Facts"]
     for key in ["company_name", "asset_type", "exchange", "sic"]:
         point = identity.get(key)
@@ -733,6 +803,12 @@ def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], s
         if point:
             value = point.get("value") if point.get("status") == "ok" else point.get("status")
             lines.append(f"- {key.upper()}: {value}. Source: {point.get('provider')}, `{point.get('raw_path')}`.")
+    if fundamentals:
+        lines.extend(["", "## Equity Fundamentals"])
+        for key in ["revenue_ttm", "gross_profit_ttm", "ebitda", "eps", "profit_margin", "shares_outstanding"]:
+            point = fundamentals.get(key)
+            if point:
+                lines.append(f"- {key.replace('_', ' ').title()}: {point.get('value')}. Source: {point.get('provider')}, `{point.get('raw_path')}`.")
     lines.extend(["", "## Data Gaps and Cautions"])
     for gap in gaps:
         lines.append(f"- {gap['field']}: {gap['notes']}")
@@ -757,20 +833,27 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     bundle_dir = output_root / symbol / as_of
     normalized = bundle_dir / "normalized"
     normalized.mkdir(parents=True, exist_ok=True)
-    raw_entries = copy_raw_files(cache_root, symbol, bundle_dir)
+    raw_entries, raw_path_map = copy_raw_files(cache_root, symbol, bundle_dir)
     identity = normalize_identity(cache_root, symbol)
     if asset_type != "auto":
         identity["asset_type"] = provenance(asset_type, "cli", "", "asset_type", Path(""))
     prices, price_raw, price_provider, price_url = normalize_prices(cache_root, symbol)
     snapshot = normalize_market_snapshot(cache_root, symbol, prices, price_raw, price_provider, price_url)
     technicals = technicals_from_prices(prices, price_provider, price_raw, price_url)
+    fundamentals = normalize_equity_fundamentals(cache_root, symbol)
+    identity = rewrite_raw_paths(identity, raw_path_map)
+    snapshot = rewrite_raw_paths(snapshot, raw_path_map)
+    technicals = rewrite_raw_paths(technicals, raw_path_map)
+    fundamentals = rewrite_raw_paths(fundamentals, raw_path_map)
+    price_raw_path = raw_path_map.get(str(price_raw), str(price_raw) if price_raw else None)
     gaps = default_gaps(identity, snapshot)
     write_json(normalized / "identity.json", identity)
     write_json(normalized / "market_snapshot.json", snapshot)
-    write_json(normalized / "prices_daily.json", {"prices": prices, "provider": price_provider, "raw_path": str(price_raw) if price_raw else None})
+    write_json(normalized / "prices_daily.json", {"prices": prices, "provider": price_provider, "raw_path": price_raw_path})
     write_json(normalized / "technical_signals.json", technicals)
     write_json(normalized / "news.json", normalize_news(cache_root, symbol))
-    for filename in ["sec_filings_index", "sec_filing_sections", "equity_fundamentals", "equity_events", "equity_insiders", "etf_profile", "etf_holdings", "etf_distributions", "etf_performance"]:
+    write_json(normalized / "equity_fundamentals.json", fundamentals if fundamentals else {"status": "unavailable", "gaps_recorded": True})
+    for filename in ["sec_filings_index", "sec_filing_sections", "equity_events", "equity_insiders", "etf_profile", "etf_holdings", "etf_distributions", "etf_performance"]:
         write_json(normalized / f"{filename}.json", {"status": "not_implemented_in_core_pass", "gaps_recorded": True})
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})
@@ -793,7 +876,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     if config:
         manifest = json.loads(redact(json.dumps(manifest), config))
     write_json(bundle_dir / "manifest.json", manifest)
-    (bundle_dir / "research_input_pack.md").write_text(build_research_markdown(symbol, as_of, identity, snapshot, technicals, gaps), encoding="utf-8")
+    (bundle_dir / "research_input_pack.md").write_text(build_research_markdown(symbol, as_of, identity, snapshot, technicals, fundamentals, gaps), encoding="utf-8")
     assert_no_secrets_in_tree(bundle_dir, config)
     return {"symbol": symbol, "bundle_dir": str(bundle_dir), "manifest": str(bundle_dir / "manifest.json")}
 

@@ -148,6 +148,8 @@ def test_offline_fetch_builds_bundle_with_provenance_analytics_and_gaps(tmp_path
     assert any(gap["field"] == "short_interest" for gap in gaps["gaps"])
     assert "Latest close: 132" in pack
     assert "Source: tiingo" in pack
+    assert "data/cache" not in pack
+    assert "raw/tiingo/" in pack
 
 
 def test_cli_doctor_redacts_secrets(tmp_path):
@@ -239,6 +241,16 @@ def test_provider_status_reports_cached_errors(tmp_path):
     statuses = module.collect_provider_status(cache, "AAPL", ["eodhd"])
 
     assert statuses == [{"provider": "eodhd", "raw_files": 1, "status": "unauthorized", "errors": 1}]
+
+
+def test_provider_status_reclassifies_cached_semantic_errors(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(cache, "AAPL", "alphavantage", "prices", {}, {"Information": "API rate limit reached."}, source_url="https://example.test")
+
+    statuses = module.collect_provider_status(cache, "AAPL", ["alphavantage"])
+
+    assert statuses == [{"provider": "alphavantage", "raw_files": 1, "status": "rate_limited", "errors": 1}]
 
 
 def test_http_json_retries_rate_limit_with_exponential_backoff(monkeypatch):
@@ -397,3 +409,45 @@ def test_duplicate_provider_values_keep_primary_and_candidates(tmp_path):
     assert snapshot["market_capitalization"]["alternates"][0]["provider"] == "alphavantage"
     assert snapshot["pe_ratio"]["provider"] == "eodhd"
     assert snapshot["pe_ratio"]["alternates"][0]["value"] == 31
+
+
+def test_fetch_with_cache_marks_alpha_vantage_information_as_rate_limited(tmp_path, monkeypatch):
+    module = load_module()
+
+    monkeypatch.setattr(module, "http_json", lambda *args, **kwargs: {"Information": "API rate limit reached."})
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    path = module.fetch_with_cache(tmp_path, "AAPL", "alphavantage", "prices", {"symbol": "AAPL"}, "https://example.test", "https://example.test", config, refresh=True)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["provider_result"]["status"] == "rate_limited"
+    assert "Information" in payload["provider_result"]["error"]
+
+
+def test_alpha_vantage_overview_promotes_equity_fundamentals(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "NIO",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "NIO"},
+        {
+            "Name": "Nio Inc Class A ADR",
+            "MarketCapitalization": "15184593000",
+            "PERatio": "31",
+            "RevenueTTM": "65173150000",
+            "GrossProfitTTM": "15855288000",
+            "EBITDA": "-467509504",
+            "EPS": "-0.56",
+            "Beta": "0.975",
+        },
+        source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=NIO",
+    )
+
+    fundamentals = module.normalize_equity_fundamentals(cache, "NIO")
+
+    assert fundamentals["revenue_ttm"]["value"] == 65173150000
+    assert fundamentals["gross_profit_ttm"]["provider"] == "alphavantage"
+    assert fundamentals["eps"]["value"] == -0.56
