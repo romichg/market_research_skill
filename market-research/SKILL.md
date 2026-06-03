@@ -37,20 +37,20 @@ Do not abandon the report solely because a helper failed unless no credible publ
 
 ```bash
 python3 {baseDir}/scripts/research_data.py doctor
-python3 {baseDir}/scripts/research_data.py fetch SYMBOL --asset-type auto --as-of YYYY-MM-DD
+python3 {baseDir}/scripts/research_data.py fetch SYMBOL --asset-type auto --as-of YYYY-MM-DD --reports-dir ./reports
 ```
 
 Use `--providers sec,tiingo,eodhd` to restrict calls and `--max-provider-calls PROVIDER=N` to stay within free-tier budgets. Use offline mode to rebuild normalized outputs without rerunning successful provider collection:
 
 ```bash
-python3 {baseDir}/scripts/research_data.py fetch SYMBOL --offline --as-of YYYY-MM-DD
+python3 {baseDir}/scripts/research_data.py fetch SYMBOL --offline --as-of YYYY-MM-DD --reports-dir ./reports
 python3 {baseDir}/scripts/research_data.py list-cache SYMBOL
 ```
 
 The deterministic collector writes:
 
 ```text
-data/output/SYMBOL/AS_OF/
+reports/SYMBOL/AS_OF/
   manifest.json
   source_manifest.json
   gaps.json
@@ -59,7 +59,7 @@ data/output/SYMBOL/AS_OF/
   research_input_pack.md
 ```
 
-Use this output as the primary factual input. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap; do not invent or infer unsupported values.
+Use this output as the primary factual input. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap; do not invent or infer unsupported values. Live API calls use conservative retries/backoff for transient 429/503/network failures and do not retry unauthorized or not-found responses aggressively.
 
 2. If deterministic output is sparse or a legacy research bundle is required, normalize the symbol to uppercase and create the run:
 
@@ -141,6 +141,8 @@ market-research-runs/SYMBOL/
 ## Source Discipline
 
 Every material quantitative claim must be cited or marked `Data not available` / `unverified`. Include source date, accessed date, and confidence when possible.
+
+For deterministic bundles, cite the normalized file and raw source path, for example `reports/AAPL/2026-06-01/normalized/market_snapshot.json` and the corresponding `raw/` JSON from `source_manifest.json`.
 
 Every cited `source_id` should appear in `sources.json`; every cited public page or document should have a frozen `local_artifact` in `source_bundle/` when the source can be saved. If a dynamic page cannot be captured cleanly, describe the limitation as a workflow extraction gap rather than public-data unavailability.
 

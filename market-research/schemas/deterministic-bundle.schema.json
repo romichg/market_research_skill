@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deterministic Market Research Bundle",
+  "type": "object",
+  "required": ["manifest", "source_manifest", "gaps", "normalized"],
+  "properties": {
+    "manifest": {
+      "type": "object",
+      "required": ["symbol", "normalized_symbol", "asset_type", "as_of", "provider_status", "cache"],
+      "properties": {
+        "symbol": {"type": "string"},
+        "normalized_symbol": {"type": "string"},
+        "asset_type": {"enum": ["equity", "adr", "etf", "fund", "unknown"]},
+        "as_of": {"type": "string"},
+        "tool_version": {"type": "string"},
+        "git_commit": {"type": ["string", "null"]},
+        "provider_status": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/provider_status"}
+        },
+        "cache": {"type": "object"},
+        "warnings": {"type": "array"},
+        "errors": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "source_manifest": {
+      "type": "object",
+      "required": ["sources"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/source_record"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "gaps": {
+      "type": "object",
+      "required": ["gaps"],
+      "properties": {
+        "gaps": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/data_gap"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "normalized": {
+      "type": "object",
+      "required": ["identity", "market_snapshot", "prices_daily", "technical_signals", "news"],
+      "properties": {
+        "identity": {"type": "object", "additionalProperties": {"$ref": "#/$defs/data_point"}},
+        "market_snapshot": {"type": "object", "additionalProperties": {"$ref": "#/$defs/data_point"}},
+        "prices_daily": {
+          "type": "object",
+          "required": ["prices", "provider", "raw_path"],
+          "properties": {
+            "prices": {"type": "array", "items": {"$ref": "#/$defs/daily_price"}},
+            "provider": {"type": ["string", "null"]},
+            "raw_path": {"type": ["string", "null"]}
+          },
+          "additionalProperties": true
+        },
+        "technical_signals": {"type": "object", "additionalProperties": {"$ref": "#/$defs/data_point"}},
+        "news": {"type": "object", "additionalProperties": true},
+        "sec_filings_index": {"type": "object", "additionalProperties": true},
+        "sec_filing_sections": {"type": "object", "additionalProperties": true},
+        "equity_fundamentals": {"type": "object", "additionalProperties": true},
+        "equity_events": {"type": "object", "additionalProperties": true},
+        "equity_insiders": {"type": "object", "additionalProperties": true},
+        "etf_profile": {"type": "object", "additionalProperties": true},
+        "etf_holdings": {"type": "object", "additionalProperties": true},
+        "etf_distributions": {"type": "object", "additionalProperties": true},
+        "etf_performance": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "data_point": {
+      "type": "object",
+      "required": ["value", "provider", "source_url", "endpoint", "raw_path", "status"],
+      "properties": {
+        "value": true,
+        "unit": {"type": ["string", "null"]},
+        "period": {"type": ["string", "null"]},
+        "as_of": {"type": ["string", "null"]},
+        "provider": {"type": "string"},
+        "source_url": {"type": "string"},
+        "endpoint": {"type": "string"},
+        "raw_path": {"type": "string"},
+        "fetched_at_utc": {"type": "string"},
+        "status": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "daily_price": {
+      "type": "object",
+      "required": ["date", "adjusted_close"],
+      "properties": {
+        "date": {"type": "string"},
+        "open": {"type": ["number", "integer", "null"]},
+        "high": {"type": ["number", "integer", "null"]},
+        "low": {"type": ["number", "integer", "null"]},
+        "close": {"type": ["number", "integer", "null"]},
+        "adjusted_close": {"type": ["number", "integer"]},
+        "volume": {"type": ["number", "integer", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "source_record": {
+      "type": "object",
+      "required": ["provider", "endpoint", "raw_path", "status"],
+      "properties": {
+        "provider": {"type": "string"},
+        "endpoint": {"type": ["string", "null"]},
+        "url": {"type": ["string", "null"]},
+        "raw_path": {"type": "string"},
+        "status": {"type": ["string", "null"]},
+        "sha256": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "provider_status": {
+      "type": "object",
+      "required": ["provider", "raw_files", "status"],
+      "properties": {
+        "provider": {"type": "string"},
+        "raw_files": {"type": "integer"},
+        "status": {"type": "string"},
+        "errors": {"type": "integer"}
+      },
+      "additionalProperties": true
+    },
+    "data_gap": {
+      "type": "object",
+      "required": ["field", "status", "attempted_sources", "notes"],
+      "properties": {
+        "field": {"type": "string"},
+        "status": {"type": "string"},
+        "attempted_sources": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

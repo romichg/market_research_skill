@@ -116,10 +116,12 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
             f"$market-research {symbol}",
             "",
             "Run the market-research skill in this fresh Codex context.",
+            f"Use the deterministic producer first: `python3 market-research/scripts/research_data.py fetch {symbol} --reports-dir {Path(run_dir).parent} --as-of YYYY-MM-DD`.",
+            f"Write the final deterministic bundle under `{run_dir}` or report the exact generated `reports/` bundle path if the as-of date differs.",
             "As you run the skill, identify any market-research skill issues separately.",
             f"Write producer skill issues to `{run_dir}/{symbol}-market-research-skill-issues.md`.",
             f"Write or update artifacts under `{run_dir}`.",
-            "Use public/free sources, freeze cited artifacts where possible, and disclose data gaps.",
+            "Use public/free APIs, cache raw responses, preserve provenance, and disclose data gaps.",
             "",
         ]
     )
@@ -302,13 +304,17 @@ def cmd_init_batch(args: argparse.Namespace) -> None:
 
 
 def render_command(template: str, *, prompt_file: Path, symbol: str, run_dir: Path, iteration_dir: Path) -> str:
-    return template.format(
-        prompt_file=str(prompt_file),
-        symbol=symbol,
-        run_dir=str(run_dir),
-        iteration_dir=str(iteration_dir),
-        cwd=shlex.quote(str(Path.cwd())),
-    )
+    replacements = {
+        "{prompt_file}": str(prompt_file),
+        "{symbol}": symbol,
+        "{run_dir}": str(run_dir),
+        "{iteration_dir}": str(iteration_dir),
+        "{cwd}": shlex.quote(str(Path.cwd())),
+    }
+    rendered = template
+    for placeholder, value in replacements.items():
+        rendered = rendered.replace(placeholder, value)
+    return rendered.replace("{{", "{").replace("}}", "}")
 
 
 def run_shell_command(command: str, log_path: Path, *, timeout_seconds: int | None = None) -> CommandResult:
@@ -356,7 +362,12 @@ def run_shell_command(command: str, log_path: Path, *, timeout_seconds: int | No
 
 
 def producer_artifacts_exist(run_dir: Path, symbol: str) -> bool:
-    return (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists()
+    legacy = (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists()
+    deterministic = all(
+        (run_dir / name).exists()
+        for name in ["research_input_pack.md", "manifest.json", "source_manifest.json", "gaps.json", "normalized"]
+    )
+    return legacy or deterministic
 
 
 def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:

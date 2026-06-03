@@ -47,6 +47,22 @@ class ProviderConfig:
         self.loaded_files = loaded_files or []
 
 
+class RetryPolicy:
+    def __init__(
+        self,
+        max_attempts: int = 3,
+        initial_backoff_seconds: float = 1.0,
+        backoff_multiplier: float = 2.0,
+        retry_http_statuses: tuple[int, ...] = (429, 503),
+        retry_url_errors: bool = True,
+    ):
+        self.max_attempts = max_attempts
+        self.initial_backoff_seconds = initial_backoff_seconds
+        self.backoff_multiplier = backoff_multiplier
+        self.retry_http_statuses = retry_http_statuses
+        self.retry_url_errors = retry_url_errors
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -164,7 +180,7 @@ def load_env_files(repo_root: Path | str = ".") -> ProviderConfig:
         if path.exists():
             values.update(load_env_file(path))
             loaded.append(str(path))
-    for key in set(PROVIDER_ENV["sec"] + list(SECRET_NAMES) + ["RESEARCH_DATA_DIR", "RESEARCH_CACHE_DIR"]):
+    for key in set(PROVIDER_ENV["sec"] + list(SECRET_NAMES) + ["RESEARCH_REPORTS_DIR", "RESEARCH_DATA_DIR", "RESEARCH_CACHE_DIR"]):
         if os.environ.get(key):
             values[key] = os.environ[key]
     return ProviderConfig(values=values, docs=docs, limits=limits, loaded_files=loaded)
@@ -199,15 +215,22 @@ def write_env_example(repo_root: Path | str, config: ProviderConfig | None = Non
         "TIINGO_API_TOKEN",
         "EODHD_API_KEY",
         "FMP_API_KEY",
-        "RESEARCH_DATA_DIR",
+        "RESEARCH_REPORTS_DIR",
         "RESEARCH_CACHE_DIR",
     ]
     lines = []
     for key in keys:
-        default = "./data" if key == "RESEARCH_DATA_DIR" else "./data/cache" if key == "RESEARCH_CACHE_DIR" else ""
+        default = "./reports" if key == "RESEARCH_REPORTS_DIR" else "./.cache/market-research" if key == "RESEARCH_CACHE_DIR" else ""
         lines.append(f"{key}={default}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def resolve_storage_paths(repo_root: Path | str, config: ProviderConfig, data_dir: str | None = None, cache_dir: str | None = None, reports_dir: str | None = None) -> dict[str, Path]:
+    root = Path(repo_root)
+    resolved_reports = Path(reports_dir or config.values.get("RESEARCH_REPORTS_DIR", data_dir or root / "reports"))
+    resolved_cache = Path(cache_dir or config.values.get("RESEARCH_CACHE_DIR", root / ".cache" / "market-research"))
+    return {"reports_dir": resolved_reports, "cache_dir": resolved_cache}
 
 
 def cache_key(provider: str, endpoint: str, params: dict[str, Any]) -> str:
@@ -276,11 +299,36 @@ def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: P
     }
 
 
-def http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20) -> Any:
+def retry_policy_for_provider(provider: str) -> RetryPolicy:
+    if provider == "sec":
+        return RetryPolicy(max_attempts=3, initial_backoff_seconds=1.0)
+    if provider in {"alphavantage", "twelve_data", "marketaux"}:
+        return RetryPolicy(max_attempts=3, initial_backoff_seconds=1.0)
+    return RetryPolicy(max_attempts=3, initial_backoff_seconds=0.5)
+
+
+def should_retry(exc: BaseException, policy: RetryPolicy) -> bool:
+    if isinstance(exc, HTTPError):
+        return exc.code in policy.retry_http_statuses
+    if isinstance(exc, (URLError, TimeoutError)):
+        return policy.retry_url_errors
+    return False
+
+
+def http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20, retry_policy: RetryPolicy | None = None) -> Any:
+    policy = retry_policy or RetryPolicy(max_attempts=1)
     request = Request(url, headers=headers or {})
-    with urlopen(request, timeout=timeout) as response:
-        body = response.read()
-    return json.loads(body.decode("utf-8"))
+    backoff = policy.initial_backoff_seconds
+    for attempt in range(1, policy.max_attempts + 1):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                body = response.read()
+            return json.loads(body.decode("utf-8"))
+        except (HTTPError, URLError, TimeoutError) as exc:
+            if attempt >= policy.max_attempts or not should_retry(exc, policy):
+                raise
+            time.sleep(backoff)
+            backoff *= policy.backoff_multiplier
 
 
 def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str, params: dict[str, Any], url: str, source_url: str, config: ProviderConfig, headers: dict[str, str] | None = None, refresh: bool = False) -> Path:
@@ -288,7 +336,7 @@ def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str
     if path.exists() and not refresh:
         return path
     try:
-        data = http_json(url, headers=headers)
+        data = http_json(url, headers=headers, retry_policy=retry_policy_for_provider(provider))
         return write_raw(cache_root, symbol, provider, endpoint, params, data, source_url=source_url)
     except HTTPError as exc:
         status = "rate_limited" if exc.code == 429 else "unauthorized" if exc.code in {401, 403} else "error"
@@ -715,16 +763,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
     write_env_example(root, config)
-    data_dir = Path(config.values.get("RESEARCH_DATA_DIR", root / "data"))
-    cache_dir = Path(config.values.get("RESEARCH_CACHE_DIR", data_dir / "cache"))
-    data_dir.mkdir(parents=True, exist_ok=True)
+    paths = resolve_storage_paths(root, config, reports_dir=getattr(args, "reports_dir", None), cache_dir=getattr(args, "cache_dir", None))
+    reports_dir = paths["reports_dir"]
+    cache_dir = paths["cache_dir"]
+    reports_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     providers = configured_providers(config)
     payload = {
         "python": sys.version.split()[0],
         "repo_root": str(root),
         "loaded_files": [Path(item).name for item in config.loaded_files],
-        "data_dir_writable": os.access(data_dir, os.W_OK),
+        "reports_dir_writable": os.access(reports_dir, os.W_OK),
         "cache_dir_writable": os.access(cache_dir, os.W_OK),
         "providers": providers,
         "docs": config.docs,
@@ -739,9 +788,9 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     config = load_env_files(root)
     symbol = normalize_symbol(args.symbol)
     as_of = args.as_of or date.today().isoformat()
-    data_dir = Path(args.data_dir or config.values.get("RESEARCH_DATA_DIR", root / "data"))
-    cache_root = Path(args.cache_dir or config.values.get("RESEARCH_CACHE_DIR", data_dir / "cache"))
-    output_root = data_dir / "output"
+    paths = resolve_storage_paths(root, config, data_dir=getattr(args, "data_dir", None), cache_dir=getattr(args, "cache_dir", None), reports_dir=getattr(args, "reports_dir", None))
+    cache_root = paths["cache_dir"]
+    output_root = paths["reports_dir"]
     providers = parse_provider_list(args.providers, config)
     budgets = parse_budgets(args.max_provider_calls)
     if not args.offline:
@@ -761,8 +810,8 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 def cmd_list_cache(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
-    data_dir = Path(args.data_dir or config.values.get("RESEARCH_DATA_DIR", root / "data"))
-    cache_root = Path(args.cache_dir or config.values.get("RESEARCH_CACHE_DIR", data_dir / "cache"))
+    paths = resolve_storage_paths(root, config, data_dir=getattr(args, "data_dir", None), cache_dir=getattr(args, "cache_dir", None), reports_dir=getattr(args, "reports_dir", None))
+    cache_root = paths["cache_dir"]
     symbol = normalize_symbol(args.symbol)
     files = [str(path) for path in sorted((cache_root / symbol).glob("*/*.json"))] if (cache_root / symbol).exists() else []
     print(json.dumps({"symbol": symbol, "files": files}, indent=2))
@@ -771,8 +820,8 @@ def cmd_list_cache(args: argparse.Namespace) -> None:
 def cmd_clear_cache(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
-    data_dir = Path(args.data_dir or config.values.get("RESEARCH_DATA_DIR", root / "data"))
-    cache_root = Path(args.cache_dir or config.values.get("RESEARCH_CACHE_DIR", data_dir / "cache"))
+    paths = resolve_storage_paths(root, config, data_dir=getattr(args, "data_dir", None), cache_dir=getattr(args, "cache_dir", None), reports_dir=getattr(args, "reports_dir", None))
+    cache_root = paths["cache_dir"]
     symbol = normalize_symbol(args.symbol)
     provider_root = cache_root / symbol / args.provider
     removed = 0
@@ -785,7 +834,8 @@ def cmd_clear_cache(args: argparse.Namespace) -> None:
 
 def add_common_paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo-root", default=".")
-    parser.add_argument("--data-dir")
+    parser.add_argument("--data-dir", help=argparse.SUPPRESS)
+    parser.add_argument("--reports-dir")
     parser.add_argument("--cache-dir")
 
 
@@ -794,6 +844,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--repo-root", default=".")
+    doctor.add_argument("--reports-dir")
+    doctor.add_argument("--cache-dir")
     doctor.add_argument("--no-network", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
     fetch = sub.add_parser("fetch")

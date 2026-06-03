@@ -4,10 +4,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "market-research" / "scripts" / "research_data.py"
+DETERMINISTIC_SCHEMA = ROOT / "market-research" / "schemas" / "deterministic-bundle.schema.json"
 
 
 def load_module():
@@ -191,7 +193,7 @@ def test_live_fetch_urls_do_not_store_tokens_in_source_url(tmp_path, monkeypatch
     module = load_module()
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
         seen.append(url)
         return []
 
@@ -236,3 +238,86 @@ def test_provider_status_reports_cached_errors(tmp_path):
     statuses = module.collect_provider_status(cache, "AAPL", ["eodhd"])
 
     assert statuses == [{"provider": "eodhd", "raw_files": 1, "status": "unauthorized", "errors": 1}]
+
+
+def test_http_json_retries_rate_limit_with_exponential_backoff(monkeypatch):
+    module = load_module()
+    calls = []
+    sleeps = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"ok": true}'
+
+    def fake_urlopen(request, timeout=20):
+        calls.append(request)
+        if len(calls) < 3:
+            raise HTTPError(request.full_url, 429, "rate limited", {}, None)
+        return Response()
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    assert module.http_json("https://example.test/data", retry_policy=module.retry_policy_for_provider("alphavantage")) == {"ok": True}
+    assert len(calls) == 3
+    assert sleeps == [1.0, 2.0]
+
+
+def test_http_json_does_not_retry_unauthorized(monkeypatch):
+    module = load_module()
+    calls = []
+
+    def fake_urlopen(request, timeout=20):
+        calls.append(request)
+        raise HTTPError(request.full_url, 403, "forbidden", {}, None)
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+
+    try:
+        module.http_json("https://example.test/data", retry_policy=module.retry_policy_for_provider("marketaux"))
+    except HTTPError:
+        pass
+    else:
+        raise AssertionError("HTTP 403 should be raised without retries")
+
+    assert len(calls) == 1
+
+
+def test_default_paths_use_reports_for_polished_output(tmp_path):
+    module = load_module()
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.resolve_storage_paths(tmp_path, config, data_dir=None, cache_dir=None, reports_dir=None)
+
+    assert paths["reports_dir"] == tmp_path / "reports"
+    assert paths["cache_dir"] == tmp_path / ".cache" / "market-research"
+
+
+def test_deterministic_schema_covers_normalized_outputs():
+    schema = json.loads(DETERMINISTIC_SCHEMA.read_text(encoding="utf-8"))
+    normalized = schema["properties"]["normalized"]["properties"]
+
+    assert set(normalized) >= {
+        "identity",
+        "market_snapshot",
+        "prices_daily",
+        "technical_signals",
+        "news",
+        "sec_filings_index",
+        "sec_filing_sections",
+        "equity_fundamentals",
+        "equity_events",
+        "equity_insiders",
+        "etf_profile",
+        "etf_holdings",
+        "etf_distributions",
+        "etf_performance",
+    }
+    data_point = schema["$defs"]["data_point"]
+    assert set(data_point["required"]) >= {"value", "provider", "source_url", "endpoint", "raw_path", "status"}

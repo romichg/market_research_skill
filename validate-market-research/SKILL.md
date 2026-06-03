@@ -25,7 +25,7 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 
 ## Workflow
 
-1. Inspect the run directory shape. The helper supports both legacy `SYMBOL-research.md/json` runs and deterministic `data/output/SYMBOL/AS_OF/` bundles. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
+1. Inspect the run directory shape. The helper supports both legacy `SYMBOL-research.md/json` runs and deterministic `reports/SYMBOL/AS_OF/` bundles. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
 
 ```bash
 python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-runs/SYMBOL
@@ -39,6 +39,7 @@ python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-r
 
 - Verify material quantitative claims against cited sources.
 - For deterministic bundles, verify normalized values have provider, source URL, raw path, and status provenance.
+- Confirm deterministic bundle files align with `market-research/schemas/deterministic-bundle.schema.json`.
 - Treat successful deterministic provider outputs as frozen evidence. Validate non-deterministic interpretation, generated prose, missing-data handling, stale-data caveats, and cited-source support.
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.

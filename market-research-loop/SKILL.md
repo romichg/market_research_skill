@@ -21,7 +21,7 @@ Keep research, validation, remediation, and skill improvement separate.
 From the repo root:
 
 ```bash
-python3 market-research-loop/scripts/research_loop.py run-batch SYMBOL ... --run-root experiments/market-research-loop-YYYYMMDD --max-remediation-loops 3
+python3 market-research-loop/scripts/research_loop.py run-batch SYMBOL ... --run-root reports/market-research-loop-YYYYMMDD --max-remediation-loops 3
 ```
 
 Defaults launch child sessions with:
@@ -52,6 +52,11 @@ Each run root contains:
 - `operator-notes.md`
 - `SYMBOL/iteration-*/producer.log`
 - `SYMBOL/iteration-*/validator.log`
+- `SYMBOL/research_input_pack.md`
+- `SYMBOL/manifest.json`
+- `SYMBOL/source_manifest.json`
+- `SYMBOL/gaps.json`
+- `SYMBOL/normalized/`
 - `SYMBOL/SYMBOL-research.md`
 - `SYMBOL/SYMBOL-research.json`
 - `SYMBOL/SYMBOL-validation.md`
@@ -76,4 +81,3 @@ This writes `skill-improvement-feedback.md` and `.json`. Review those manually, 
 - `validator_failed`: inspect `validator.log`; check for partial validation JSON.
 - `failed_blocking_issues`: inspect the latest validation JSON, then either let the loop run another remediation if budget remains or report unresolved blocking IDs.
 - Repeated harness failures: append concrete details to `loop-skill-issues.md`.
-
