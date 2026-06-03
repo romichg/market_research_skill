@@ -116,7 +116,7 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
             f"$market-research {symbol}",
             "",
             "Run the market-research skill in this fresh Codex context.",
-            f"Use the deterministic producer first: `python3 market-research/scripts/research_data.py fetch {symbol} --reports-dir {Path(run_dir).parent} --as-of YYYY-MM-DD`.",
+            f"Use the deterministic producer first: `python3 market-research/scripts/deterministic_research_collector.py fetch {symbol} --reports-dir {Path(run_dir).parent} --as-of YYYY-MM-DD`.",
             f"Write the final deterministic bundle under `{run_dir}` or report the exact generated `reports/` bundle path if the as-of date differs.",
             "As you run the skill, identify any market-research skill issues separately.",
             f"Write producer skill issues to `{run_dir}/{symbol}-market-research-skill-issues.md`.",

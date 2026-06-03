@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Cache-first deterministic collector for free/public market-research APIs.
+
+Fetches raw provider responses, preserves provenance, normalizes canonical
+research fields, computes local price analytics, and writes report bundles.
+"""
 from __future__ import annotations
 
 import argparse
@@ -284,8 +289,8 @@ def read_raw_latest(cache_root: Path, symbol: str, provider: str, endpoint: str)
     return path, read_json(path)
 
 
-def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: Path, unit: str | None = None, as_of: str | None = None, status: str = "ok") -> dict[str, Any]:
-    return {
+def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: Path, unit: str | None = None, as_of: str | None = None, status: str = "ok", alternates: list[dict[str, Any]] | None = None, attempted_providers: list[str] | None = None, selection_reason: str | None = None) -> dict[str, Any]:
+    point = {
         "value": value,
         "unit": unit,
         "period": None,
@@ -297,6 +302,30 @@ def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: P
         "fetched_at_utc": utc_now(),
         "status": status,
     }
+    if alternates:
+        point["alternates"] = alternates
+    if attempted_providers:
+        point["attempted_providers"] = attempted_providers
+    if selection_reason:
+        point["selection_reason"] = selection_reason
+    return point
+
+
+def data_point_candidate(value: Any, provider: str, source_url: str, endpoint: str, raw: Path, unit: str | None = None, as_of: str | None = None) -> dict[str, Any]:
+    return provenance(value, provider, source_url, endpoint, raw, unit=unit, as_of=as_of)
+
+
+def choose_candidate(candidates: list[dict[str, Any]], attempted_providers: list[str], selection_reason: str = "primary_source_priority") -> dict[str, Any] | None:
+    usable = [candidate for candidate in candidates if candidate.get("value") not in (None, "", [], {})]
+    if not usable:
+        return None
+    chosen = dict(usable[0])
+    alternates = [dict(candidate) for candidate in usable[1:]]
+    if alternates:
+        chosen["alternates"] = alternates
+    chosen["attempted_providers"] = attempted_providers
+    chosen["selection_reason"] = selection_reason
+    return chosen
 
 
 def retry_policy_for_provider(provider: str) -> RetryPolicy:
@@ -596,7 +625,11 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         closes = [row["adjusted_close"] for row in prices if row.get("adjusted_close") is not None]
         snapshot["fifty_two_week_high"] = provenance(max(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
         snapshot["fifty_two_week_low"] = provenance(min(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
+    market_cap_candidates: list[dict[str, Any]] = []
+    pe_candidates: list[dict[str, Any]] = []
+    attempted = []
     eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals")
+    attempted.append("eodhd")
     if eod:
         raw, payload = eod
         data = payload.get("data", {})
@@ -604,9 +637,27 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         highlights = data.get("Highlights", {})
         url = payload.get("provider_result", {}).get("url", "")
         if general.get("MarketCapitalization") is not None:
-            snapshot["market_capitalization"] = provenance(general["MarketCapitalization"], "eodhd", url, "fundamentals", raw)
+            market_cap_candidates.append(data_point_candidate(general["MarketCapitalization"], "eodhd", url, "fundamentals", raw))
         if highlights.get("PERatio") is not None:
-            snapshot["pe_ratio"] = provenance(highlights["PERatio"], "eodhd", url, "fundamentals", raw)
+            pe_candidates.append(data_point_candidate(highlights["PERatio"], "eodhd", url, "fundamentals", raw))
+    av = read_raw_latest(cache_root, symbol, "alphavantage", "overview")
+    attempted.append("alphavantage")
+    if av:
+        raw, payload = av
+        data = payload.get("data", {})
+        url = payload.get("provider_result", {}).get("url", "")
+        market_cap = number(data.get("MarketCapitalization"))
+        pe_ratio = number(data.get("PERatio") or data.get("TrailingPE"))
+        if market_cap is not None:
+            market_cap_candidates.append(data_point_candidate(market_cap, "alphavantage", url, "overview", raw))
+        if pe_ratio is not None:
+            pe_candidates.append(data_point_candidate(pe_ratio, "alphavantage", url, "overview", raw))
+    chosen_market_cap = choose_candidate(market_cap_candidates, attempted)
+    if chosen_market_cap:
+        snapshot["market_capitalization"] = chosen_market_cap
+    chosen_pe = choose_candidate(pe_candidates, attempted)
+    if chosen_pe:
+        snapshot["pe_ratio"] = chosen_pe
     return snapshot
 
 

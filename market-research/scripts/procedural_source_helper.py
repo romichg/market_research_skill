@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Procedural source helper for manual evidence capture and gap filling.
+
+Maintains legacy run directories, source registries, copied artifacts,
+classification notes, procedural data points, and issuer-payload promotion.
+"""
 from __future__ import annotations
 
 import argparse
@@ -717,7 +722,7 @@ def cmd_extract_blackrock(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Best-effort deterministic helper for the Codex market-research skill.")
+    parser = argparse.ArgumentParser(description="Procedural source registry and gap-fill helper for the Codex market-research skill.")
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init-run", help="Create a run directory and manifest.")
     init.add_argument("symbol")

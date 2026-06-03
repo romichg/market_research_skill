@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Deterministic Market Research Bundle",
+  "description": "Schema for reports produced by deterministic_research_collector.py. Raw provider payloads are preserved in raw/ and source_manifest.json; normalized fields include selected values plus optional alternate provider candidates.",
   "type": "object",
   "required": ["manifest", "source_manifest", "gaps", "normalized"],
   "properties": {
@@ -91,6 +92,28 @@
         "endpoint": {"type": "string"},
         "raw_path": {"type": "string"},
         "fetched_at_utc": {"type": "string"},
+        "status": {"type": "string"},
+        "alternates": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/alternate_data_point"}
+        },
+        "attempted_providers": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "selection_reason": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "alternate_data_point": {
+      "type": "object",
+      "required": ["value", "provider", "raw_path", "status"],
+      "properties": {
+        "value": true,
+        "provider": {"type": "string"},
+        "source_url": {"type": "string"},
+        "endpoint": {"type": "string"},
+        "raw_path": {"type": "string"},
         "status": {"type": "string"}
       },
       "additionalProperties": true

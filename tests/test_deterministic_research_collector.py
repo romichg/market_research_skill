@@ -8,12 +8,13 @@ from urllib.error import HTTPError, URLError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "market-research" / "scripts" / "research_data.py"
+SCRIPT = ROOT / "market-research" / "scripts" / "deterministic_research_collector.py"
 DETERMINISTIC_SCHEMA = ROOT / "market-research" / "schemas" / "deterministic-bundle.schema.json"
+PROVIDER_MAP = ROOT / "market-research" / "references" / "provider-data-map.md"
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("research_data", SCRIPT)
+    spec = importlib.util.spec_from_file_location("deterministic_research_collector", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -321,3 +322,78 @@ def test_deterministic_schema_covers_normalized_outputs():
     }
     data_point = schema["$defs"]["data_point"]
     assert set(data_point["required"]) >= {"value", "provider", "source_url", "endpoint", "raw_path", "status"}
+
+
+def test_provider_map_schema_and_docs_are_in_sync():
+    schema = json.loads(DETERMINISTIC_SCHEMA.read_text(encoding="utf-8"))
+    provider_map = PROVIDER_MAP.read_text(encoding="utf-8")
+    normalized = set(schema["properties"]["normalized"]["properties"])
+
+    for section in [
+        "identity",
+        "market_snapshot",
+        "prices_daily",
+        "technical_signals",
+        "news",
+        "sec_filings_index",
+        "sec_filing_sections",
+        "equity_fundamentals",
+        "equity_events",
+        "equity_insiders",
+        "etf_profile",
+        "etf_holdings",
+        "etf_distributions",
+        "etf_performance",
+    ]:
+        assert section in normalized
+        assert f"`{section}`" in provider_map
+
+
+def test_active_market_research_docs_use_new_script_names():
+    active_files = [
+        ROOT / "market-research" / "SKILL.md",
+        ROOT / "market-research" / "references" / "equity-research.md",
+        ROOT / "market-research" / "references" / "etf-research.md",
+        ROOT / "market-research" / "references" / "report-template.md",
+        ROOT / "market-research" / "schemas" / "research-output.schema.json",
+        ROOT / "market-research-loop" / "scripts" / "research_loop.py",
+        ROOT / "validate-market-research" / "SKILL.md",
+        ROOT / "AGENTS.md",
+    ]
+
+    for path in active_files:
+        text = path.read_text(encoding="utf-8")
+        assert "research_data.py" not in text
+        assert "market_research_helper.py" not in text
+    assert "deterministic_research_collector.py" in (ROOT / "market-research" / "SKILL.md").read_text(encoding="utf-8")
+    assert "procedural_source_helper.py" in (ROOT / "market-research" / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_duplicate_provider_values_keep_primary_and_candidates(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "fundamentals",
+        {},
+        {"General": {"Name": "Apple Inc", "MarketCapitalization": 3000000000000}, "Highlights": {"PERatio": 30}},
+        source_url="https://eodhd.example/fundamentals/AAPL.US",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "alphavantage",
+        "overview",
+        {},
+        {"Name": "Apple Inc.", "MarketCapitalization": "2990000000000", "PERatio": "31"},
+        source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=AAPL",
+    )
+
+    snapshot = module.normalize_market_snapshot(cache, "AAPL", [], None, "", "")
+
+    assert snapshot["market_capitalization"]["provider"] == "eodhd"
+    assert snapshot["market_capitalization"]["alternates"][0]["provider"] == "alphavantage"
+    assert snapshot["pe_ratio"]["provider"] == "eodhd"
+    assert snapshot["pe_ratio"]["alternates"][0]["value"] == 31

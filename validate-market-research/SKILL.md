@@ -15,7 +15,7 @@ Use only:
 - Sources cited in those files.
 - Public sources explicitly inspected in this validation session.
 
-Do not rely on the producer conversation as evidence. Treat the report as claims to test. If the run directory is a deterministic `research_data.py` output bundle, do not rerun successful provider collection; inspect `manifest.json`, `source_manifest.json`, `gaps.json`, `normalized/`, raw cached artifacts, and `research_input_pack.md`.
+Do not rely on the producer conversation as evidence. Treat the report as claims to test. If the run directory is a deterministic `deterministic_research_collector.py` output bundle, do not rerun successful provider collection; inspect `manifest.json`, `source_manifest.json`, `gaps.json`, `normalized/`, raw cached artifacts, and `research_input_pack.md`.
 
 ## Resources
 

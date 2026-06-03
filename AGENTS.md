@@ -4,7 +4,7 @@
 
 This repository contains Codex skills for market research workflows. Each top-level skill directory is self-contained:
 
-- `market-research/`: producer skill, schemas, references, agent config, and `scripts/market_research_helper.py`.
+- `market-research/`: producer skill, schemas, references, agent config, and deterministic/procedural helper scripts.
 - `validate-market-research/`: validation skill and deterministic validation helper.
 - `market-research-loop/`: supervised batch loop skill and orchestration helper.
 - `tests/`: pytest coverage for helper scripts and loop behavior.
@@ -18,7 +18,8 @@ Skill instructions live in each `SKILL.md`. Reference documents belong under `re
 There is no package build step. Run helpers directly with Python:
 
 ```bash
-python market-research/scripts/market_research_helper.py --help
+python3 market-research/scripts/deterministic_research_collector.py --help
+python3 market-research/scripts/procedural_source_helper.py --help
 python validate-market-research/scripts/validate_market_research.py --help
 python market-research-loop/scripts/research_loop.py --help
 ```

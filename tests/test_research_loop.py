@@ -67,7 +67,7 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
     validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
     remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
-    assert "research_data.py fetch EWW" in producer
+    assert "deterministic_research_collector.py fetch EWW" in producer
     assert "reports/" in producer
     assert "fresh Codex context" in validator
     assert "$validate-market-research reports/EWW/2026-06-01" in validator
