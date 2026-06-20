@@ -78,6 +78,32 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "Do not delete validator outputs" in remediation
 
 
+def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness("write-prompts", "EWW", "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
+    assert "$market-research-full verifier runtime/EWW" in validator
+    assert "Write validation markdown and JSON artifacts under `reports/EWW/YYYY-MM-DD`." in validator
+    assert "Write validation markdown and JSON artifacts under `runtime/EWW`." not in validator
+
+
+def test_init_batch_validator_prompts_use_reports_as_of_output(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+
+    result = run_harness("init-batch", "EWW", "--run-root", str(root), "--as-of", "2026-06-16")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    validator = (Path(payload["prompt_dirs"]["EWW"]) / "EWW-validator.md").read_text(encoding="utf-8")
+    assert f"$market-research-full verifier {root / 'EWW' / '2026-06-16'}" in validator
+    assert "Write validation markdown and JSON artifacts under `reports/EWW/2026-06-16`." in validator
+    assert f"Write validation markdown and JSON artifacts under `{root / 'EWW' / '2026-06-16'}`." not in validator
+
+
 def test_invalid_shell_symbol_rejected_by_loop(tmp_path):
     result = run_harness("run-batch", "AAPL;touch", "--run-root", str(tmp_path), "--dry-run")
 

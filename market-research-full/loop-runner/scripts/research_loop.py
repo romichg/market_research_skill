@@ -131,8 +131,17 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
     )
 
 
+def default_validation_output_dir(symbol: str, run_dir: str) -> str:
+    path = Path(run_dir)
+    if "runtime" not in path.parts:
+        return run_dir
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name):
+        return f"reports/{symbol}/{path.name}"
+    return f"reports/{symbol}/YYYY-MM-DD"
+
+
 def validator_prompt(symbol: str, run_dir: str, validation_output_dir: str | None = None) -> str:
-    output_dir = validation_output_dir or run_dir
+    output_dir = validation_output_dir or default_validation_output_dir(symbol, run_dir)
     return "\n".join(
         [
             f"$market-research-full verifier {run_dir}",
