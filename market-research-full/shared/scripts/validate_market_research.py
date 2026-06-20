@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -179,9 +180,18 @@ def prevent_accidental_overwrite(out_prefix: Path, force: bool) -> None:
 
 
 def default_output_prefix(bundle: dict[str, Any], artifact_run_dir: Path, symbol: str) -> Path:
-    if bundle["bundle_type"] == "deterministic_data_bundle" and artifact_run_dir.parent.parent.name == "data":
-        repo_root = artifact_run_dir.parent.parent.parent
-        return repo_root / "reports" / symbol / artifact_run_dir.name / f"{symbol}-validation-scaffold"
+    if bundle["bundle_type"] == "deterministic_data_bundle":
+        parts = artifact_run_dir.parts
+        for marker in ["data", "runtime", "reports"]:
+            if marker in parts:
+                marker_index = parts.index(marker)
+                repo_root = Path(*parts[:marker_index]) if marker_index else Path(artifact_run_dir.anchor)
+                break
+        else:
+            repo_root = artifact_run_dir.parent.parent if artifact_run_dir.parent.name == symbol else artifact_run_dir.parent
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", artifact_run_dir.name):
+            return repo_root / "reports" / symbol / artifact_run_dir.name / f"{symbol}-validation-scaffold"
+        return repo_root / "reports" / symbol / f"{symbol}-validation-scaffold"
     return artifact_run_dir / f"{symbol}-validation-scaffold"
 
 
