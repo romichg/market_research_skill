@@ -32,7 +32,7 @@ SECRET_NAMES = {
     "FMP_API_KEY",
 }
 PROVIDER_ENV = {
-    "sec": ["SEC_USER_AGENT"],
+    "sec": ["HTTP_USER_AGENT", "SEC_USER_AGENT"],
     "twelve_data": ["TWELVE_DATA_API_KEY"],
     "marketaux": ["MARKETAUX_API_TOKEN"],
     "alphavantage": ["ALPHAVANTAGE_API_KEY"],
@@ -41,6 +41,12 @@ PROVIDER_ENV = {
     "fmp": ["FMP_API_KEY"],
 }
 DEFAULT_PROVIDERS = ["sec", "tiingo", "eodhd", "alphavantage", "marketaux", "fmp", "twelve_data"]
+DEFAULT_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
+)
+PROJECT_USER_AGENT_TOKENS = ("market-research-skill", "market_research_skill")
 SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PROVIDER_ENDPOINT_COSTS = {
@@ -298,16 +304,25 @@ def configured_providers(config: ProviderConfig) -> list[str]:
     found = []
     for provider, keys in PROVIDER_ENV.items():
         if provider == "sec":
-            if config.values.get("SEC_USER_AGENT"):
-                found.append(provider)
+            found.append(provider)
         elif any(config.values.get(key) for key in keys):
             found.append(provider)
     return found
 
 
+def default_user_agent(config: ProviderConfig | None = None) -> str:
+    if config:
+        for key in ("HTTP_USER_AGENT", "SEC_USER_AGENT"):
+            value = config.values.get(key, "").strip()
+            if value and not any(token in value.lower() for token in PROJECT_USER_AGENT_TOKENS):
+                return value
+    return DEFAULT_BROWSER_USER_AGENT
+
+
 def write_env_example(repo_root: Path | str, config: ProviderConfig | None = None) -> Path:
     path = Path(repo_root) / ".env.example"
     keys = [
+        "HTTP_USER_AGENT",
         "SEC_USER_AGENT",
         "TWELVE_DATA_API_KEY",
         "MARKETAUX_API_TOKEN",
@@ -576,10 +591,7 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
     paths: list[Path] = []
     selected_endpoints = {"prices"} if provider == "tiingo" and endpoints is None else endpoints_for_provider(provider, endpoints)
     if provider == "sec":
-        ua = config.values.get("SEC_USER_AGENT")
-        if not ua:
-            return paths
-        headers = {"User-Agent": ua}
+        headers = {"User-Agent": default_user_agent(config)}
         tickers_url = "https://www.sec.gov/files/company_tickers.json"
         if "company_tickers" in selected_endpoints:
             paths.append(fetch_with_cache(cache_root, symbol, "sec", "company_tickers", {}, tickers_url, tickers_url, config, headers, refresh, reuse_endpoint_cache=True))
@@ -659,7 +671,7 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
         params = {"symbols": symbol, "language": "en", "limit": config.values.get("MARKETAUX_NEWS_LIMIT", "3")}
         url = f"https://api.marketaux.com/v1/news/all?{urlencode({**params, 'api_token': token})}"
         source = f"https://api.marketaux.com/v1/news/all?{urlencode(params)}"
-        headers = {"User-Agent": "Mozilla/5.0 market-research-skill deterministic collector", "Accept": "application/json"}
+        headers = {"User-Agent": default_user_agent(config), "Accept": "application/json"}
         paths.append(fetch_with_cache(cache_root, symbol, "marketaux", "news", params, url, source, config, headers=headers, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "fmp" and config.values.get("FMP_API_KEY"):
         token = config.values["FMP_API_KEY"]

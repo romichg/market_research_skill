@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository contains Codex skills for market research workflows. The active skill tree is consolidated under `market-research-full/`:
+This repository contains portable Agent Skills-format market research workflows. The active skill tree is consolidated under `market-research-full/`:
 
 - `market-research-full/researcher/`: producer skill and research references.
 - `market-research-full/verifier/`: validation skill and validation references.
@@ -12,7 +12,7 @@ This repository contains Codex skills for market research workflows. The active 
 - `docs/`: design notes, plans, and AI-human brief material.
 - `OLD/`: archived prompts and handoff notes; do not extend unless restoring legacy context.
 
-Skill instructions live in each `SKILL.md`. Reference documents belong under `references/`, schemas under `schemas/`, and executable helpers under `scripts/`.
+Skill instructions live in each `SKILL.md`. Reference documents belong under `references/`, schemas under `schemas/`, and executable helpers under `scripts/`. Keep the skill usable by Codex, Claude, OpenClaw, and similar agents by preserving plain Markdown instructions, YAML frontmatter, and repo-relative helper paths.
 
 ## Build, Test, and Development Commands
 
@@ -23,6 +23,7 @@ python3 market-research-full/shared/scripts/deterministic_research_collector.py 
 python3 market-research-full/shared/scripts/procedural_source_helper.py --help
 python3 market-research-full/shared/scripts/validate_market_research.py --help
 python3 market-research-full/loop-runner/scripts/research_loop.py --help
+bash market-research-full/shared/scripts/md-to-pdf.sh --help
 ```
 
 Run the test suite from the repository root:
@@ -51,4 +52,4 @@ Recent commits use short, imperative summaries such as `add supervised market re
 
 ## Security & Configuration Tips
 
-Do not commit credentials, private research bundles, or generated run outputs. Treat `.env-starter` as a template only. When recording external sources, preserve source dates, URLs, checksums, and local artifact paths so later validation can reproduce the evidence trail.
+Do not commit credentials, private research bundles, or generated run outputs. Use `.env.example` as the active configuration template; legacy `.env-starter` material belongs under `OLD/` only. When recording external sources, preserve source dates, URLs, checksums, and local artifact paths so later validation can reproduce the evidence trail.

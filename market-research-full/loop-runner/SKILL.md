@@ -11,7 +11,7 @@ Use this skill from a supervised Codex session to orchestrate `market-research-f
 
 Keep research, validation, remediation, and skill improvement separate.
 
-- Research child: runs `$market-research-full researcher SYMBOL`.
+- Research child: runs `$market-research-full researcher SYMBOL`, including best-effort PDF generation after final Markdown.
 - Validation child: runs `$market-research-full verifier RUN_DIR`.
 - Remediation child: fixes only open critical/moderate validation issues in the research bundle.
 - Supervisor: watches the run, inspects failures, decides whether skill-improvement feedback is ready for a separate manual pass.
@@ -57,10 +57,10 @@ Each run root contains:
 - `SYMBOL/AS_OF/iteration-*/producer.log`
 - `SYMBOL/AS_OF/iteration-*/validator.log`
 - canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/`
-- final research markdown/JSON and validation artifacts, including validation for deterministic bundles, under `reports/SYMBOL/YYYY-MM-DD/`
+- final research markdown/JSON, best-effort research PDF, and validation artifacts, including validation for deterministic bundles, under `reports/SYMBOL/YYYY-MM-DD/`
 - transient prompts, logs, and producer/validator skill issue files under `runtime/SYMBOL/YYYY-MM-DD/` or the configured runtime run root
 
-Use `operator-notes.md` for future user-requested changes that should not be implemented automatically, such as PDF output, browser/captcha handoff, alternate report formats, or new data providers.
+Use `operator-notes.md` for future user-requested changes that should not be implemented automatically, such as browser/captcha handoff, alternate report formats, or new data providers.
 
 ## Feedback Collection
 

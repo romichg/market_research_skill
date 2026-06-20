@@ -88,6 +88,7 @@ def test_generate_env_example_contains_no_real_values(tmp_path):
     text = output.read_text(encoding="utf-8")
 
     assert "SEC_USER_AGENT=" in text
+    assert "HTTP_USER_AGENT=" in text
     assert "TIINGO_API_TOKEN=" in text
     assert "person@example.com" not in text
     assert "secret" not in text
@@ -743,10 +744,54 @@ def test_marketaux_fetch_sends_provider_friendly_headers(tmp_path, monkeypatch):
 
     assert len(paths) == 1
     assert seen[0]["headers"]["Accept"] == "application/json"
-    assert "market-research-skill" in seen[0]["headers"]["User-Agent"]
+    assert "Mozilla/5.0" in seen[0]["headers"]["User-Agent"]
+    assert "Chrome/" in seen[0]["headers"]["User-Agent"]
+    assert "market-research-skill" not in seen[0]["headers"]["User-Agent"]
     payload = json.loads(paths[0].read_text(encoding="utf-8"))
     assert "marketaux-secret" in seen[0]["url"]
     assert "marketaux-secret" not in payload["provider_result"]["url"]
+
+
+def test_sec_fetch_uses_browser_user_agent_without_custom_config(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        seen.append({"url": url, "headers": headers or {}})
+        return {"0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."}}
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.fetch_provider("AAPL", "sec", "2026-06-19", tmp_path, config, refresh=True, endpoints={"company_tickers"})
+
+    assert len(paths) == 1
+    assert seen[0]["url"].endswith("company_tickers.json")
+    assert "Mozilla/5.0" in seen[0]["headers"]["User-Agent"]
+    assert "Chrome/" in seen[0]["headers"]["User-Agent"]
+    assert "market-research-skill" not in seen[0]["headers"]["User-Agent"]
+
+
+def test_legacy_project_user_agent_is_not_sent(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        seen.append(headers or {})
+        return {"0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."}}
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(
+        values={"SEC_USER_AGENT": "Mozilla/5.0 market-research-skill deterministic collector"},
+        docs={},
+        limits={},
+        loaded_files=[],
+    )
+
+    module.fetch_provider("AAPL", "sec", "2026-06-19", tmp_path, config, refresh=True, endpoints={"company_tickers"})
+
+    assert "Chrome/" in seen[0]["User-Agent"]
+    assert "market-research-skill" not in seen[0]["User-Agent"]
 
 
 def test_eodhd_news_uses_country_qualified_symbol(tmp_path, monkeypatch):

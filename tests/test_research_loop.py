@@ -99,6 +99,7 @@ def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
     ) in producer
     assert "Use the deterministic bundle under `data/AAPL/YYYY-MM-DD/` as evidence." in producer
     assert "Write final research markdown and JSON under `reports/AAPL/2026-06-16`." in producer
+    assert "Attempt best-effort PDF generation for the final markdown" in producer
     assert "Write producer skill issues to `runtime/AAPL/2026-06-16/AAPL-market-research-full-issues.md`." in producer
     assert "$market-research-full verifier reports/AAPL/2026-06-16" in validator
 

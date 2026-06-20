@@ -5,7 +5,7 @@ description: Research, validate, and supervise market research runs for US-liste
 
 # Market Research Full
 
-Use this single skill for all market research workflows. This is research support, not personalized financial advice.
+Use this single, portable Agent Skills-format skill for all market research workflows. This is research support, not personalized financial advice.
 
 ## Modes
 
@@ -16,7 +16,7 @@ Use this single skill for all market research workflows. This is research suppor
 ## Canonical Layout
 
 - Deterministic evidence belongs under `data/SYMBOL/YYYY-MM-DD/`.
-- Final reports, validation scaffolds, and completed validations belong under `reports/SYMBOL/YYYY-MM-DD/`.
+- Final reports, best-effort PDFs, validation scaffolds, and completed validations belong under `reports/SYMBOL/YYYY-MM-DD/`.
 - Prompts, logs, source workspaces, remediation notes, and other transient artifacts belong under `runtime/SYMBOL/YYYY-MM-DD/`.
 
 Do not write new artifacts to the retired run-root name used before this rework. Invoke only `$market-research-full` with the `researcher`, `verifier`, or `loop-runner` mode.

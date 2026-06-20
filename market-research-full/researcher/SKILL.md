@@ -24,6 +24,7 @@ Do not abandon the report solely because a helper failed unless no credible publ
 
 - Prefer `../shared/scripts/deterministic_research_collector.py` for cache-first API gathering, normalization, local technical metrics, source manifests, gaps, and Markdown research input packs.
 - Use `../shared/scripts/procedural_source_helper.py` for manual/procedural source registry work: run setup, manual classification, source recording, source-gap recording, context preparation, procedural gap-fill recording, and issuer payload promotion.
+- Use `../shared/scripts/md-to-pdf.sh` after the final Markdown report is written. PDF generation is best-effort: continue if `pandoc` or `xelatex` is unavailable.
 - Read `references/provider-data-map.md` when adding, validating, or reasoning about deterministic provider fields, duplicate data, and fallback behavior.
 - Read `references/source-policy.md` before source gathering and citation work.
 - Read `references/equity-research.md` for equities and ADRs.
@@ -163,6 +164,7 @@ runtime/SYMBOL/YYYY-MM-DD/
 reports/SYMBOL/YYYY-MM-DD/
   SYMBOL-research.md
   SYMBOL-research.json
+  SYMBOL-research.pdf  # Best-effort when pandoc and xelatex are available.
 ```
 
 The final Markdown report must include these sections:
@@ -181,7 +183,15 @@ The JSON sidecar must satisfy `../shared/schemas/research-output.schema.json`, i
 
 9. Same-session self-check the artifacts for missing citations, stale dates, unsupported claims, and gaps. Label this as a self-check, not independent validation.
 
-10. Tell the user the artifact paths and recommend running `market-research-full verifier` in a fresh Codex context against the run directory.
+10. Attempt best-effort PDF generation for the final Markdown report:
+
+```bash
+bash {baseDir}/../shared/scripts/md-to-pdf.sh ./reports/SYMBOL/YYYY-MM-DD/SYMBOL-research.md
+```
+
+If `pandoc` or `xelatex` is unavailable, report the helper message and continue with the Markdown and JSON artifacts. Do not treat missing PDF tooling as a research failure.
+
+11. Tell the user the artifact paths, including the PDF path if generated, and recommend running `market-research-full verifier` in a fresh agent context against the run directory.
 
 ## Source Discipline
 
