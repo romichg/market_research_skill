@@ -71,7 +71,9 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "reports/" in producer
     assert "fresh Codex context" in validator
     assert "$market-research-full verifier reports/EWW/2026-06-01" in validator
+    assert "EWW-validator-skill-issues.md" in validator
     assert "Fix only open critical/moderate issues" in remediation
+    assert "EWW-market-research-skill-issues.md" in remediation
     assert "Do not delete validator outputs" in remediation
 
 
@@ -271,6 +273,51 @@ def test_run_batch_validates_latest_dated_deterministic_bundle(tmp_path):
     assert payload["symbols"]["EWW"]["status"] == "passed"
     assert payload["symbols"]["EWW"]["artifact_run_dir"].endswith("EWW/2026-06-01")
     assert payload["symbols"]["EWW"]["validation_json"].endswith("EWW/2026-06-01/EWW-validation-scaffold.json")
+
+
+def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    reports_root = tmp_path / "reports"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; import json; "
+        "run_dir = Path(r'{run_dir}'); "
+        "reports_root = run_dir.parents[2] / 'reports'; "
+        "artifact_dir = reports_root / '{symbol}' / '2026-06-01'; "
+        "(artifact_dir / 'normalized').mkdir(parents=True, exist_ok=True); "
+        "(artifact_dir / 'research_input_pack.md').write_text('ok', encoding='utf-8'); "
+        "(artifact_dir / 'manifest.json').write_text(json.dumps({'symbol':'{symbol}','asset_type':'equity'}), encoding='utf-8'); "
+        "(artifact_dir / 'source_manifest.json').write_text(json.dumps({'sources':[]}), encoding='utf-8'); "
+        "(artifact_dir / 'gaps.json').write_text(json.dumps({'gaps':[]}), encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{run_dir}'); "
+        f"expected = Path(r'{reports_root}') / '{{symbol}}' / '2026-06-01'; "
+        "assert run_dir == expected, f'{run_dir} != {expected}'; "
+        "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "passed"
+    assert payload["symbols"]["EWW"]["run_dir"] == str(runtime_root / "EWW")
+    assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_root / "EWW" / "2026-06-01")
+    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
 
 
 def test_collect_feedback_writes_manual_improvement_package(tmp_path):

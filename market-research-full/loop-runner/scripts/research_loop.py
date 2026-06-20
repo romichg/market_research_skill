@@ -119,18 +119,17 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
             "",
             "Run the market-research-full researcher workflow in this fresh Codex context.",
             f"Use the deterministic producer first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
-            f"Write the final deterministic bundle under `{run_dir}` or report the exact generated `reports/` bundle path if the as-of date differs.",
+            f"Use `{run_dir}` for runtime notes, prompts, and logs. Write final report and validation artifacts under `reports/{symbol}/YYYY-MM-DD/`.",
             "As you run the skill, identify any market-research skill issues separately.",
             f"Write producer skill issues to `{run_dir}/{symbol}-market-research-skill-issues.md`.",
-            f"Write or update artifacts under `{run_dir}`.",
+            f"Report the exact generated `reports/{symbol}/YYYY-MM-DD/` artifact path.",
             "Use public/free APIs, cache raw responses, preserve provenance, and disclose data gaps.",
             "",
         ]
     )
 
 
-def validator_prompt(run_dir: str) -> str:
-    symbol = Path(run_dir).name
+def validator_prompt(symbol: str, run_dir: str) -> str:
     return "\n".join(
         [
             f"$market-research-full verifier {run_dir}",
@@ -144,8 +143,7 @@ def validator_prompt(run_dir: str) -> str:
     )
 
 
-def remediation_prompt(run_dir: str) -> str:
-    symbol = Path(run_dir).name
+def remediation_prompt(symbol: str, run_dir: str) -> str:
     return "\n".join(
         [
             f"The validator found blocking issues in `{run_dir}`.",
@@ -171,8 +169,8 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
         "producer_remediation_prompt": out / f"{symbol}-producer-remediation.md",
     }
     paths["producer_initial_prompt"].write_text(producer_initial_prompt(symbol, run_dir), encoding="utf-8")
-    paths["validator_prompt"].write_text(validator_prompt(run_dir), encoding="utf-8")
-    paths["producer_remediation_prompt"].write_text(remediation_prompt(run_dir), encoding="utf-8")
+    paths["validator_prompt"].write_text(validator_prompt(symbol, run_dir), encoding="utf-8")
+    paths["producer_remediation_prompt"].write_text(remediation_prompt(symbol, run_dir), encoding="utf-8")
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
 
 
@@ -299,8 +297,8 @@ def cmd_init_batch(args: argparse.Namespace) -> None:
         out = prompt_root / symbol
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{symbol}-producer-initial.md").write_text(producer_initial_prompt(symbol, symbol_run_dir), encoding="utf-8")
-        (out / f"{symbol}-validator.md").write_text(validator_prompt(symbol_run_dir), encoding="utf-8")
-        (out / f"{symbol}-producer-remediation.md").write_text(remediation_prompt(symbol_run_dir), encoding="utf-8")
+        (out / f"{symbol}-validator.md").write_text(validator_prompt(symbol, symbol_run_dir), encoding="utf-8")
+        (out / f"{symbol}-producer-remediation.md").write_text(remediation_prompt(symbol, symbol_run_dir), encoding="utf-8")
         prompt_paths[symbol] = str(out)
     print(json.dumps({"run_root": str(root), "config": str(root / "research-loop-config.json"), "prompt_dirs": prompt_paths, "improvement_notes": improvement_notes}, indent=2, sort_keys=True))
 
@@ -370,12 +368,19 @@ def deterministic_bundle_exists(path: Path) -> bool:
     )
 
 
-def producer_artifacts_exist(run_dir: Path, symbol: str) -> bool:
-    legacy = (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists()
-    deterministic = deterministic_bundle_exists(run_dir) or (
-        run_dir.exists() and any(deterministic_bundle_exists(path) for path in run_dir.iterdir() if path.is_dir())
-    )
-    return legacy or deterministic
+def canonical_report_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
+    candidates = [Path.cwd() / "reports" / symbol]
+    for parent in (run_dir, *run_dir.parents):
+        if parent.name == "runtime":
+            candidates.append(parent.parent / "reports" / symbol)
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for path in candidates:
+        resolved = path.resolve(strict=False)
+        if resolved not in seen:
+            out.append(path)
+            seen.add(resolved)
+    return out
 
 
 def latest_producer_run_dir(run_dir: Path, symbol: str) -> Path | None:
@@ -386,6 +391,11 @@ def latest_producer_run_dir(run_dir: Path, symbol: str) -> Path | None:
         candidates.append(run_dir)
     if run_dir.exists():
         candidates.extend(path for path in run_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
+    for reports_symbol_dir in canonical_report_symbol_dirs(run_dir, symbol):
+        if deterministic_bundle_exists(reports_symbol_dir):
+            candidates.append(reports_symbol_dir)
+        if reports_symbol_dir.exists():
+            candidates.extend(path for path in reports_symbol_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
     if not candidates:
         return None
     return max(candidates, key=lambda path: path.stat().st_mtime)
@@ -420,10 +430,10 @@ def write_iteration_prompts(symbol: str, run_dir: Path, iteration_dir: Path, rem
         "validator": iteration_dir / "validator.prompt.md",
     }
     prompts["producer"].write_text(
-        remediation_prompt(str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+        remediation_prompt(symbol, str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
         encoding="utf-8",
     )
-    prompts["validator"].write_text(validator_prompt(str(run_dir)), encoding="utf-8")
+    prompts["validator"].write_text(validator_prompt(symbol, str(run_dir)), encoding="utf-8")
     return prompts
 
 
@@ -459,7 +469,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         else:
             command_run_dir = run_dir
         prompts["producer"].write_text(
-            remediation_prompt(str(command_run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+            remediation_prompt(symbol, str(command_run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
             encoding="utf-8",
         )
         commands = {
@@ -471,7 +481,8 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
             iteration_dir / "producer.log",
             timeout_seconds=args.command_timeout_seconds,
         )
-        producer_complete = producer_result.returncode == 0 or producer_artifacts_exist(run_dir, symbol)
+        artifact_run_dir = latest_producer_run_dir(run_dir, symbol)
+        producer_complete = artifact_run_dir is not None
         if not producer_complete:
             return {
                 "status": "producer_failed",
@@ -480,8 +491,8 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
                 "exit_code": producer_result.returncode,
                 "timed_out": producer_result.timed_out,
             }
-        effective_run_dir = latest_producer_run_dir(run_dir, symbol) or run_dir
-        prompts["validator"].write_text(validator_prompt(str(effective_run_dir)), encoding="utf-8")
+        effective_run_dir = artifact_run_dir
+        prompts["validator"].write_text(validator_prompt(symbol, str(effective_run_dir)), encoding="utf-8")
         commands["validator"] = render_command(args.validator_command, prompt_file=prompts["validator"], symbol=symbol, run_dir=effective_run_dir, iteration_dir=iteration_dir)
         write_json(iteration_dir / "commands.json", commands)
         validator_result = run_shell_command(
