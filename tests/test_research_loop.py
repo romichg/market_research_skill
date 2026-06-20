@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-HARNESS = Path(__file__).resolve().parents[1] / "market-research-loop" / "scripts" / "research_loop.py"
+HARNESS = Path(__file__).resolve().parents[1] / "market-research-full" / "loop-runner" / "scripts" / "research_loop.py"
 
 
 def run_harness(*args):
@@ -70,7 +70,7 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "deterministic_research_collector.py fetch EWW" in producer
     assert "reports/" in producer
     assert "fresh Codex context" in validator
-    assert "$validate-market-research reports/EWW/2026-06-01" in validator
+    assert "$market-research-full verifier reports/EWW/2026-06-01" in validator
     assert "Fix only open critical/moderate issues" in remediation
     assert "Do not delete validator outputs" in remediation
 

@@ -115,10 +115,10 @@ def cmd_inspect_validation(args: argparse.Namespace) -> None:
 def producer_initial_prompt(symbol: str, run_dir: str) -> str:
     return "\n".join(
         [
-            f"$market-research {symbol}",
+            f"$market-research-full researcher {symbol}",
             "",
-            "Run the market-research skill in this fresh Codex context.",
-            f"Use the deterministic producer first: `python3 market-research/scripts/deterministic_research_collector.py fetch {symbol} --reports-dir {Path(run_dir).parent} --as-of YYYY-MM-DD`.",
+            "Run the market-research-full researcher workflow in this fresh Codex context.",
+            f"Use the deterministic producer first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
             f"Write the final deterministic bundle under `{run_dir}` or report the exact generated `reports/` bundle path if the as-of date differs.",
             "As you run the skill, identify any market-research skill issues separately.",
             f"Write producer skill issues to `{run_dir}/{symbol}-market-research-skill-issues.md`.",
@@ -133,9 +133,9 @@ def validator_prompt(run_dir: str) -> str:
     symbol = Path(run_dir).name
     return "\n".join(
         [
-            f"$validate-market-research {run_dir}",
+            f"$market-research-full verifier {run_dir}",
             "",
-            "Run the validator in this fresh Codex context.",
+            "Run the market-research-full verifier workflow in this fresh Codex context.",
             "Record validator skill issues separately.",
             f"Write validator skill issues to `{run_dir}/{symbol}-validator-skill-issues.md`.",
             "Write validation markdown and JSON artifacts into the run directory.",
@@ -162,7 +162,7 @@ def remediation_prompt(run_dir: str) -> str:
 
 def cmd_write_prompts(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    run_dir = args.run_dir or f"market-research-runs/{symbol}"
+    run_dir = args.run_dir or f"runtime/{symbol}"
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     paths = {
@@ -539,7 +539,7 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Orchestrate market-research and validate-market-research loop artifacts.")
+    parser = argparse.ArgumentParser(description="Orchestrate market-research-full researcher and verifier artifacts.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     inspect = sub.add_parser("inspect-validation", help="Report whether validation JSON passes the no critical/moderate gate.")

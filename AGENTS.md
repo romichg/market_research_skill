@@ -2,11 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository contains Codex skills for market research workflows. Each top-level skill directory is self-contained:
+This repository contains Codex skills for market research workflows. The active skill tree is consolidated under `market-research-full/`:
 
-- `market-research/`: producer skill, schemas, references, agent config, and deterministic/procedural helper scripts.
-- `validate-market-research/`: validation skill and deterministic validation helper.
-- `market-research-loop/`: supervised batch loop skill and orchestration helper.
+- `market-research-full/researcher/`: producer skill and research references.
+- `market-research-full/verifier/`: validation skill and validation references.
+- `market-research-full/loop-runner/`: supervised batch loop skill and orchestration helper.
+- `market-research-full/shared/`: shared scripts, schemas, and agent config.
 - `tests/`: pytest coverage for helper scripts and loop behavior.
 - `docs/`: design notes, plans, and AI-human brief material.
 - `OLD/`: archived prompts and handoff notes; do not extend unless restoring legacy context.
@@ -18,22 +19,22 @@ Skill instructions live in each `SKILL.md`. Reference documents belong under `re
 There is no package build step. Run helpers directly with Python:
 
 ```bash
-python3 market-research/scripts/deterministic_research_collector.py --help
-python3 market-research/scripts/procedural_source_helper.py --help
-python validate-market-research/scripts/validate_market_research.py --help
-python market-research-loop/scripts/research_loop.py --help
+python3 market-research-full/shared/scripts/deterministic_research_collector.py --help
+python3 market-research-full/shared/scripts/procedural_source_helper.py --help
+python3 market-research-full/shared/scripts/validate_market_research.py --help
+python3 market-research-full/loop-runner/scripts/research_loop.py --help
 ```
 
 Run the test suite from the repository root:
 
 ```bash
-python -m pytest tests
+python3 -m pytest tests
 ```
 
 For a focused check, run one file:
 
 ```bash
-python -m pytest tests/test_research_loop.py
+python3 -m pytest tests/test_research_loop.py
 ```
 
 ## Coding Style & Naming Conventions

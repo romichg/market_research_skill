@@ -1,6 +1,6 @@
 ---
-name: validate-market-research
-description: Validate frozen market research bundles for equities, ADRs, and ETFs in a fresh Codex context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report. Use when Codex is asked to validate, review, audit, or check an investment research report or a market-research run directory.
+name: market-research-full-verifier
+description: Validate frozen market research bundles for equities, ADRs, and ETFs in a fresh Codex context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report.
 ---
 
 # Validate Market Research
@@ -19,16 +19,17 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 
 ## Resources
 
-- Run `scripts/validate_market_research.py` first for deterministic artifact discovery and structure checks.
+- Run `../shared/scripts/validate_market_research.py` first for deterministic artifact discovery and structure checks.
 - Read `references/investment-validation.md` before judgment validation.
-- Use the validation JSON shape from the producer skill's `schemas/validation-output.schema.json` when available.
+- Use `../shared/schemas/deterministic-bundle.schema.json` for deterministic bundle checks.
+- Use `../shared/schemas/validation-output.schema.json` for the validation JSON contract.
 
 ## Workflow
 
 1. Inspect the run directory shape. The helper supports legacy `SYMBOL-research.md/json` runs, deterministic `reports/SYMBOL/AS_OF/` bundles, and a symbol parent directory containing dated deterministic bundles. When a parent directory is provided, it selects the latest dated deterministic bundle and writes the scaffold there. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
 
 ```bash
-python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-runs/SYMBOL
+python3 {baseDir}/../shared/scripts/validate_market_research.py /path/to/runtime/SYMBOL
 ```
 
 2. If the helper reports missing artifacts, stop and tell the user what the producer must regenerate.
@@ -39,7 +40,7 @@ python3 {baseDir}/scripts/validate_market_research.py /path/to/market-research-r
 
 - Verify material quantitative claims against cited sources.
 - For deterministic bundles, verify normalized values have provider, source URL, raw path, and status provenance.
-- Confirm deterministic bundle files align with `market-research/schemas/deterministic-bundle.schema.json`.
+- Confirm deterministic bundle files align with `../shared/schemas/deterministic-bundle.schema.json`.
 - Treat successful deterministic provider outputs as frozen evidence. Validate non-deterministic interpretation, generated prose, missing-data handling, stale-data caveats, and cited-source support.
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.

@@ -4,7 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-HELPER = Path(__file__).resolve().parents[1] / "market-research" / "scripts" / "procedural_source_helper.py"
+ROOT = Path(__file__).resolve().parents[1]
+HELPER = ROOT / "market-research-full" / "shared" / "scripts" / "procedural_source_helper.py"
 
 
 def run_helper(*args, cwd=None):

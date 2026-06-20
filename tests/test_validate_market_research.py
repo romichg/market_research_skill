@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-VALIDATOR = Path(__file__).resolve().parents[1] / "validate-market-research" / "scripts" / "validate_market_research.py"
+VALIDATOR = Path(__file__).resolve().parents[1] / "market-research-full" / "shared" / "scripts" / "validate_market_research.py"
 
 
 def run_validator(*args):

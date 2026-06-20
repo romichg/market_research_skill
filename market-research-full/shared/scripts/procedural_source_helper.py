@@ -729,13 +729,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init-run", help="Create a run directory and manifest.")
     init.add_argument("symbol")
-    init.add_argument("--output-root", default="./market-research-runs")
+    init.add_argument("--output-root", default="./runtime")
     init.add_argument("--force", action="store_true", help="Overwrite an existing initialized run manifest.")
     init.set_defaults(func=cmd_init_run)
 
     classify = sub.add_parser("classify", help="Record manual/best-effort classification.")
     classify.add_argument("symbol")
-    classify.add_argument("--output-root", default="./market-research-runs")
+    classify.add_argument("--output-root", default="./runtime")
     classify.add_argument("--security-type", choices=["equity", "adr", "etf"], required=True)
     classify.add_argument("--name")
     classify.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
@@ -744,7 +744,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     source = sub.add_parser("record-source", help="Record a cited source.")
     source.add_argument("symbol")
-    source.add_argument("--output-root", default="./market-research-runs")
+    source.add_argument("--output-root", default="./runtime")
     source.add_argument("--id", required=True)
     source.add_argument("--title", required=True)
     source.add_argument("--url", required=True)
@@ -757,7 +757,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     source_gap = sub.add_parser("record-source-gap", help="Record a failed or incomplete public-source capture.")
     source_gap.add_argument("symbol")
-    source_gap.add_argument("--output-root", default="./market-research-runs")
+    source_gap.add_argument("--output-root", default="./runtime")
     source_gap.add_argument("--source-id", required=True)
     source_gap.add_argument("--attempted-url", required=True)
     source_gap.add_argument("--reason", required=True)
@@ -767,12 +767,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     context = sub.add_parser("prepare-research-context", help="Build compact research context.")
     context.add_argument("symbol")
-    context.add_argument("--output-root", default="./market-research-runs")
+    context.add_argument("--output-root", default="./runtime")
     context.set_defaults(func=cmd_prepare_research_context)
 
     fill = sub.add_parser("record-gap-fill", help="Record a targeted procedural gap fill.")
     fill.add_argument("symbol")
-    fill.add_argument("--output-root", default="./market-research-runs")
+    fill.add_argument("--output-root", default="./runtime")
     fill.add_argument("--field")
     fill.add_argument("--value")
     fill.add_argument("--source-id")
@@ -784,7 +784,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     blackrock = sub.add_parser("extract-blackrock", help="Promote BlackRock/iShares product API JSON into research context.")
     blackrock.add_argument("symbol")
-    blackrock.add_argument("--output-root", default="./market-research-runs")
+    blackrock.add_argument("--output-root", default="./runtime")
     blackrock.add_argument("--json-file", required=True)
     blackrock.add_argument("--source-id", default="blackrock_product_api")
     blackrock.set_defaults(func=cmd_extract_blackrock)
