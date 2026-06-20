@@ -131,15 +131,17 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
     )
 
 
-def validator_prompt(symbol: str, run_dir: str) -> str:
+def validator_prompt(symbol: str, run_dir: str, validation_output_dir: str | None = None) -> str:
+    output_dir = validation_output_dir or run_dir
     return "\n".join(
         [
             f"$market-research-full verifier {run_dir}",
             "",
             "Run the market-research-full verifier workflow in this fresh Codex context.",
+            f"Validate the input artifacts in `{run_dir}`.",
             "Record validator skill issues separately.",
-            f"Write validator skill issues to `{run_dir}/{symbol}-validator-skill-issues.md`.",
-            "Write validation markdown and JSON artifacts into the run directory.",
+            f"Write validator skill issues to `{output_dir}/{symbol}-validator-skill-issues.md`.",
+            f"Write validation markdown and JSON artifacts under `{output_dir}`.",
             "",
         ]
     )
@@ -307,12 +309,14 @@ def cmd_init_batch(args: argparse.Namespace) -> None:
     print(json.dumps({"run_root": str(root), "config": str(root / "research-loop-config.json"), "prompt_dirs": prompt_paths, "improvement_notes": improvement_notes}, indent=2, sort_keys=True))
 
 
-def render_command(template: str, *, prompt_file: Path, symbol: str, run_dir: Path, iteration_dir: Path) -> str:
+def render_command(template: str, *, prompt_file: Path, symbol: str, run_dir: Path, iteration_dir: Path, validation_output_dir: Path | None = None) -> str:
+    validation_output_dir = validation_output_dir or run_dir
     replacements = {
         "{prompt_file}": str(prompt_file),
         "{symbol}": symbol,
         "{run_dir}": str(run_dir),
         "{iteration_dir}": str(iteration_dir),
+        "{validation_output_dir}": str(validation_output_dir),
         "{cwd}": shlex.quote(str(Path.cwd())),
     }
     rendered = template
@@ -370,6 +374,21 @@ def deterministic_bundle_exists(path: Path) -> bool:
         (path / name).exists()
         for name in ["research_input_pack.md", "manifest.json", "source_manifest.json", "gaps.json", "normalized"]
     )
+
+
+def reports_root_for_loop(root: Path) -> Path:
+    for parent in (root, *root.parents):
+        if parent.name == "runtime":
+            return parent.parent / "reports"
+    return root.parent / "reports"
+
+
+def report_date_for_artifact(artifact_run_dir: Path, fallback_as_of: str) -> str:
+    return artifact_run_dir.name if re.fullmatch(r"\d{4}-\d{2}-\d{2}", artifact_run_dir.name) else fallback_as_of
+
+
+def validation_output_dir_for_artifact(root: Path, symbol: str, artifact_run_dir: Path, fallback_as_of: str) -> Path:
+    return reports_root_for_loop(root) / symbol / report_date_for_artifact(artifact_run_dir, fallback_as_of)
 
 
 def canonical_data_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
@@ -502,15 +521,27 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
                 "timed_out": producer_result.timed_out,
             }
         effective_run_dir = artifact_run_dir
-        prompts["validator"].write_text(validator_prompt(symbol, str(effective_run_dir)), encoding="utf-8")
-        commands["validator"] = render_command(args.validator_command, prompt_file=prompts["validator"], symbol=symbol, run_dir=effective_run_dir, iteration_dir=iteration_dir)
+        validation_output_dir = (
+            validation_output_dir_for_artifact(root, symbol, effective_run_dir, args.as_of)
+            if deterministic_bundle_exists(effective_run_dir)
+            else effective_run_dir
+        )
+        prompts["validator"].write_text(validator_prompt(symbol, str(effective_run_dir), str(validation_output_dir)), encoding="utf-8")
+        commands["validator"] = render_command(
+            args.validator_command,
+            prompt_file=prompts["validator"],
+            symbol=symbol,
+            run_dir=effective_run_dir,
+            iteration_dir=iteration_dir,
+            validation_output_dir=validation_output_dir,
+        )
         write_json(iteration_dir / "commands.json", commands)
         validator_result = run_shell_command(
             commands["validator"],
             iteration_dir / "validator.log",
             timeout_seconds=args.command_timeout_seconds,
         )
-        validation_path = latest_validation_in_run_dir(effective_run_dir, symbol)
+        validation_path = latest_validation_in_run_dir(validation_output_dir, symbol)
         validator_complete = validator_result.returncode == 0 or validation_path is not None
         if not validator_complete:
             return {
