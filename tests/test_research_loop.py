@@ -390,7 +390,8 @@ def test_run_batch_dry_run_uses_runtime_symbol_date_layout(tmp_path):
     iteration = root / "EWW" / "2026-06-16" / "iteration-01"
     assert (iteration / "producer-initial.prompt.md").exists()
     commands = json.loads((iteration / "commands.json").read_text(encoding="utf-8"))
-    assert "market-research-full" in commands["producer"]
+    assert "--dangerously-bypass-approvals-and-sandbox" in commands["producer"]
+    assert str(iteration / "producer-initial.prompt.md") in commands["producer"]
 
 
 def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):

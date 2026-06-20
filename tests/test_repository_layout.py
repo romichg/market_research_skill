@@ -28,7 +28,7 @@ def test_active_files_do_not_reference_old_skill_paths():
         "$" + "market-research-loop ",
         "market-research" + "-runs",
     ]
-    allowed_prefixes = {"OLD", ".git"}
+    allowed_prefixes = {"OLD", ".git", ".worktrees"}
     allowed_files = {Path("docs/plans/20260619_rework_plan.md")}
     offenders = []
     for path in ROOT.rglob("*"):
