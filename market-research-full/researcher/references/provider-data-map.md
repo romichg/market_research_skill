@@ -74,7 +74,7 @@ When multiple providers return the same field, normalize one canonical `DataPoin
   "value": 123,
   "provider": "sec",
   "alternates": [
-    {"value": 124, "provider": "eodhd", "raw_path": "reports/.../raw/eodhd/file.json"}
+    {"value": 124, "provider": "eodhd", "raw_path": "data/.../raw/eodhd/file.json"}
   ],
   "attempted_providers": ["sec", "eodhd", "alphavantage"],
   "selection_reason": "primary_source_priority"

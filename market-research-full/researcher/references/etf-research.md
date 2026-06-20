@@ -4,7 +4,7 @@ Use this reference for ETFs, exchange-traded funds, trusts, and fund-like exchan
 
 ## Deterministic Inputs First
 
-Read `references/provider-data-map.md` and the bundle files under `reports/SYMBOL/AS_OF/`:
+Read `references/provider-data-map.md` and the bundle files under `data/SYMBOL/AS_OF/`:
 
 - `manifest.json`: provider status, failed retries, asset type, cache summary, warnings, and errors.
 - `source_manifest.json`: raw provider files, checksums, endpoints, URLs, and fetch status.

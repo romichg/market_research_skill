@@ -76,11 +76,11 @@ Minimal JSON sidecar:
   "security_type": "equity",
   "as_of_date": "2026-05-29",
   "deterministic_bundle": {
-    "bundle_dir": "reports/AAPL/2026-05-29",
-    "manifest": "reports/AAPL/2026-05-29/manifest.json",
-    "source_manifest": "reports/AAPL/2026-05-29/source_manifest.json",
-    "gaps": "reports/AAPL/2026-05-29/gaps.json",
-    "research_input_pack": "reports/AAPL/2026-05-29/research_input_pack.md"
+    "bundle_dir": "data/AAPL/2026-05-29",
+    "manifest": "data/AAPL/2026-05-29/manifest.json",
+    "source_manifest": "data/AAPL/2026-05-29/source_manifest.json",
+    "gaps": "data/AAPL/2026-05-29/gaps.json",
+    "research_input_pack": "data/AAPL/2026-05-29/research_input_pack.md"
   },
   "material_claims": [
     {

@@ -171,7 +171,7 @@ reports/SYMBOL/YYYY-MM-DD/
 
 Every material quantitative claim must be cited or marked `Data not available` / `unverified`. Include source date, accessed date, and confidence when possible.
 
-For deterministic bundles, cite the normalized file and raw source path, for example `reports/AAPL/2026-06-01/normalized/market_snapshot.json` and the corresponding `raw/` JSON from `source_manifest.json`.
+For deterministic bundles, cite the normalized file and raw source path, for example `data/AAPL/2026-06-01/normalized/market_snapshot.json` and the corresponding `raw/` JSON from `source_manifest.json`.
 
 Every cited `source_id` should appear in `sources.json`; every cited public page or document should have a frozen `local_artifact` in `source_bundle/` when the source can be saved. If a dynamic page cannot be captured cleanly, describe the limitation as a workflow extraction gap rather than public-data unavailability.
 
