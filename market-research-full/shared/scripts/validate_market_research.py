@@ -47,6 +47,7 @@ DETERMINISTIC_BUNDLE_LOCATION_MESSAGE = (
     "or pass a final report directory under reports."
 )
 FINAL_REPORT_LOCATION_MESSAGE = "Final report directories must be under reports/SYMBOL/YYYY-MM-DD."
+VALIDATION_OUTPUT_LOCATION_MESSAGE = "Validation output prefixes must be under reports/SYMBOL/YYYY-MM-DD for the validated symbol/date."
 
 
 def is_date_component(value: str) -> bool:
@@ -238,6 +239,21 @@ def default_output_prefix(bundle: dict[str, Any], artifact_run_dir: Path, symbol
     return artifact_run_dir / f"{symbol}-validation-scaffold"
 
 
+def expected_validation_output_dir(bundle: dict[str, Any], artifact_run_dir: Path, symbol: str) -> Path:
+    if bundle["bundle_type"] == "deterministic_data_bundle":
+        ensure_canonical_data_bundle_path(artifact_run_dir, symbol)
+        repo_root = artifact_run_dir.parent.parent.parent
+        return repo_root / "reports" / symbol / artifact_run_dir.name
+    ensure_canonical_report_dir_path(artifact_run_dir, symbol)
+    return artifact_run_dir
+
+
+def ensure_validation_output_prefix(out_prefix: Path, bundle: dict[str, Any], artifact_run_dir: Path, symbol: str) -> None:
+    expected_dir = expected_validation_output_dir(bundle, artifact_run_dir, symbol)
+    if out_prefix.parent.resolve(strict=False) != expected_dir.resolve(strict=False):
+        die(VALIDATION_OUTPUT_LOCATION_MESSAGE)
+
+
 def cmd_validate(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir)
     bundle = discover(run_dir, args.report_md, args.report_json)
@@ -267,6 +283,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "fresh_context_instruction": "Use this helper output as deterministic lint only; validate non-deterministic claims and cited-source interpretation without rerunning successful deterministic provider collection.",
     }
     out_prefix = Path(args.output_prefix) if args.output_prefix else default_output_prefix(bundle, artifact_run_dir, symbol)
+    ensure_validation_output_prefix(out_prefix, bundle, artifact_run_dir, symbol)
     prevent_accidental_overwrite(out_prefix, args.force)
     write_json(out_prefix.with_suffix(".json"), validation)
     lines = [

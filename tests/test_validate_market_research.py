@@ -116,6 +116,45 @@ def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path
     assert validation["data_gaps"] == [{"field": "short_interest", "status": "unavailable_free_source"}]
 
 
+def test_validator_rejects_runtime_output_prefix_for_deterministic_bundle(tmp_path):
+    run_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text(json.dumps({"asset_type": {"value": "equity", "provider": "cli", "raw_path": "", "source_url": ""}}), encoding="utf-8")
+    runtime_prefix = tmp_path / "runtime" / "AAPL" / "2026-06-01" / "AAPL-validation-scaffold"
+
+    result = run_validator(str(run_dir), "--output-prefix", str(runtime_prefix))
+
+    assert result.returncode != 0
+    assert "Validation output prefixes must be under reports/SYMBOL/YYYY-MM-DD" in result.stderr
+    assert not runtime_prefix.with_suffix(".json").exists()
+    assert not runtime_prefix.with_suffix(".md").exists()
+
+
+def test_validator_accepts_explicit_reports_output_prefix_for_deterministic_bundle(tmp_path):
+    run_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text(json.dumps({"asset_type": {"value": "equity", "provider": "cli", "raw_path": "", "source_url": ""}}), encoding="utf-8")
+    reports_prefix = tmp_path / "reports" / "AAPL" / "2026-06-01" / "custom-validation-scaffold"
+
+    result = run_validator(str(run_dir), "--output-prefix", str(reports_prefix))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["validation_json"] == str(reports_prefix.with_suffix(".json"))
+    assert reports_prefix.with_suffix(".json").exists()
+    assert reports_prefix.with_suffix(".md").exists()
+
+
 def test_validator_discovers_latest_nested_deterministic_bundle(tmp_path):
     symbol_dir = tmp_path / "data" / "AAPL"
     reports_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
