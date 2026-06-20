@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "market-research-full" / "shared" / "scripts" / "deterministic_research_collector.py"
@@ -94,7 +96,7 @@ def test_generate_env_example_contains_no_real_values(tmp_path):
 def test_offline_fetch_builds_bundle_with_provenance_analytics_and_gaps(tmp_path):
     module = load_module()
     cache = tmp_path / "cache"
-    output_root = tmp_path / "output"
+    output_root = tmp_path / "data"
     symbol = "AAPL"
     as_of = "2026-06-01"
     prices = [
@@ -271,6 +273,74 @@ def test_fetch_writes_deterministic_bundle_under_data_not_reports(tmp_path, monk
     assert not (tmp_path / "reports" / "AAPL" / "2026-06-16" / "manifest.json").exists()
 
 
+def test_fetch_rejects_runtime_data_dir_for_deterministic_output(tmp_path, monkeypatch, capsys):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "runtime"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "runtime_dir": str(tmp_path / "runtime"),
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "equity",
+        },
+    )()
+
+    with pytest.raises(SystemExit) as exc:
+        module.cmd_fetch(args)
+
+    assert exc.value.code == 2
+    assert "Deterministic output root must be a directory named data" in capsys.readouterr().err
+    assert not (tmp_path / "runtime" / "AAPL" / "2026-06-16" / "manifest.json").exists()
+
+
+def test_fetch_rejects_reports_data_dir_for_deterministic_output(tmp_path, monkeypatch, capsys):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "reports"),
+            "cache_dir": str(tmp_path / "runtime" / "_cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "runtime_dir": str(tmp_path / "runtime"),
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "equity",
+        },
+    )()
+
+    with pytest.raises(SystemExit) as exc:
+        module.cmd_fetch(args)
+
+    assert exc.value.code == 2
+    assert "Deterministic output root must be a directory named data" in capsys.readouterr().err
+    assert not (tmp_path / "reports" / "AAPL" / "2026-06-16" / "manifest.json").exists()
+
+
 def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
     module = load_module()
     calls = []
@@ -312,7 +382,7 @@ def test_endpoint_plan_filters_cached_raw_and_price_normalization(tmp_path):
         "QBTS",
         "2026-06-17",
         cache,
-        tmp_path / "reports",
+        tmp_path / "data",
         providers=["eodhd"],
         endpoint_plan={"eodhd": {"fundamentals"}},
         asset_type="equity",
@@ -391,7 +461,7 @@ def test_fmp_fetches_and_normalizes_unique_equity_data(tmp_path, monkeypatch):
     assert all("fmp-secret" in url for url in seen)
     assert all("fmp-secret" not in json.loads(path.read_text(encoding="utf-8"))["provider_result"]["url"] for path in paths)
 
-    result = module.build_bundle("QBTS", "2026-06-17", cache, tmp_path / "reports", providers=["fmp"], asset_type="equity")
+    result = module.build_bundle("QBTS", "2026-06-17", cache, tmp_path / "data", providers=["fmp"], asset_type="equity")
     bundle_dir = Path(result["bundle_dir"])
     identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
     snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
@@ -648,7 +718,7 @@ def test_explicit_asset_type_overrides_auto_classification(tmp_path):
         source_url="https://data.sec.gov/submissions/CIK0000884394.json",
     )
 
-    result = module.build_bundle("SPY", "2026-06-01", cache, tmp_path / "output", providers=["sec"], asset_type="etf")
+    result = module.build_bundle("SPY", "2026-06-01", cache, tmp_path / "data", providers=["sec"], asset_type="etf")
 
     manifest = json.loads((Path(result["bundle_dir"]) / "manifest.json").read_text(encoding="utf-8"))
     identity = json.loads((Path(result["bundle_dir"]) / "normalized" / "identity.json").read_text(encoding="utf-8"))
@@ -682,7 +752,7 @@ def test_sec_companyfacts_promote_equity_fundamentals_without_extra_provider(tmp
         source_url="https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
     )
 
-    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "reports", providers=["sec"], offline=True)
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["sec"], offline=True)
 
     fundamentals = json.loads((Path(result["bundle_dir"]) / "normalized" / "equity_fundamentals.json").read_text(encoding="utf-8"))
     assert fundamentals["revenue"]["value"]["value"] == 416161000000
@@ -693,7 +763,7 @@ def test_sec_companyfacts_promote_equity_fundamentals_without_extra_provider(tmp
 def test_gaps_record_only_attempted_providers(tmp_path):
     module = load_module()
 
-    result = module.build_bundle("SPY", "2026-06-16", tmp_path / "cache", tmp_path / "reports", providers=["sec", "tiingo"], asset_type="etf")
+    result = module.build_bundle("SPY", "2026-06-16", tmp_path / "cache", tmp_path / "data", providers=["sec", "tiingo"], asset_type="etf")
 
     gaps = json.loads((Path(result["bundle_dir"]) / "gaps.json").read_text(encoding="utf-8"))
     assert gaps["gaps"]
@@ -713,7 +783,7 @@ def test_build_bundle_ignores_cached_providers_not_selected(tmp_path):
         source_url="https://www.alphavantage.co/query?function=OVERVIEW&symbol=AAPL",
     )
 
-    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "reports", providers=["sec"], asset_type="equity")
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["sec"], asset_type="equity")
 
     bundle_dir = Path(result["bundle_dir"])
     source_manifest = json.loads((bundle_dir / "source_manifest.json").read_text(encoding="utf-8"))
@@ -733,7 +803,7 @@ def test_copy_raw_files_deduplicates_global_and_legacy_symbol_sec_cache(tmp_path
     legacy_path.parent.mkdir(parents=True)
     legacy_path.write_text(global_path.read_text(encoding="utf-8"), encoding="utf-8")
 
-    result = module.build_bundle("ECH", "2026-06-17", cache, tmp_path / "reports", providers=["sec"], asset_type="etf")
+    result = module.build_bundle("ECH", "2026-06-17", cache, tmp_path / "data", providers=["sec"], asset_type="etf")
 
     source_manifest = json.loads((Path(result["bundle_dir"]) / "source_manifest.json").read_text(encoding="utf-8"))
     company_tickers = [source for source in source_manifest["sources"] if source["endpoint"] == "company_tickers"]

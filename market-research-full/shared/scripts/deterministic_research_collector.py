@@ -309,6 +309,17 @@ def resolve_storage_paths(
     }
 
 
+DETERMINISTIC_OUTPUT_ROOT_MESSAGE = (
+    "Deterministic output root must be a directory named data and must not be under runtime or reports."
+)
+
+
+def ensure_deterministic_output_root(output_root: Path) -> None:
+    parts = output_root.resolve(strict=False).parts
+    if output_root.name != "data" or "runtime" in parts or "reports" in parts:
+        die(DETERMINISTIC_OUTPUT_ROOT_MESSAGE)
+
+
 def cache_key(provider: str, endpoint: str, params: dict[str, Any]) -> str:
     clean = {str(k): params[k] for k in sorted(params)}
     digest = hashlib.sha256(json.dumps(clean, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
@@ -1241,6 +1252,7 @@ def assert_no_secrets_in_tree(root: Path, config: ProviderConfig | None) -> None
 
 def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, providers: list[str] | None = None, offline: bool = False, config: ProviderConfig | None = None, command: str | None = None, asset_type: str = "auto", warnings: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     symbol = normalize_symbol(symbol)
+    ensure_deterministic_output_root(output_root)
     providers = providers or DEFAULT_PROVIDERS
     endpoint_plan = endpoint_plan or default_endpoint_plan(providers)
     bundle_dir = output_root / symbol / as_of
@@ -1452,6 +1464,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     )
     cache_root = paths["cache_dir"]
     output_root = paths["data_dir"]
+    ensure_deterministic_output_root(output_root)
     providers = parse_provider_list(args.providers, config)
     endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
     budgets = parse_budgets(args.max_provider_calls)
