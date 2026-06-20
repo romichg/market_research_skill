@@ -127,17 +127,42 @@ def cmd_inspect_validation(args: argparse.Namespace) -> None:
     print(json.dumps(inspect_validation_payload(payload), indent=2, sort_keys=True))
 
 
+def dated_layout_dir(prefix: str, symbol: str, run_dir: str) -> str:
+    path = Path(run_dir)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name):
+        return f"{prefix}/{symbol}/{path.name}"
+    return f"{prefix}/{symbol}/YYYY-MM-DD"
+
+
+def report_dir_for_prompt(symbol: str, run_dir: str) -> str:
+    path = Path(run_dir)
+    if len(path.parts) >= 3 and path.parts[-3] == "reports" and path.parts[-2].upper() == symbol:
+        return run_dir
+    return dated_layout_dir("reports", symbol, run_dir)
+
+
+def runtime_dir_for_prompt(symbol: str, run_dir: str) -> str:
+    path = Path(run_dir)
+    if len(path.parts) >= 3 and path.parts[-3] == "runtime" and path.parts[-2].upper() == symbol:
+        return run_dir
+    return dated_layout_dir("runtime", symbol, run_dir)
+
+
 def producer_initial_prompt(symbol: str, run_dir: str) -> str:
+    report_dir = report_dir_for_prompt(symbol, run_dir)
+    runtime_dir = runtime_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
             f"$market-research-full researcher {symbol}",
             "",
             "Run the market-research-full researcher workflow in this fresh Codex context.",
-            f"Use the deterministic producer first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
-            f"Use `{run_dir}` for runtime notes, prompts, and logs. Write final report and validation artifacts under `reports/{symbol}/YYYY-MM-DD/`.",
+            f"Use deterministic evidence first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
+            f"Use the deterministic bundle under `data/{symbol}/YYYY-MM-DD/` as evidence.",
+            f"Write final research markdown and JSON under `{report_dir}`.",
+            f"Use `{runtime_dir}` for transient runtime notes, prompts, logs, and issue files.",
             "As you run the skill, identify any market-research skill issues separately.",
-            f"Write producer skill issues to `{run_dir}/{symbol}-market-research-skill-issues.md`.",
-            f"Report the exact generated `reports/{symbol}/YYYY-MM-DD/` artifact path.",
+            f"Write producer skill issues to `{runtime_dir}/{symbol}-market-research-full-issues.md`.",
+            f"Report the exact generated `{report_dir}` artifact path.",
             "Use public/free APIs, cache raw responses, preserve provenance, and disclose data gaps.",
             "",
         ]

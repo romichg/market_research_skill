@@ -24,7 +24,7 @@ From the repo root:
 python3 market-research-full/loop-runner/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-loop-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
 ```
 
-If `--as-of` is omitted, the harness uses today's date. Runtime prompts, logs, and loop summaries stay under `RUN_ROOT/SYMBOL/AS_OF/`; deterministic data bundles belong under `data/SYMBOL/AS_OF/`; polished research and validation artifacts belong under `reports/SYMBOL/AS_OF/`.
+If `--as-of` is omitted, the harness uses today's date. Runtime prompts, logs, skill issue files, and loop summaries stay under `runtime/SYMBOL/AS_OF/` or the configured runtime `RUN_ROOT/SYMBOL/AS_OF/`; deterministic data bundles belong under `data/SYMBOL/AS_OF/`; polished research and validation artifacts belong under `reports/SYMBOL/AS_OF/`.
 
 Defaults launch child sessions with:
 
@@ -57,8 +57,8 @@ Each run root contains:
 - `SYMBOL/AS_OF/iteration-*/producer.log`
 - `SYMBOL/AS_OF/iteration-*/validator.log`
 - canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/`
-- final research and validation artifacts, including validation for deterministic bundles, under `reports/SYMBOL/YYYY-MM-DD/`
-- producer and validator skill issue files when observed
+- final research markdown/JSON and validation artifacts, including validation for deterministic bundles, under `reports/SYMBOL/YYYY-MM-DD/`
+- transient prompts, logs, and producer/validator skill issue files under `runtime/SYMBOL/YYYY-MM-DD/` or the configured runtime run root
 
 Use `operator-notes.md` for future user-requested changes that should not be implemented automatically, such as PDF output, browser/captcha handoff, alternate report formats, or new data providers.
 

@@ -80,6 +80,28 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "Do not delete validator outputs" in remediation
 
 
+def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness("write-prompts", "AAPL", "--run-dir", "reports/AAPL/2026-06-16", "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert set(payload) == {"producer_initial_prompt", "producer_remediation_prompt", "validator_prompt"}
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
+    assert "--data-dir ./data" in producer
+    assert "--reports-dir ./reports" in producer
+    assert (
+        "Use deterministic evidence first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch "
+        "AAPL --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`."
+    ) in producer
+    assert "Use the deterministic bundle under `data/AAPL/YYYY-MM-DD/` as evidence." in producer
+    assert "Write final research markdown and JSON under `reports/AAPL/2026-06-16`." in producer
+    assert "Write producer skill issues to `runtime/AAPL/2026-06-16/AAPL-market-research-full-issues.md`." in producer
+    assert "$market-research-full verifier reports/AAPL/2026-06-16" in validator
+
+
 def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_path):
     out_dir = tmp_path / "prompts"
 
