@@ -48,6 +48,21 @@ DETERMINISTIC_BUNDLE_LOCATION_MESSAGE = (
 )
 FINAL_REPORT_LOCATION_MESSAGE = "Final report directories must be under reports/SYMBOL/YYYY-MM-DD."
 VALIDATION_OUTPUT_LOCATION_MESSAGE = "Validation output prefixes must be under reports/SYMBOL/YYYY-MM-DD for the validated symbol/date."
+REQUIRED_RESEARCH_FIELDS = [
+    "symbol",
+    "security_type",
+    "as_of_date",
+    "material_claims",
+    "data_gaps",
+    "technical_analysis",
+    "valuation_or_performance",
+    "decision_factors",
+    "risks",
+    "catalysts",
+    "source_coverage",
+    "calculation_audit",
+]
+FRESH_CONTEXT_INSTRUCTION = "Use this helper output as deterministic lint only; validate cited sources, procedural calculations, markdown/JSON agreement, and conclusions from frozen artifacts without creating a parallel research thesis."
 
 
 def is_date_component(value: str) -> bool:
@@ -154,7 +169,7 @@ def load_sources(run_dir: Path) -> dict[str, dict[str, Any]]:
 
 def deterministic_issues(report: dict[str, Any], sources_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
-    for field in ["symbol", "security_type", "material_claims", "data_gaps"]:
+    for field in REQUIRED_RESEARCH_FIELDS:
         if field not in report:
             issues.append({"id": f"schema-{field}", "severity": "critical", "status": "open", "description": f"Research JSON missing required field: {field}"})
     claims = report.get("material_claims", [])
@@ -278,7 +293,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "blocking_issue_count": blocking,
         "data_gaps": gaps_payload.get("gaps", report.get("data_gaps", [])),
         "sources_inspected": [],
-        "fresh_context_instruction": "Use this helper output as deterministic lint only; validate non-deterministic claims and cited-source interpretation without rerunning successful deterministic provider collection.",
+        "fresh_context_instruction": FRESH_CONTEXT_INSTRUCTION,
     }
     out_prefix = Path(args.output_prefix) if args.output_prefix else default_output_prefix(bundle, artifact_run_dir, symbol)
     ensure_validation_output_prefix(out_prefix, bundle, artifact_run_dir, symbol)

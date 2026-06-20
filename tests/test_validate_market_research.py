@@ -10,12 +10,29 @@ def run_validator(*args):
     return subprocess.run([sys.executable, str(VALIDATOR), *args], text=True, capture_output=True, check=False)
 
 
+def complete_research_payload(symbol="AAPL", security_type="equity"):
+    return {
+        "symbol": symbol,
+        "security_type": security_type,
+        "as_of_date": "2026-06-01",
+        "material_claims": [],
+        "data_gaps": [],
+        "technical_analysis": {},
+        "valuation_or_performance": {},
+        "decision_factors": {},
+        "risks": [],
+        "catalysts": [],
+        "source_coverage": {},
+        "calculation_audit": [],
+    }
+
+
 def test_validator_discovers_research_bundle(tmp_path):
     run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)
     (run_dir / "run_manifest.json").write_text(json.dumps({"symbol": "AAPL"}), encoding="utf-8")
     (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
-    (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps(complete_research_payload()), encoding="utf-8")
     result = run_validator(str(run_dir))
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -36,7 +53,7 @@ def test_validator_accepts_reports_dir_when_project_parent_is_named_runtime(tmp_
     run_dir = project / "reports" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)
     (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
-    (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps(complete_research_payload()), encoding="utf-8")
 
     result = run_validator(str(run_dir))
 
@@ -70,7 +87,7 @@ def test_validator_refuses_to_overwrite_existing_judgment_validation_without_for
     run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)
     (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
-    (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps(complete_research_payload()), encoding="utf-8")
     existing = run_dir / "AAPL-validation.md"
     existing.write_text("# AAPL Validation\n\nHuman judgment validation.\n", encoding="utf-8")
     result = run_validator(str(run_dir), "--output-prefix", str(run_dir / "AAPL-validation"))
@@ -86,10 +103,8 @@ def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
     (run_dir / "ECH-research.json").write_text(
         json.dumps(
             {
-                "symbol": "ECH",
-                "security_type": "etf",
+                **complete_research_payload("ECH", "etf"),
                 "material_claims": [{"claim": "Expense ratio is 0.59%.", "source_id": "issuer_fact_sheet", "confidence": "high"}],
-                "data_gaps": [],
             }
         ),
         encoding="utf-8",
@@ -100,6 +115,37 @@ def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
     validation = json.loads((run_dir / "ECH-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["issues"][0]["id"] == "claim-0-source-missing"
     assert validation["issues"][0]["severity"] == "moderate"
+
+
+def test_validator_flags_missing_expanded_research_json_sections(tmp_path):
+    run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
+    (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    payload = complete_research_payload()
+    del payload["technical_analysis"]
+    del payload["calculation_audit"]
+    (run_dir / "AAPL-research.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    issues = {issue["id"]: issue for issue in validation["issues"]}
+    assert issues["schema-technical_analysis"]["severity"] == "critical"
+    assert issues["schema-calculation_audit"]["severity"] == "critical"
+
+
+def test_validator_fresh_context_instruction_for_complete_json_avoids_parallel_thesis(tmp_path):
+    run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
+    (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps(complete_research_payload()), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert "without creating a parallel research thesis" in validation["fresh_context_instruction"]
 
 
 def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path):

@@ -7,6 +7,8 @@ description: Validate frozen market research bundles for equities, ADRs, and ETF
 
 Use this skill to validate a frozen `market-research` run directory. The validator never edits the producer report.
 
+Hard rule: The verifier validates the produced report, source registry, deterministic bundle, and cited artifacts. It must not create a competing investment thesis or browse for uncited thesis material. Targeted browsing is allowed only when a cited source is unreachable, ambiguous, or needs source-date confirmation.
+
 ## Fresh-Context Contract
 
 Use only:
