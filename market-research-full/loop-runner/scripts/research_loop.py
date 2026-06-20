@@ -178,10 +178,13 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
 
 
-def latest_validation_for_symbol(symbol_dir: Path) -> Path | None:
+def latest_validation_for_symbol(symbol_dir: Path, reports_symbol_dir: Path | None = None) -> Path | None:
     candidates = sorted(symbol_dir.glob("iteration-*/validation.json"))
     if not candidates:
         candidates = sorted(symbol_dir.glob("**/*-validation.json")) + sorted(symbol_dir.glob("**/*-validation-scaffold.json"))
+    if reports_symbol_dir and reports_symbol_dir.exists():
+        candidates.extend(sorted(reports_symbol_dir.glob("**/*-validation.json")))
+        candidates.extend(sorted(reports_symbol_dir.glob("**/*-validation-scaffold.json")))
     return candidates[-1] if candidates else None
 
 
@@ -253,11 +256,12 @@ def cmd_collect_feedback(args: argparse.Namespace) -> None:
 def summarize_root(root: Path) -> dict[str, Any]:
     if not root.exists():
         die(f"Run root not found: {root}")
+    reports_root = reports_root_for_loop(root)
     passed: list[str] = []
     failed: list[str] = []
     unresolved: dict[str, list[str]] = {}
     for symbol_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-        validation_path = latest_validation_for_symbol(symbol_dir)
+        validation_path = latest_validation_for_symbol(symbol_dir, reports_root / symbol_dir.name)
         if validation_path is None:
             failed.append(symbol_dir.name)
             unresolved[symbol_dir.name] = ["missing-validation-json"]

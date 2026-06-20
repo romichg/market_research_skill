@@ -77,7 +77,8 @@ def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
 
 
 def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path):
-    run_dir = tmp_path / "AAPL" / "2026-06-01"
+    run_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    reports_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     normalized = run_dir / "normalized"
     normalized.mkdir(parents=True)
     (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
@@ -95,13 +96,16 @@ def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path
     payload = json.loads(result.stdout)
     assert payload["symbol"] == "AAPL"
     assert payload["scaffold"] is True
-    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert payload["validation_json"] == str(reports_dir / "AAPL-validation-scaffold.json")
+    assert not (run_dir / "AAPL-validation-scaffold.json").exists()
+    validation = json.loads((reports_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["bundle_type"] == "deterministic_data_bundle"
     assert validation["data_gaps"] == [{"field": "short_interest", "status": "unavailable_free_source"}]
 
 
 def test_validator_discovers_latest_nested_deterministic_bundle(tmp_path):
-    symbol_dir = tmp_path / "AAPL"
+    symbol_dir = tmp_path / "data" / "AAPL"
+    reports_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     old_run = symbol_dir / "2026-05-01"
     new_run = symbol_dir / "2026-06-01"
     for run_dir in [old_run, new_run]:
@@ -117,8 +121,9 @@ def test_validator_discovers_latest_nested_deterministic_bundle(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["validation_json"] == str(new_run / "AAPL-validation-scaffold.json")
-    validation = json.loads((new_run / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert payload["validation_json"] == str(reports_dir / "AAPL-validation-scaffold.json")
+    assert not (new_run / "AAPL-validation-scaffold.json").exists()
+    validation = json.loads((reports_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["report_markdown"] == str(new_run / "research_input_pack.md")
     assert validation["data_gaps"] == [{"field": "2026-06-01", "status": "unavailable_free_source"}]
 

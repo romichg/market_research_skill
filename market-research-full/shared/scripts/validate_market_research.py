@@ -178,6 +178,13 @@ def prevent_accidental_overwrite(out_prefix: Path, force: bool) -> None:
     die(f"Refusing to overwrite existing validation artifacts at {out_prefix}. Use --force or write to a scaffold output prefix.")
 
 
+def default_output_prefix(bundle: dict[str, Any], artifact_run_dir: Path, symbol: str) -> Path:
+    if bundle["bundle_type"] == "deterministic_data_bundle" and artifact_run_dir.parent.parent.name == "data":
+        repo_root = artifact_run_dir.parent.parent.parent
+        return repo_root / "reports" / symbol / artifact_run_dir.name / f"{symbol}-validation-scaffold"
+    return artifact_run_dir / f"{symbol}-validation-scaffold"
+
+
 def cmd_validate(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir)
     bundle = discover(run_dir, args.report_md, args.report_json)
@@ -206,7 +213,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "sources_inspected": [],
         "fresh_context_instruction": "Use this helper output as deterministic lint only; validate non-deterministic claims and cited-source interpretation without rerunning successful deterministic provider collection.",
     }
-    out_prefix = Path(args.output_prefix) if args.output_prefix else artifact_run_dir / f"{symbol}-validation-scaffold"
+    out_prefix = Path(args.output_prefix) if args.output_prefix else default_output_prefix(bundle, artifact_run_dir, symbol)
     prevent_accidental_overwrite(out_prefix, args.force)
     write_json(out_prefix.with_suffix(".json"), validation)
     lines = [

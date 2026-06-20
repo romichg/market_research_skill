@@ -112,6 +112,22 @@ def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
     ]
 
 
+def test_summarize_finds_validation_json_in_sibling_reports_tree(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "EWW" / "2026-06-16"
+    reports_symbol = tmp_path / "reports" / "EWW" / "2026-06-16"
+    runtime_symbol.mkdir(parents=True)
+    reports_symbol.mkdir(parents=True)
+    (reports_symbol / "EWW-validation-scaffold.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
+
+    result = run_harness("summarize", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["passed"] == ["EWW"]
+    assert payload["failed"] == []
+
+
 def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
     root = tmp_path / "batch"
     as_of = "2026-06-16"

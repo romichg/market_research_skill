@@ -26,10 +26,10 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 
 ## Workflow
 
-1. Inspect the run directory shape. The helper supports legacy `SYMBOL-research.md/json` runs, deterministic `data/SYMBOL/AS_OF/` bundles, and a symbol parent directory containing dated deterministic bundles. When a parent directory is provided, it selects the latest dated deterministic bundle and writes the scaffold there. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
+1. Inspect the run directory shape. The helper supports legacy `SYMBOL-research.md/json` runs, deterministic `data/SYMBOL/AS_OF/` bundles, and a symbol parent directory containing dated deterministic bundles. When a deterministic data bundle is provided, write the scaffold under `reports/SYMBOL/AS_OF/`. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
 
 ```bash
-python3 {baseDir}/../shared/scripts/validate_market_research.py /path/to/runtime/SYMBOL
+python3 {baseDir}/../shared/scripts/validate_market_research.py data/SYMBOL/AS_OF --output-prefix reports/SYMBOL/AS_OF/SYMBOL-validation-scaffold
 ```
 
 2. If the helper reports missing artifacts, stop and tell the user what the producer must regenerate.
