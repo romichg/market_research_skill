@@ -42,27 +42,27 @@ As of: YYYY-MM-DD
 
 ### Interpretation
 
-## Source Base
+## Source Base And Data Quality
 
 List deterministic bundle files, provider sources, source dates, raw paths, and unavailable-source gaps.
 
 ## Business Or Fund Profile
 
-## Market Snapshot And Positioning
+## Market And Technical Snapshot
 
-## Financials Or Portfolio Exposures
+Use `normalized/technical_signals.json` when available. If provider technical output is missing, compute local technical context from `normalized/technical_signals.json` and `normalized/prices_daily.json`, label it as locally calculated, and record the inputs in `calculation_audit`.
 
-## Filings, Governance, And Structure
-
-## Sector, Macro, And Competitive Context
+## Financials Or Holdings And Exposures
 
 ## Valuation Or Performance Context
 
-## Catalysts And Monitoring Inputs
+## Catalysts And Monitoring Triggers
 
-## Risks
+## Bull/Base/Bear Decision Variables
 
-## Data Gaps And Confidence
+## Risks And Invalidation Points
+
+## Explicit Data Gaps
 
 ## Not Financial Advice
 This report is research support and is not personalized financial advice.
@@ -92,6 +92,22 @@ Minimal JSON sidecar:
       "verification_status": "verified"
     }
   ],
-  "data_gaps": []
+  "data_gaps": [],
+  "technical_analysis": {
+    "summary": "Locally calculated or provider-returned technical context.",
+    "inputs": ["data/AAPL/2026-05-29/normalized/technical_signals.json", "data/AAPL/2026-05-29/normalized/prices_daily.json"]
+  },
+  "valuation_or_performance": {},
+  "decision_factors": {},
+  "risks": [],
+  "catalysts": [],
+  "source_coverage": {},
+  "calculation_audit": [
+    {
+      "calculation": "Example return or moving-average calculation.",
+      "input_artifacts": ["data/AAPL/2026-05-29/normalized/prices_daily.json"],
+      "method": "Describe formula and date window."
+    }
+  ]
 }
 ```

@@ -86,6 +86,8 @@ data/SYMBOL/AS_OF/
 
 Use this output as the primary factual input. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap with only the attempted providers listed. Do not invent or infer unsupported values. Live API calls use conservative retries/backoff for transient 429/503/network failures and do not retry unauthorized or not-found responses aggressively. Provider authentication failures exit with a clear error; provider rate-limit or endpoint errors are promoted into `manifest.json` warnings and preserved in `source_manifest.json` plus raw `provider_result.error`.
 
+When provider technical output is absent or incomplete, compute technical analysis locally from `data/SYMBOL/AS_OF/normalized/technical_signals.json` and `data/SYMBOL/AS_OF/normalized/prices_daily.json`. Use adjusted-close language for returns, moving averages, drawdowns, volatility, and support/resistance approximations, and record the calculation inputs in the report JSON `technical_analysis` and `calculation_audit` fields.
+
 2. If deterministic output is sparse or a procedural source bundle is required, normalize the symbol to uppercase and create the run:
 
 ```bash
@@ -162,6 +164,20 @@ reports/SYMBOL/YYYY-MM-DD/
   SYMBOL-research.md
   SYMBOL-research.json
 ```
+
+The final Markdown report must include these sections:
+
+- `## Source Base And Data Quality`
+- `## Business Or Fund Profile`
+- `## Market And Technical Snapshot`
+- `## Financials Or Holdings And Exposures`
+- `## Valuation Or Performance Context`
+- `## Catalysts And Monitoring Triggers`
+- `## Bull/Base/Bear Decision Variables`
+- `## Risks And Invalidation Points`
+- `## Explicit Data Gaps`
+
+The JSON sidecar must satisfy `../shared/schemas/research-output.schema.json`, including `technical_analysis`, `valuation_or_performance`, `decision_factors`, `risks`, `catalysts`, `source_coverage`, and `calculation_audit`.
 
 9. Same-session self-check the artifacts for missing citations, stale dates, unsupported claims, and gaps. Label this as a self-check, not independent validation.
 

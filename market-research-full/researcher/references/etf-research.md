@@ -21,11 +21,13 @@ Read `references/provider-data-map.md` and the bundle files under `data/SYMBOL/A
 
 For duplicate values, use the selected normalized `DataPoint` and review `alternates`, `attempted_providers`, and `selection_reason`. If providers disagree materially, report the discrepancy as a caution instead of averaging values.
 
+If provider technical analysis is missing, compute the technical snapshot locally from `normalized/technical_signals.json` and `normalized/prices_daily.json`; cite both files, describe the formula/date window, and record the work in `technical_analysis` and `calculation_audit`.
+
 ## Report Sections
 
 1. **Executive summary facts**: fund name, ticker, issuer/sponsor, benchmark/index, inception date, exchange, expense ratio, AUM, NAV, recent price, premium/discount, holdings count, top-10 concentration, distribution/SEC yield, latest prospectus/summary prospectus, and latest annual/semiannual report dates when available.
 2. **Interpretation**: keep separate from facts. Do not issue Buy/Hold/Sell/Avoid recommendations unless the user explicitly asks; default to portfolio role, tradeoffs, monitor variables, and fit considerations.
-3. **Trading and positioning snapshot**: price, NAV, premium/discount, AUM, average volume, bid/ask spread only if free/reproducible, 52-week range, distributions, short interest/options context only if deterministic, and technical signals.
+3. **Market and technical snapshot**: price, NAV, premium/discount, AUM, average volume, bid/ask spread only if free/reproducible, 52-week range, distributions, short interest/options context only if deterministic, and local technical signals.
 4. **Sponsor and product identity**: issuer, fund name, benchmark/index, legal structure, tax treatment, active/passive status, replication method, creation/redemption mechanics, and securities lending. Use SEC series/class data and filings as identity support; use issuer artifacts procedurally for current operating facts when APIs are sparse.
 5. **Fees, expenses, and tax efficiency**: net/gross expense ratio, waivers, turnover, distribution history, capital gains, SEC yield/distribution yield, and total cost fields when free providers or issuer filings return them.
 6. **Strategy and index methodology**: objective, index provider, eligibility, weighting, caps, rebalance/reconstitution cadence, derivatives/leverage/short exposure, methodology changes, and active management discretion when applicable.
@@ -35,10 +37,11 @@ For duplicate values, use the selected normalized `DataPoint` and review `altern
 10. **Sector, theme, macro, tariff, and regulatory context**: map exposures through holdings. Quantify only with holdings or filing support.
 11. **Competitive landscape**: closest alternatives by category, benchmark, fund-name tokens, exposure, expense ratio, AUM, liquidity, methodology, holdings overlap, and performance/tracking metrics when deterministic or procedurally sourced. Do not declare a competitor superior without cited evidence.
 12. **Issuer and manager quality**: issuer franchise, fund age, AUM trend if available, manager names/tenure if disclosed, index provider, securities lending, and closure-risk indicators such as low AUM, low volume, young age, or high expense ratio.
-13. **Underlying valuation**: weighted P/E, P/B, dividend yield, market cap, sector/country weights, and fixed-income metrics only when holdings and provider fundamentals support them; include coverage percentage.
-14. **Investment-decision inputs**: portfolio role, bull/base/bear variables, monitor list, liquidity constraints, tax considerations, and invalidation trigger candidates.
-15. **Risks**: concentration, country, currency, sector, index methodology, liquidity, premium/discount, AP/creation-redemption, cash versus in-kind mechanics, tracking, tax form/treatment, taxable distributions, foreign withholding/tax drag, leverage/path dependency, derivatives, and closure risk.
-16. **Data gaps and confidence**: copy unresolved deterministic gaps and add procedural-source gaps. Distinguish unavailable free data from collection failures and stale data.
+13. **Valuation or performance context**: weighted P/E, P/B, dividend yield, market cap, sector/country weights, fixed-income metrics, NAV/market return history, benchmark/category context, and tracking metrics only when holdings and provider fundamentals support them; include coverage percentage.
+14. **Catalysts and monitoring triggers**: distribution dates, rebalances, methodology changes, flows/AUM changes when sourced, liquidity changes, premium/discount shifts, and material filing or issuer updates.
+15. **Bull/base/bear decision variables**: portfolio role, exposure fit, fee/liquidity tradeoffs, tracking quality, tax considerations, and invalidation trigger candidates.
+16. **Risks and invalidation points**: concentration, country, currency, sector, index methodology, liquidity, premium/discount, AP/creation-redemption, cash versus in-kind mechanics, tracking, tax form/treatment, taxable distributions, foreign withholding/tax drag, leverage/path dependency, derivatives, and closure risk.
+17. **Explicit data gaps**: copy unresolved deterministic gaps and add procedural-source gaps. Distinguish unavailable free data from collection failures and stale data.
 
 ## Source Rules
 

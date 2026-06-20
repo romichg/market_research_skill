@@ -3,7 +3,20 @@
   "title": "Market Research Output",
   "description": "Legacy research report sidecar. Deterministic research bundles are specified by deterministic-bundle.schema.json.",
   "type": "object",
-  "required": ["symbol", "security_type", "material_claims", "data_gaps"],
+  "required": [
+    "symbol",
+    "security_type",
+    "as_of_date",
+    "material_claims",
+    "data_gaps",
+    "technical_analysis",
+    "valuation_or_performance",
+    "decision_factors",
+    "risks",
+    "catalysts",
+    "source_coverage",
+    "calculation_audit"
+  ],
   "properties": {
     "symbol": {
       "type": "string"
@@ -46,6 +59,43 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/data_gap"
+      }
+    },
+    "technical_analysis": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "valuation_or_performance": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "decision_factors": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "catalysts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "source_coverage": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "calculation_audit": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
       }
     },
     "deterministic_bundle": {
