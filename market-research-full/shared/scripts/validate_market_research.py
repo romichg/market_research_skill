@@ -19,7 +19,7 @@ def die(message: str, code: int = 2) -> None:
     raise SystemExit(code)
 
 
-def read_json(path: Path) -> dict[str, Any]:
+def read_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -138,7 +138,8 @@ def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> d
     if json_path is None or not json_path.exists():
         die("Could not find research JSON artifact.")
     payload = read_json(json_path)
-    symbol = str(payload.get("symbol") or md_path.name.split("-")[0]).upper()
+    symbol_value = payload.get("symbol") if isinstance(payload, dict) else None
+    symbol = str(symbol_value or md_path.name.split("-")[0]).upper()
     ensure_canonical_report_dir_path(run_dir, symbol)
     return {
         "bundle_type": "legacy_research_report",
@@ -167,8 +168,10 @@ def load_sources(run_dir: Path) -> dict[str, dict[str, Any]]:
     return {str(source.get("id")): source for source in sources if isinstance(source, dict) and source.get("id")}
 
 
-def deterministic_issues(report: dict[str, Any], sources_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def deterministic_issues(report: Any, sources_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    if not isinstance(report, dict):
+        return [{"id": "schema-report-shape", "severity": "critical", "status": "open", "description": "Research JSON must be an object."}]
     for field in REQUIRED_RESEARCH_FIELDS:
         if field not in report:
             issues.append({"id": f"schema-{field}", "severity": "critical", "status": "open", "description": f"Research JSON missing required field: {field}"})
@@ -291,7 +294,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "issues": issues,
         "issue_counts": counts,
         "blocking_issue_count": blocking,
-        "data_gaps": gaps_payload.get("gaps", report.get("data_gaps", [])),
+        "data_gaps": gaps_payload.get("gaps", report.get("data_gaps", []) if isinstance(report, dict) else []),
         "sources_inspected": [],
         "fresh_context_instruction": FRESH_CONTEXT_INSTRUCTION,
     }

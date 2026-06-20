@@ -102,6 +102,19 @@ def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
     assert "$market-research-full verifier reports/AAPL/2026-06-16" in validator
 
 
+def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):
+    out_dir = tmp_path / "prompts"
+    run_dir = "runtime/market-research-loop-20260620/AAPL/2026-06-16"
+
+    result = run_harness("write-prompts", "AAPL", "--run-dir", run_dir, "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert f"Use `{run_dir}` for transient runtime notes, prompts, logs, and issue files." in producer
+    assert f"Write producer skill issues to `{run_dir}/AAPL-market-research-full-issues.md`." in producer
+
+
 def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_path):
     out_dir = tmp_path / "prompts"
 

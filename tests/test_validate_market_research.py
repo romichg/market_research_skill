@@ -135,6 +135,27 @@ def test_validator_flags_missing_expanded_research_json_sections(tmp_path):
     assert issues["schema-calculation_audit"]["severity"] == "critical"
 
 
+def test_validator_reports_non_object_research_json_without_required_field_cascade(tmp_path):
+    run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
+    (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text("[]", encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    issues = validation["issues"]
+    assert issues == [
+        {
+            "id": "schema-report-shape",
+            "severity": "critical",
+            "status": "open",
+            "description": "Research JSON must be an object.",
+        }
+    ]
+
+
 def test_validator_fresh_context_instruction_for_complete_json_avoids_parallel_thesis(tmp_path):
     run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)

@@ -145,6 +145,8 @@ def runtime_dir_for_prompt(symbol: str, run_dir: str) -> str:
     path = Path(run_dir)
     if len(path.parts) >= 3 and path.parts[-3] == "runtime" and path.parts[-2].upper() == symbol:
         return run_dir
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and path.parent.name.upper() == symbol and "reports" not in path.parts:
+        return run_dir
     return dated_layout_dir("runtime", symbol, run_dir)
 
 
