@@ -232,7 +232,8 @@ def load_env_files(repo_root: Path | str = ".") -> ProviderConfig:
         if path.exists():
             values.update(load_env_file(path))
             loaded.append(str(path))
-    for key in set(PROVIDER_ENV["sec"] + list(SECRET_NAMES) + ["RESEARCH_REPORTS_DIR", "RESEARCH_DATA_DIR", "RESEARCH_CACHE_DIR"]):
+    storage_keys = ["RESEARCH_DATA_DIR", "RESEARCH_REPORTS_DIR", "RESEARCH_RUNTIME_DIR", "RESEARCH_CACHE_DIR"]
+    for key in set(PROVIDER_ENV["sec"] + list(SECRET_NAMES) + storage_keys):
         if os.environ.get(key):
             values[key] = os.environ[key]
     return ProviderConfig(values=values, docs=docs, limits=limits, loaded_files=loaded)
@@ -268,22 +269,44 @@ def write_env_example(repo_root: Path | str, config: ProviderConfig | None = Non
         "EODHD_API_KEY",
         "FMP_API_KEY",
         "MARKETAUX_NEWS_LIMIT",
+        "RESEARCH_DATA_DIR",
         "RESEARCH_REPORTS_DIR",
+        "RESEARCH_RUNTIME_DIR",
         "RESEARCH_CACHE_DIR",
     ]
     lines = []
     for key in keys:
-        default = "./reports" if key == "RESEARCH_REPORTS_DIR" else "./.cache/market-research" if key == "RESEARCH_CACHE_DIR" else ""
+        defaults = {
+            "RESEARCH_DATA_DIR": "./data",
+            "RESEARCH_REPORTS_DIR": "./reports",
+            "RESEARCH_RUNTIME_DIR": "./runtime",
+            "RESEARCH_CACHE_DIR": "./data/_cache",
+        }
+        default = defaults.get(key, "")
         lines.append(f"{key}={default}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
-def resolve_storage_paths(repo_root: Path | str, config: ProviderConfig, data_dir: str | None = None, cache_dir: str | None = None, reports_dir: str | None = None) -> dict[str, Path]:
+def resolve_storage_paths(
+    repo_root: Path | str,
+    config: ProviderConfig,
+    data_dir: str | None = None,
+    cache_dir: str | None = None,
+    reports_dir: str | None = None,
+    runtime_dir: str | None = None,
+) -> dict[str, Path]:
     root = Path(repo_root)
-    resolved_reports = Path(reports_dir or config.values.get("RESEARCH_REPORTS_DIR", data_dir or root / "reports"))
-    resolved_cache = Path(cache_dir or config.values.get("RESEARCH_CACHE_DIR", root / ".cache" / "market-research"))
-    return {"reports_dir": resolved_reports, "cache_dir": resolved_cache}
+    resolved_data = Path(data_dir or config.values.get("RESEARCH_DATA_DIR", root / "data"))
+    resolved_reports = Path(reports_dir or config.values.get("RESEARCH_REPORTS_DIR", root / "reports"))
+    resolved_runtime = Path(runtime_dir or config.values.get("RESEARCH_RUNTIME_DIR", root / "runtime"))
+    resolved_cache = Path(cache_dir or config.values.get("RESEARCH_CACHE_DIR", resolved_data / "_cache"))
+    return {
+        "data_dir": resolved_data,
+        "reports_dir": resolved_reports,
+        "runtime_dir": resolved_runtime,
+        "cache_dir": resolved_cache,
+    }
 
 
 def cache_key(provider: str, endpoint: str, params: dict[str, Any]) -> str:
@@ -1381,17 +1404,30 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
     write_env_example(root, config)
-    paths = resolve_storage_paths(root, config, reports_dir=getattr(args, "reports_dir", None), cache_dir=getattr(args, "cache_dir", None))
+    paths = resolve_storage_paths(
+        root,
+        config,
+        data_dir=getattr(args, "data_dir", None),
+        cache_dir=getattr(args, "cache_dir", None),
+        reports_dir=getattr(args, "reports_dir", None),
+        runtime_dir=getattr(args, "runtime_dir", None),
+    )
+    data_dir = paths["data_dir"]
     reports_dir = paths["reports_dir"]
+    runtime_dir = paths["runtime_dir"]
     cache_dir = paths["cache_dir"]
+    data_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     providers = configured_providers(config)
     payload = {
         "python": sys.version.split()[0],
         "repo_root": str(root),
         "loaded_files": [Path(item).name for item in config.loaded_files],
+        "data_dir_writable": os.access(data_dir, os.W_OK),
         "reports_dir_writable": os.access(reports_dir, os.W_OK),
+        "runtime_dir_writable": os.access(runtime_dir, os.W_OK),
         "cache_dir_writable": os.access(cache_dir, os.W_OK),
         "providers": providers,
         "docs": config.docs,
@@ -1406,9 +1442,16 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     config = load_env_files(root)
     symbol = normalize_symbol(args.symbol)
     as_of = args.as_of or date.today().isoformat()
-    paths = resolve_storage_paths(root, config, data_dir=getattr(args, "data_dir", None), cache_dir=getattr(args, "cache_dir", None), reports_dir=getattr(args, "reports_dir", None))
+    paths = resolve_storage_paths(
+        root,
+        config,
+        data_dir=getattr(args, "data_dir", None),
+        cache_dir=getattr(args, "cache_dir", None),
+        reports_dir=getattr(args, "reports_dir", None),
+        runtime_dir=getattr(args, "runtime_dir", None),
+    )
     cache_root = paths["cache_dir"]
-    output_root = paths["reports_dir"]
+    output_root = paths["data_dir"]
     providers = parse_provider_list(args.providers, config)
     endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
     budgets = parse_budgets(args.max_provider_calls)
@@ -1439,7 +1482,14 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 def cmd_list_cache(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
-    paths = resolve_storage_paths(root, config, data_dir=getattr(args, "data_dir", None), cache_dir=getattr(args, "cache_dir", None), reports_dir=getattr(args, "reports_dir", None))
+    paths = resolve_storage_paths(
+        root,
+        config,
+        data_dir=getattr(args, "data_dir", None),
+        cache_dir=getattr(args, "cache_dir", None),
+        reports_dir=getattr(args, "reports_dir", None),
+        runtime_dir=getattr(args, "runtime_dir", None),
+    )
     cache_root = paths["cache_dir"]
     symbol = normalize_symbol(args.symbol)
     files = [str(path) for path in sorted((cache_root / symbol).glob("*/*.json"))] if (cache_root / symbol).exists() else []
@@ -1449,7 +1499,14 @@ def cmd_list_cache(args: argparse.Namespace) -> None:
 def cmd_clear_cache(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
-    paths = resolve_storage_paths(root, config, data_dir=getattr(args, "data_dir", None), cache_dir=getattr(args, "cache_dir", None), reports_dir=getattr(args, "reports_dir", None))
+    paths = resolve_storage_paths(
+        root,
+        config,
+        data_dir=getattr(args, "data_dir", None),
+        cache_dir=getattr(args, "cache_dir", None),
+        reports_dir=getattr(args, "reports_dir", None),
+        runtime_dir=getattr(args, "runtime_dir", None),
+    )
     cache_root = paths["cache_dir"]
     symbol = normalize_symbol(args.symbol)
     provider_root = cache_root / symbol / args.provider
@@ -1465,6 +1522,7 @@ def add_common_paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--data-dir", help=argparse.SUPPRESS)
     parser.add_argument("--reports-dir")
+    parser.add_argument("--runtime-dir")
     parser.add_argument("--cache-dir")
 
 
@@ -1473,7 +1531,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--repo-root", default=".")
+    doctor.add_argument("--data-dir", help=argparse.SUPPRESS)
     doctor.add_argument("--reports-dir")
+    doctor.add_argument("--runtime-dir")
     doctor.add_argument("--cache-dir")
     doctor.add_argument("--no-network", action="store_true")
     doctor.set_defaults(func=cmd_doctor)

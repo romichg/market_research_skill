@@ -84,23 +84,23 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def run_dir(output_root: Path, symbol: str) -> Path:
-    return output_root / symbol
+def run_dir(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
+    return output_root / symbol / as_of if as_of else output_root / symbol
 
 
-def manifest_path(output_root: Path, symbol: str) -> Path:
-    return run_dir(output_root, symbol) / "run_manifest.json"
+def manifest_path(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
+    return run_dir(output_root, symbol, as_of) / "run_manifest.json"
 
 
-def ensure_run(output_root: Path, symbol: str) -> Path:
-    out = run_dir(output_root, symbol)
+def ensure_run(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
+    out = run_dir(output_root, symbol, as_of)
     if not (out / "run_manifest.json").exists():
         die(f"Run directory not initialized for {symbol}; run init-run first.")
     return out
 
 
-def update_manifest(output_root: Path, symbol: str, **updates: Any) -> dict[str, Any]:
-    path = manifest_path(output_root, symbol)
+def update_manifest(output_root: Path, symbol: str, as_of: str | None = None, **updates: Any) -> dict[str, Any]:
+    path = manifest_path(output_root, symbol, as_of)
     with file_lock(path):
         manifest = read_json(path)
         manifest.update(updates)
@@ -109,8 +109,8 @@ def update_manifest(output_root: Path, symbol: str, **updates: Any) -> dict[str,
     return manifest
 
 
-def append_manifest_gap_fills(output_root: Path, symbol: str, fill_args: list[dict[str, Any]], recorded_at: str, research_context: Path) -> dict[str, Any]:
-    path = manifest_path(output_root, symbol)
+def append_manifest_gap_fills(output_root: Path, symbol: str, as_of: str | None, fill_args: list[dict[str, Any]], recorded_at: str, research_context: Path) -> dict[str, Any]:
+    path = manifest_path(output_root, symbol, as_of)
     with file_lock(path):
         manifest = read_json(path)
         fills = manifest.get("procedural_gap_fills", [])
@@ -122,8 +122,8 @@ def append_manifest_gap_fills(output_root: Path, symbol: str, fill_args: list[di
     return manifest
 
 
-def append_manifest_source_gap(output_root: Path, symbol: str, gap: dict[str, Any]) -> dict[str, Any]:
-    path = manifest_path(output_root, symbol)
+def append_manifest_source_gap(output_root: Path, symbol: str, as_of: str | None, gap: dict[str, Any]) -> dict[str, Any]:
+    path = manifest_path(output_root, symbol, as_of)
     with file_lock(path):
         manifest = read_json(path)
         gaps = [item for item in manifest.get("source_gaps", []) if item.get("source_id") != gap.get("source_id")]
@@ -136,7 +136,7 @@ def append_manifest_source_gap(output_root: Path, symbol: str, gap: dict[str, An
 
 def cmd_init_run(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    out = run_dir(Path(args.output_root), symbol)
+    out = run_dir(Path(args.output_root).resolve(), symbol, args.as_of)
     manifest = out / "run_manifest.json"
     if manifest.exists() and not args.force:
         die(f"Run directory already initialized for {symbol}; pass --force to overwrite.")
@@ -145,6 +145,7 @@ def cmd_init_run(args: argparse.Namespace) -> None:
     now = utc_now()
     manifest = {
         "symbol": symbol,
+        "as_of": args.as_of,
         "created_at": now,
         "updated_at": now,
         "status": "initialized",
@@ -162,8 +163,8 @@ def cmd_init_run(args: argparse.Namespace) -> None:
 
 def cmd_classify(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    output_root = Path(args.output_root)
-    out = ensure_run(output_root, symbol)
+    output_root = Path(args.output_root).resolve()
+    out = ensure_run(output_root, symbol, args.as_of)
     classification = {
         "symbol": symbol,
         "security_type": args.security_type,
@@ -173,7 +174,7 @@ def cmd_classify(args: argparse.Namespace) -> None:
         "notes": [args.note] if args.note else [],
     }
     write_json(out / "source_bundle" / "classification.json", classification)
-    update_manifest(output_root, symbol, security_type=args.security_type, classification=str(out / "source_bundle" / "classification.json"))
+    update_manifest(output_root, symbol, args.as_of, security_type=args.security_type, classification=str(out / "source_bundle" / "classification.json"))
     print(json.dumps(classification, indent=2, sort_keys=True))
 
 
@@ -186,7 +187,7 @@ def load_sources(out: Path) -> dict[str, Any]:
 
 def cmd_record_source(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    out = ensure_run(Path(args.output_root), symbol)
+    out = ensure_run(Path(args.output_root).resolve(), symbol, args.as_of)
     source = {
         "id": args.id,
         "title": args.title,
@@ -212,8 +213,8 @@ def cmd_record_source(args: argparse.Namespace) -> None:
 
 def cmd_record_source_gap(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    output_root = Path(args.output_root)
-    ensure_run(output_root, symbol)
+    output_root = Path(args.output_root).resolve()
+    ensure_run(output_root, symbol, args.as_of)
     gap = {
         "source_id": args.source_id,
         "attempted_url": args.attempted_url,
@@ -222,7 +223,7 @@ def cmd_record_source_gap(args: argparse.Namespace) -> None:
         "severity": args.severity,
         "recorded_at": utc_now(),
     }
-    append_manifest_source_gap(output_root, symbol, gap)
+    append_manifest_source_gap(output_root, symbol, args.as_of, gap)
     print(json.dumps(gap, indent=2, sort_keys=True))
 
 
@@ -274,8 +275,8 @@ def context_required_fields(security_type: str | None) -> list[str]:
     return EQUITY_REQUIRED_FIELDS
 
 
-def build_context(output_root: Path, symbol: str) -> dict[str, Any]:
-    out = ensure_run(output_root, symbol)
+def build_context(output_root: Path, symbol: str, as_of: str | None = None) -> dict[str, Any]:
+    out = ensure_run(output_root, symbol, as_of)
     manifest = read_json(out / "run_manifest.json")
     classification_path = out / "source_bundle" / "classification.json"
     classification = read_json(classification_path) if classification_path.exists() else {}
@@ -427,22 +428,22 @@ def write_context_files(out: Path, context: dict[str, Any]) -> None:
 
 def cmd_prepare_research_context(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    output_root = Path(args.output_root)
-    out = ensure_run(output_root, symbol)
-    context = build_context(output_root, symbol)
+    output_root = Path(args.output_root).resolve()
+    out = ensure_run(output_root, symbol, args.as_of)
+    context = build_context(output_root, symbol, args.as_of)
     write_context_files(out, context)
-    update_manifest(output_root, symbol, research_context=str(out / "research_context.json"))
+    update_manifest(output_root, symbol, args.as_of, research_context=str(out / "research_context.json"))
     print(json.dumps({"context": str(out / "research_context.json"), "is_sparse": context["context_quality"]["is_sparse"]}, indent=2))
 
 
 def cmd_record_gap_fill(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    output_root = Path(args.output_root)
-    out = ensure_run(output_root, symbol)
+    output_root = Path(args.output_root).resolve()
+    out = ensure_run(output_root, symbol, args.as_of)
     fills = resolve_gap_fill_args(args)
     recorded_at = utc_now()
     with file_lock(out / "research_context.json"):
-        context = build_context(output_root, symbol)
+        context = build_context(output_root, symbol, args.as_of)
         points = [
             {
                 "key": fill_args["field"],
@@ -468,7 +469,7 @@ def cmd_record_gap_fill(args: argparse.Namespace) -> None:
             "is_sparse": any(field not in keys for field in required),
         }
         write_context_files(out, context)
-    append_manifest_gap_fills(output_root, symbol, fills, recorded_at, out / "research_context.json")
+    append_manifest_gap_fills(output_root, symbol, args.as_of, fills, recorded_at, out / "research_context.json")
     if len(points) == 1:
         print(json.dumps(points[0], indent=2, sort_keys=True))
     else:
@@ -671,9 +672,9 @@ def context_point(key: str, value: Any, source_id: str, confidence: str = "high"
     }
 
 
-def merge_data_points(output_root: Path, symbol: str, points: list[dict[str, Any]]) -> dict[str, Any]:
-    out = ensure_run(output_root, symbol)
-    context = build_context(output_root, symbol)
+def merge_data_points(output_root: Path, symbol: str, as_of: str | None, points: list[dict[str, Any]]) -> dict[str, Any]:
+    out = ensure_run(output_root, symbol, as_of)
+    context = build_context(output_root, symbol, as_of)
     replacing = {point["key"] for point in points}
     data_points = [p for p in context.get("data_points", []) if p.get("key") not in replacing]
     data_points.extend(points)
@@ -686,14 +687,14 @@ def merge_data_points(output_root: Path, symbol: str, points: list[dict[str, Any
         "is_sparse": any(field not in keys for field in required),
     }
     write_context_files(out, context)
-    update_manifest(output_root, symbol, research_context=str(out / "research_context.json"))
+    update_manifest(output_root, symbol, as_of, research_context=str(out / "research_context.json"))
     return context
 
 
 def cmd_extract_blackrock(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
-    output_root = Path(args.output_root)
-    ensure_run(output_root, symbol)
+    output_root = Path(args.output_root).resolve()
+    ensure_run(output_root, symbol, args.as_of)
     payload = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
     fund_header = payload.get("fundHeader") if isinstance(payload.get("fundHeader"), dict) else {}
     facts = payload.get("keyFundFacts") if isinstance(payload.get("keyFundFacts"), dict) else {}
@@ -720,22 +721,27 @@ def cmd_extract_blackrock(args: argparse.Namespace) -> None:
     if holdings:
         points.append(context_point("holdings_summary", holdings, args.source_id))
     points.extend(point for point in blackrock_component_points(payload, args.source_id) if point["key"] not in {existing["key"] for existing in points})
-    context = merge_data_points(output_root, symbol, points)
+    context = merge_data_points(output_root, symbol, args.as_of, points)
     print(json.dumps({"added": [point["key"] for point in points], "is_sparse": context["context_quality"]["is_sparse"]}, indent=2))
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Procedural source registry and gap-fill helper for the Codex market-research skill.")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    def add_run_location(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--output-root", default="./runtime")
+        parser.add_argument("--as-of")
+
     init = sub.add_parser("init-run", help="Create a run directory and manifest.")
     init.add_argument("symbol")
-    init.add_argument("--output-root", default="./runtime")
+    add_run_location(init)
     init.add_argument("--force", action="store_true", help="Overwrite an existing initialized run manifest.")
     init.set_defaults(func=cmd_init_run)
 
     classify = sub.add_parser("classify", help="Record manual/best-effort classification.")
     classify.add_argument("symbol")
-    classify.add_argument("--output-root", default="./runtime")
+    add_run_location(classify)
     classify.add_argument("--security-type", choices=["equity", "adr", "etf"], required=True)
     classify.add_argument("--name")
     classify.add_argument("--confidence", choices=["high", "medium", "low"], default="medium")
@@ -744,7 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     source = sub.add_parser("record-source", help="Record a cited source.")
     source.add_argument("symbol")
-    source.add_argument("--output-root", default="./runtime")
+    add_run_location(source)
     source.add_argument("--id", required=True)
     source.add_argument("--title", required=True)
     source.add_argument("--url", required=True)
@@ -757,7 +763,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     source_gap = sub.add_parser("record-source-gap", help="Record a failed or incomplete public-source capture.")
     source_gap.add_argument("symbol")
-    source_gap.add_argument("--output-root", default="./runtime")
+    add_run_location(source_gap)
     source_gap.add_argument("--source-id", required=True)
     source_gap.add_argument("--attempted-url", required=True)
     source_gap.add_argument("--reason", required=True)
@@ -767,12 +773,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     context = sub.add_parser("prepare-research-context", help="Build compact research context.")
     context.add_argument("symbol")
-    context.add_argument("--output-root", default="./runtime")
+    add_run_location(context)
     context.set_defaults(func=cmd_prepare_research_context)
 
     fill = sub.add_parser("record-gap-fill", help="Record a targeted procedural gap fill.")
     fill.add_argument("symbol")
-    fill.add_argument("--output-root", default="./runtime")
+    add_run_location(fill)
     fill.add_argument("--field")
     fill.add_argument("--value")
     fill.add_argument("--source-id")
@@ -784,7 +790,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     blackrock = sub.add_parser("extract-blackrock", help="Promote BlackRock/iShares product API JSON into research context.")
     blackrock.add_argument("symbol")
-    blackrock.add_argument("--output-root", default="./runtime")
+    add_run_location(blackrock)
     blackrock.add_argument("--json-file", required=True)
     blackrock.add_argument("--source-id", default="blackrock_product_api")
     blackrock.set_defaults(func=cmd_extract_blackrock)

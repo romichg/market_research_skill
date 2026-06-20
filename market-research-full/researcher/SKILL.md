@@ -34,6 +34,12 @@ Do not abandon the report solely because a helper failed unless no credible publ
 
 ## Workflow
 
+Use separate roots for generated artifacts:
+
+- `data/SYMBOL/AS_OF/`: deterministic raw, normalized, manifest, gaps, and research input pack artifacts.
+- `reports/SYMBOL/AS_OF/`: polished research markdown, JSON sidecar, and validation-facing report artifacts.
+- `runtime/SYMBOL/AS_OF/`: procedural helper manifests, source bundles, prompts, notes, and other run-time working files.
+
 1. Start with deterministic data collection when provider keys or cached raw files are available:
 
 ```bash
@@ -69,7 +75,7 @@ python3 {baseDir}/../shared/scripts/deterministic_research_collector.py list-cac
 The deterministic collector writes:
 
 ```text
-reports/SYMBOL/AS_OF/
+data/SYMBOL/AS_OF/
   manifest.json
   source_manifest.json
   gaps.json
@@ -83,21 +89,23 @@ Use this output as the primary factual input. Every normalized value must carry 
 2. If deterministic output is sparse or a procedural source bundle is required, normalize the symbol to uppercase and create the run:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py init-run SYMBOL --output-root ./runtime
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py init-run SYMBOL --output-root ./runtime --as-of YYYY-MM-DD
 ```
+
+Pass `--as-of YYYY-MM-DD` to place procedural runtime artifacts under `runtime/SYMBOL/YYYY-MM-DD/`; without `--as-of`, explicit `--output-root` calls keep the legacy `output_root/SYMBOL` layout.
 
 Wait for `init-run` to complete before `classify`, `record-source`, or any other dependent helper command. Source registry writes are lock-protected, but run initialization is a required sequential step.
 
 3. Classify the security. If the helper cannot classify from public data, use clear procedural evidence or ask the user to choose `equity`, `adr`, or `etf`; then record it:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py classify SYMBOL --output-root ./runtime --security-type etf --name "Fund or company name"
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py classify SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --security-type etf --name "Fund or company name"
 ```
 
 4. Gather public/free sources. Prefer primary sources. Record each material source:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-source SYMBOL --output-root ./runtime --id source_id --title "Source title" --url "https://example.com/source" --kind issuer_fact_sheet --source-date YYYY-MM-DD --artifact ./downloaded-source.pdf --confidence high
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-source SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --id source_id --title "Source title" --url "https://example.com/source" --kind issuer_fact_sheet --source-date YYYY-MM-DD --artifact ./downloaded-source.pdf --confidence high
 ```
 
 Use `--source-date` whenever a document or page has a visible as-of, filing, publication, or effective date. Use `--artifact` for every cited public web page or document you saved locally; the helper copies it into `source_bundle/`, records artifact size and SHA-256 checksum metadata, and rejects obvious extension/content mismatches such as HTML saved as `.csv`.
@@ -107,27 +115,27 @@ The helper uses lock-protected registry writes, but source capture is still easi
 When a public/free source capture fails or returns unusable content, record the attempted source as a structured gap:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-source-gap SYMBOL --output-root ./runtime --source-id holdings_csv --attempted-url "https://example.com/holdings.csv" --reason "CSV endpoint returned HTML." --replacement-source-id issuer_fact_sheet --severity medium
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-source-gap SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --source-id holdings_csv --attempted-url "https://example.com/holdings.csv" --reason "CSV endpoint returned HTML." --replacement-source-id issuer_fact_sheet --severity medium
 ```
 
 5. Prepare compact context:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py prepare-research-context SYMBOL --output-root ./runtime
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py prepare-research-context SYMBOL --output-root ./runtime --as-of YYYY-MM-DD
 ```
 
 For equities, this promotes basic SEC Companyfacts data when `source_bundle/sec_companyfacts.json` is present and a latest annual filing source is recorded. Revenue and income promotion chooses the latest annual fact across equivalent tags rather than trusting the first tag. Still inspect the promoted fiscal year, period end, filing date, and tag before using it in the report. For ETFs, this promotes the classified fund name but most issuer/fact-sheet fields still require targeted extraction or procedural gap fills.
 
-6. Inspect `runtime/SYMBOL/research_context.json`. If material fields are missing, fill only targeted gaps procedurally from public sources. Record fills:
+6. Inspect `runtime/SYMBOL/YYYY-MM-DD/research_context.json`. If material fields are missing, fill only targeted gaps procedurally from public sources. Record fills:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-gap-fill SYMBOL --output-root ./runtime --field expense_ratio --value "0.59%" --source-id issuer_fact_sheet --confidence high --note "Filled from issuer fact sheet."
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-gap-fill SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --field expense_ratio --value "0.59%" --source-id issuer_fact_sheet --confidence high --note "Filled from issuer fact sheet."
 ```
 
 For shell-sensitive values such as dollar amounts, prefer structured input:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-gap-fill SYMBOL --output-root ./runtime --json-file ./gap-fill.json
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-gap-fill SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --json-file ./gap-fill.json
 ```
 
 The JSON input may be either one object or an array of objects. Each object may contain `field`, `value`, `source_id`, `confidence`, and `note`. Prefer JSON input for any value containing dollar signs, quotes, percent signs, shell metacharacters, or multiple fields.
@@ -135,22 +143,24 @@ The JSON input may be either one object or an array of objects. Each object may 
 7. For BlackRock/iShares ETF payloads already downloaded, extracted from the product page, or user-supplied, promote the useful structured data:
 
 ```bash
-python3 {baseDir}/../shared/scripts/procedural_source_helper.py extract-blackrock SYMBOL --output-root ./runtime --json-file ./runtime/SYMBOL/source_bundle/blackrock_product_api.json --source-id blackrock_product_api
+python3 {baseDir}/../shared/scripts/procedural_source_helper.py extract-blackrock SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --json-file ./runtime/SYMBOL/YYYY-MM-DD/source_bundle/blackrock_product_api.json --source-id blackrock_product_api
 ```
 
 This helper supports both legacy BlackRock API payloads and component-style product-page extracts such as `FundHeaderV3`, `KeyFundFactsV3`, `FeeTableV3`, and `TopHoldingsV3`.
 
-8. Write:
+8. Write working/procedural artifacts under runtime and final report artifacts under reports:
 
 ```text
-runtime/SYMBOL/
-  SYMBOL-research.md
-  SYMBOL-research.json
+runtime/SYMBOL/YYYY-MM-DD/
   research_context.json
   research_context.md
   sources.json
   run_manifest.json
   source_bundle/
+
+reports/SYMBOL/YYYY-MM-DD/
+  SYMBOL-research.md
+  SYMBOL-research.json
 ```
 
 9. Same-session self-check the artifacts for missing citations, stale dates, unsupported claims, and gaps. Label this as a self-check, not independent validation.

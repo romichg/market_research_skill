@@ -114,12 +114,15 @@ def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
 
 def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
     root = tmp_path / "batch"
+    as_of = "2026-06-16"
 
     result = run_harness(
         "run-batch",
         "EWW",
         "--run-root",
         str(root),
+        "--as-of",
+        as_of,
         "--producer-command",
         "producer {prompt_file}",
         "--validator-command",
@@ -133,7 +136,7 @@ def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["symbols"]["EWW"]["status"] == "planned"
-    iteration = root / "EWW" / "iteration-01"
+    iteration = root / "EWW" / as_of / "iteration-01"
     assert (iteration / "producer-initial.prompt.md").exists()
     assert (iteration / "validator.prompt.md").exists()
     commands = json.loads((iteration / "commands.json").read_text(encoding="utf-8"))
@@ -145,11 +148,12 @@ def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
 
 def test_run_batch_defaults_to_supported_codex_exec_command(tmp_path):
     root = tmp_path / "batch"
+    as_of = "2026-06-16"
 
-    result = run_harness("run-batch", "EWW", "--run-root", str(root), "--dry-run")
+    result = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", as_of, "--dry-run")
 
     assert result.returncode == 0, result.stderr
-    iteration = root / "EWW" / "iteration-01"
+    iteration = root / "EWW" / as_of / "iteration-01"
     commands = json.loads((iteration / "commands.json").read_text(encoding="utf-8"))
     assert "--dangerously-bypass-approvals-and-sandbox" in commands["producer"]
     assert "--dangerously-bypass-approvals-and-sandbox" in commands["validator"]
@@ -157,8 +161,29 @@ def test_run_batch_defaults_to_supported_codex_exec_command(tmp_path):
     assert "--ask-for-approval" not in commands["validator"]
 
 
+def test_run_batch_dry_run_uses_runtime_symbol_date_layout(tmp_path):
+    root = tmp_path / "runtime"
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        "2026-06-16",
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    iteration = root / "EWW" / "2026-06-16" / "iteration-01"
+    assert (iteration / "producer-initial.prompt.md").exists()
+    commands = json.loads((iteration / "commands.json").read_text(encoding="utf-8"))
+    assert "market-research-full" in commands["producer"]
+
+
 def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):
     root = tmp_path / "batch"
+    as_of = "2026-06-16"
     producer = (
         f"{sys.executable} -c \""
         "from pathlib import Path; import time; "
@@ -181,6 +206,8 @@ def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):
         "EWW",
         "--run-root",
         str(root),
+        "--as-of",
+        as_of,
         "--producer-command",
         producer,
         "--validator-command",
@@ -192,12 +219,13 @@ def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
-    producer_log = root / "EWW" / "iteration-01" / "producer.log"
+    producer_log = root / "EWW" / as_of / "iteration-01" / "producer.log"
     assert "timed_out=True" in producer_log.read_text(encoding="utf-8")
 
 
 def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(tmp_path):
     root = tmp_path / "batch"
+    as_of = "2026-06-16"
     producer = (
         f"{sys.executable} -c \""
         "from pathlib import Path; import json, time; "
@@ -223,6 +251,8 @@ def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(
         "EWW",
         "--run-root",
         str(root),
+        "--as-of",
+        as_of,
         "--producer-command",
         producer,
         "--validator-command",
@@ -238,6 +268,7 @@ def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(
 
 def test_run_batch_validates_latest_dated_deterministic_bundle(tmp_path):
     root = tmp_path / "batch"
+    as_of = "2026-06-16"
     producer = (
         f"{sys.executable} -c \""
         "from pathlib import Path; import json; "
@@ -263,6 +294,8 @@ def test_run_batch_validates_latest_dated_deterministic_bundle(tmp_path):
         "EWW",
         "--run-root",
         str(root),
+        "--as-of",
+        as_of,
         "--producer-command",
         producer,
         "--validator-command",
@@ -272,18 +305,19 @@ def test_run_batch_validates_latest_dated_deterministic_bundle(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
-    assert payload["symbols"]["EWW"]["artifact_run_dir"].endswith("EWW/2026-06-01")
-    assert payload["symbols"]["EWW"]["validation_json"].endswith("EWW/2026-06-01/EWW-validation-scaffold.json")
+    assert payload["symbols"]["EWW"]["artifact_run_dir"].endswith("EWW/2026-06-16/2026-06-01")
+    assert payload["symbols"]["EWW"]["validation_json"].endswith("EWW/2026-06-16/2026-06-01/EWW-validation-scaffold.json")
 
 
 def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tmp_path):
     runtime_root = tmp_path / "runtime" / "batch"
     reports_root = tmp_path / "reports"
+    as_of = "2026-06-16"
     producer = (
         f"{sys.executable} -c \""
         "from pathlib import Path; import json; "
         "run_dir = Path(r'{run_dir}'); "
-        "reports_root = run_dir.parents[2] / 'reports'; "
+        f"reports_root = Path(r'{reports_root}'); "
         "artifact_dir = reports_root / '{symbol}' / '2026-06-01'; "
         "(artifact_dir / 'normalized').mkdir(parents=True, exist_ok=True); "
         "(artifact_dir / 'research_input_pack.md').write_text('ok', encoding='utf-8'); "
@@ -307,6 +341,8 @@ def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tm
         "EWW",
         "--run-root",
         str(runtime_root),
+        "--as-of",
+        as_of,
         "--producer-command",
         producer,
         "--validator-command",
@@ -316,7 +352,7 @@ def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tm
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
-    assert payload["symbols"]["EWW"]["run_dir"] == str(runtime_root / "EWW")
+    assert payload["symbols"]["EWW"]["run_dir"] == str(runtime_root / "EWW" / as_of)
     assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_root / "EWW" / "2026-06-01")
     assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
 

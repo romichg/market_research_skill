@@ -222,9 +222,53 @@ def test_fetch_skips_provider_when_estimated_cost_exceeds_budget(tmp_path, monke
     module.cmd_fetch(args)
 
     assert calls == [("tiingo", ("prices",))]
-    manifest_path = tmp_path / "reports" / "AAPL" / "2026-06-01" / "manifest.json"
+    manifest_path = tmp_path / "data" / "AAPL" / "2026-06-01" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert any("eodhd" in warning and "budget" in warning for warning in manifest["warnings"])
+
+
+def test_storage_paths_default_to_data_reports_runtime(tmp_path):
+    module = load_module()
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.resolve_storage_paths(tmp_path, config)
+
+    assert paths["data_dir"] == tmp_path / "data"
+    assert paths["reports_dir"] == tmp_path / "reports"
+    assert paths["runtime_dir"] == tmp_path / "runtime"
+    assert paths["cache_dir"] == tmp_path / "data" / "_cache"
+
+
+def test_fetch_writes_deterministic_bundle_under_data_not_reports(tmp_path, monkeypatch):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": None,
+            "cache_dir": None,
+            "reports_dir": None,
+            "runtime_dir": None,
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "equity",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    assert (tmp_path / "data" / "AAPL" / "2026-06-16" / "manifest.json").exists()
+    assert not (tmp_path / "reports" / "AAPL" / "2026-06-16" / "manifest.json").exists()
 
 
 def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
@@ -540,7 +584,7 @@ def test_fetch_logs_rate_limit_status_in_manifest(tmp_path, monkeypatch):
 
     module.cmd_fetch(args)
 
-    manifest = json.loads((tmp_path / "reports" / "AAPL" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "data" / "AAPL" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["provider_status"][0]["status"] == "rate_limited"
     assert any("rate_limited" in warning and "alphavantage" in warning for warning in manifest["warnings"])
 
@@ -584,8 +628,8 @@ def test_fetch_logs_provider_error_status_in_manifest(tmp_path, monkeypatch):
 
     module.cmd_fetch(args)
 
-    manifest = json.loads((tmp_path / "reports" / "SPY" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
-    source_manifest = json.loads((tmp_path / "reports" / "SPY" / "2026-06-16" / "source_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "data" / "SPY" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
+    source_manifest = json.loads((tmp_path / "data" / "SPY" / "2026-06-16" / "source_manifest.json").read_text(encoding="utf-8"))
     assert manifest["provider_status"][0]["status"] == "error"
     assert any("error" in warning and "sec" in warning for warning in manifest["warnings"])
     assert source_manifest["sources"][0]["error"] == "HTTP 404"
@@ -775,14 +819,16 @@ def test_http_json_does_not_retry_unauthorized(monkeypatch):
     assert len(calls) == 1
 
 
-def test_default_paths_use_reports_for_polished_output(tmp_path):
+def test_default_paths_separate_data_reports_runtime_and_cache(tmp_path):
     module = load_module()
     config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
 
     paths = module.resolve_storage_paths(tmp_path, config, data_dir=None, cache_dir=None, reports_dir=None)
 
+    assert paths["data_dir"] == tmp_path / "data"
     assert paths["reports_dir"] == tmp_path / "reports"
-    assert paths["cache_dir"] == tmp_path / ".cache" / "market-research"
+    assert paths["runtime_dir"] == tmp_path / "runtime"
+    assert paths["cache_dir"] == tmp_path / "data" / "_cache"
 
 
 def test_deterministic_schema_covers_normalized_outputs():

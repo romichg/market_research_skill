@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import date
 import json
 import shlex
 import subprocess
@@ -281,11 +282,13 @@ def cmd_summarize(args: argparse.Namespace) -> None:
 
 def cmd_init_batch(args: argparse.Namespace) -> None:
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
+    args.as_of = args.as_of or date.today().isoformat()
     root = Path(args.run_root)
     root.mkdir(parents=True, exist_ok=True)
     improvement_notes = ensure_improvement_note_files(root)
     config = {
         "symbols": symbols,
+        "as_of": args.as_of,
         "max_remediation_loops": args.max_remediation_loops,
         "pass_gate": {"open_critical": 0, "open_moderate": 0},
         "fresh_context_required": True,
@@ -294,7 +297,7 @@ def cmd_init_batch(args: argparse.Namespace) -> None:
     prompt_root = root / "prompts"
     prompt_paths = {}
     for symbol in symbols:
-        symbol_run_dir = f"{root}/{symbol}"
+        symbol_run_dir = f"{root}/{symbol}/{args.as_of}"
         out = prompt_root / symbol
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{symbol}-producer-initial.md").write_text(producer_initial_prompt(symbol, symbol_run_dir), encoding="utf-8")
@@ -442,8 +445,8 @@ def write_iteration_prompts(symbol: str, run_dir: Path, iteration_dir: Path, rem
 
 def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]:
     root = Path(args.run_root)
-    run_dir = root / symbol
-    symbol_dir = root / symbol
+    run_dir = root / symbol / args.as_of
+    symbol_dir = root / symbol / args.as_of
     max_loops = args.max_remediation_loops
     if args.dry_run:
         iteration_dir = symbol_dir / "iteration-01"
@@ -541,6 +544,7 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
     args.producer_command = args.producer_command or DEFAULT_CODEX_COMMAND
     args.validator_command = args.validator_command or DEFAULT_CODEX_COMMAND
     args.remediation_command = args.remediation_command or DEFAULT_CODEX_COMMAND
+    args.as_of = args.as_of or date.today().isoformat()
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
     root = Path(args.run_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -548,6 +552,7 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
     results = {symbol: execute_symbol_loop(args, symbol) for symbol in symbols}
     summary = {
         "dry_run": args.dry_run,
+        "as_of": args.as_of,
         "run_root": str(root),
         "symbols": results,
         "improvement_notes": improvement_notes,
@@ -581,12 +586,14 @@ def build_parser() -> argparse.ArgumentParser:
     init_batch = sub.add_parser("init-batch", help="Create batch config and prompt files for symbols.")
     init_batch.add_argument("symbols", nargs="+")
     init_batch.add_argument("--run-root", required=True)
+    init_batch.add_argument("--as-of")
     init_batch.add_argument("--max-remediation-loops", type=int, default=3)
     init_batch.set_defaults(func=cmd_init_batch)
 
     run_batch = sub.add_parser("run-batch", help="Run producer/validator/remediation subprocess loop for symbols.")
     run_batch.add_argument("symbols", nargs="+")
     run_batch.add_argument("--run-root", required=True)
+    run_batch.add_argument("--as-of")
     run_batch.add_argument("--producer-command", help="Shell template. Variables: {prompt_file}, {symbol}, {run_dir}, {iteration_dir}. Defaults to local codex exec.")
     run_batch.add_argument("--validator-command", help="Shell template. Variables: {prompt_file}, {symbol}, {run_dir}, {iteration_dir}. Defaults to local codex exec.")
     run_batch.add_argument("--remediation-command", help="Shell template used after blocking validation issues. Defaults to local codex exec.")

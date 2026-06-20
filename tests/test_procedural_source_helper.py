@@ -31,6 +31,16 @@ def test_init_run_creates_manifest(tmp_path):
     assert manifest["procedural_gap_fills"] == []
 
 
+def test_default_output_root_is_runtime_symbol_date(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = run_helper("init-run", "aapl", "--as-of", "2026-06-16")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert Path(payload["run_dir"]) == tmp_path / "runtime" / "AAPL" / "2026-06-16"
+    assert (tmp_path / "runtime" / "AAPL" / "2026-06-16" / "run_manifest.json").exists()
+
+
 def test_init_run_refuses_to_overwrite_existing_manifest_without_force(tmp_path):
     run_helper("init-run", "aapl", "--output-root", str(tmp_path))
     manifest_path = tmp_path / "AAPL" / "run_manifest.json"
