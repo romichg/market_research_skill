@@ -115,6 +115,21 @@ def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_p
     assert f"Write producer skill issues to `{run_dir}/AAPL-market-research-full-issues.md`." in producer
 
 
+def test_loop_prompt_maps_absolute_reports_dir_to_sibling_runtime_dir(tmp_path):
+    out_dir = tmp_path / "prompts"
+    absolute_run_dir = tmp_path / "reports" / "AAPL" / "2026-06-16"
+    expected_runtime_dir = tmp_path / "runtime" / "AAPL" / "2026-06-16"
+
+    result = run_harness("write-prompts", "AAPL", "--run-dir", str(absolute_run_dir), "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert f"Write final research markdown and JSON under `{absolute_run_dir}`." in producer
+    assert f"Use `{expected_runtime_dir}` for transient runtime notes, prompts, logs, and issue files." in producer
+    assert f"Write producer skill issues to `{expected_runtime_dir / 'AAPL-market-research-full-issues.md'}`." in producer
+
+
 def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_path):
     out_dir = tmp_path / "prompts"
 
