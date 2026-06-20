@@ -309,16 +309,15 @@ def test_run_batch_validates_latest_dated_deterministic_bundle(tmp_path):
     assert payload["symbols"]["EWW"]["validation_json"].endswith("EWW/2026-06-16/2026-06-01/EWW-validation-scaffold.json")
 
 
-def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tmp_path):
+def test_run_batch_validates_canonical_data_bundle_when_run_dir_is_runtime(tmp_path):
     runtime_root = tmp_path / "runtime" / "batch"
-    reports_root = tmp_path / "reports"
+    data_root = tmp_path / "data"
     as_of = "2026-06-16"
     producer = (
         f"{sys.executable} -c \""
         "from pathlib import Path; import json; "
-        "run_dir = Path(r'{run_dir}'); "
-        f"reports_root = Path(r'{reports_root}'); "
-        "artifact_dir = reports_root / '{symbol}' / '2026-06-01'; "
+        f"data_root = Path(r'{data_root}'); "
+        "artifact_dir = data_root / '{symbol}' / '2026-06-01'; "
         "(artifact_dir / 'normalized').mkdir(parents=True, exist_ok=True); "
         "(artifact_dir / 'research_input_pack.md').write_text('ok', encoding='utf-8'); "
         "(artifact_dir / 'manifest.json').write_text(json.dumps({'symbol':'{symbol}','asset_type':'equity'}), encoding='utf-8'); "
@@ -330,7 +329,7 @@ def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tm
         f"{sys.executable} -c \""
         "from pathlib import Path; "
         "run_dir = Path(r'{run_dir}'); "
-        f"expected = Path(r'{reports_root}') / '{{symbol}}' / '2026-06-01'; "
+        f"expected = Path(r'{data_root}') / '{{symbol}}' / '2026-06-01'; "
         "assert run_dir == expected, f'{run_dir} != {expected}'; "
         "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
         "\""
@@ -353,14 +352,14 @@ def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tm
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
     assert payload["symbols"]["EWW"]["run_dir"] == str(runtime_root / "EWW" / as_of)
-    assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_root / "EWW" / "2026-06-01")
-    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
+    assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(data_root / "EWW" / "2026-06-01")
+    assert payload["symbols"]["EWW"]["validation_json"] == str(data_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
 
 
-def test_run_batch_failed_producer_does_not_use_stale_canonical_reports_bundle(tmp_path):
+def test_run_batch_failed_producer_does_not_use_stale_canonical_data_bundle(tmp_path):
     runtime_root = tmp_path / "runtime" / "batch"
-    reports_root = tmp_path / "reports"
-    stale_bundle = reports_root / "EWW" / "2026-01-01"
+    data_root = tmp_path / "data"
+    stale_bundle = data_root / "EWW" / "2026-01-01"
     (stale_bundle / "normalized").mkdir(parents=True)
     (stale_bundle / "research_input_pack.md").write_text("stale", encoding="utf-8")
     (stale_bundle / "manifest.json").write_text(json.dumps({"symbol": "EWW", "asset_type": "etf"}), encoding="utf-8")
@@ -396,6 +395,49 @@ def test_run_batch_failed_producer_does_not_use_stale_canonical_reports_bundle(t
     assert payload["symbols"]["EWW"]["status"] == "producer_failed"
     assert payload["symbols"]["EWW"]["exit_code"] == 7
     assert not validator_marker.exists()
+
+
+def test_run_batch_failed_producer_can_continue_with_fresh_canonical_data_bundle(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    data_root = tmp_path / "data"
+    data_bundle = data_root / "EWW" / "2026-06-01"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; import json, sys; "
+        f"artifact_dir = Path(r'{data_bundle}'); "
+        "(artifact_dir / 'normalized').mkdir(parents=True, exist_ok=True); "
+        "(artifact_dir / 'research_input_pack.md').write_text('ok', encoding='utf-8'); "
+        "(artifact_dir / 'manifest.json').write_text(json.dumps({'symbol':'EWW','asset_type':'etf'}), encoding='utf-8'); "
+        "(artifact_dir / 'source_manifest.json').write_text(json.dumps({'sources':[]}), encoding='utf-8'); "
+        "(artifact_dir / 'gaps.json').write_text(json.dumps({'gaps':[]}), encoding='utf-8'); "
+        "sys.exit(7)"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{run_dir}'); "
+        f"expected = Path(r'{data_bundle}'); "
+        "assert run_dir == expected, f'{run_dir} != {expected}'; "
+        "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "passed"
+    assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(data_bundle)
 
 
 def test_collect_feedback_writes_manual_improvement_package(tmp_path):

@@ -372,11 +372,11 @@ def deterministic_bundle_exists(path: Path) -> bool:
     )
 
 
-def canonical_report_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
-    candidates = [Path.cwd() / "reports" / symbol]
+def canonical_data_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
+    candidates = [Path.cwd() / "data" / symbol]
     for parent in (run_dir, *run_dir.parents):
         if parent.name == "runtime":
-            candidates.append(parent.parent / "reports" / symbol)
+            candidates.append(parent.parent / "data" / symbol)
     seen: set[Path] = set()
     out: list[Path] = []
     for path in candidates:
@@ -395,11 +395,11 @@ def latest_producer_run_dir(run_dir: Path, symbol: str, *, modified_since: float
         candidates.append(run_dir)
     if run_dir.exists():
         candidates.extend(path for path in run_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
-    for reports_symbol_dir in canonical_report_symbol_dirs(run_dir, symbol):
-        if deterministic_bundle_exists(reports_symbol_dir):
-            candidates.append(reports_symbol_dir)
-        if reports_symbol_dir.exists():
-            candidates.extend(path for path in reports_symbol_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
+    for data_symbol_dir in canonical_data_symbol_dirs(run_dir, symbol):
+        if deterministic_bundle_exists(data_symbol_dir):
+            candidates.append(data_symbol_dir)
+        if data_symbol_dir.exists():
+            candidates.extend(path for path in data_symbol_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
     if modified_since is not None:
         candidates = [path for path in candidates if path.stat().st_mtime >= modified_since]
     if not candidates:

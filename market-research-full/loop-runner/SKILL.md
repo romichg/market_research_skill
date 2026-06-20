@@ -32,7 +32,7 @@ Defaults launch child sessions with:
 codex exec -C {cwd} --dangerously-bypass-approvals-and-sandbox - < {prompt_file}
 ```
 
-Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing the expected artifacts, the harness logs the timeout and continues to the next phase. When a producer writes a dated deterministic bundle such as `SYMBOL/AS_OF/YYYY-MM-DD/` inside the runtime tree or a canonical report bundle under `reports/SYMBOL/YYYY-MM-DD/`, the harness validates that dated bundle and records it as `artifact_run_dir` in `research-loop-summary.json`.
+Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing the expected artifacts, the harness logs the timeout and continues to the next phase. When a producer writes a dated deterministic bundle such as `SYMBOL/AS_OF/YYYY-MM-DD/` inside the runtime tree or a canonical deterministic bundle under `data/SYMBOL/YYYY-MM-DD/`, the harness validates that dated bundle and records it as `artifact_run_dir` in `research-loop-summary.json`.
 
 ## Supervision
 
@@ -60,7 +60,8 @@ Each run root contains:
 - `SYMBOL/AS_OF/gaps.json` when a producer writes a bundle directly into runtime
 - `SYMBOL/AS_OF/normalized/` when a producer writes a bundle directly into runtime
 - `SYMBOL/AS_OF/YYYY-MM-DD/` when the producer writes a dated bundle inside runtime; this path is reported as `artifact_run_dir`
-- canonical `reports/SYMBOL/YYYY-MM-DD/` report or validation bundles when produced outside the runtime tree
+- canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/` when produced outside the runtime tree
+- final research and validation artifacts under `reports/SYMBOL/YYYY-MM-DD/`
 - producer and validator skill issue files when observed
 
 Use `operator-notes.md` for future user-requested changes that should not be implemented automatically, such as PDF output, browser/captcha handoff, alternate report formats, or new data providers.
