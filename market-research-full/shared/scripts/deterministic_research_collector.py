@@ -471,6 +471,12 @@ def reusable_cached_raw(cache_root: Path, symbol: str, provider: str, endpoint: 
     return None
 
 
+def raw_payload_status(provider: str, payload: dict[str, Any]) -> str:
+    stored_status = payload.get("provider_result", {}).get("status", "ok")
+    semantic_status, _ = classify_provider_payload(provider, payload.get("data"))
+    return semantic_status if semantic_status != "ok" else stored_status
+
+
 def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: Path, unit: str | None = None, as_of: str | None = None, status: str = "ok", alternates: list[dict[str, Any]] | None = None, attempted_providers: list[str] | None = None, selection_reason: str | None = None) -> dict[str, Any]:
     point = {
         "value": value,
@@ -996,6 +1002,18 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         closes = [row["adjusted_close"] for row in prices if row.get("adjusted_close") is not None]
         snapshot["fifty_two_week_high"] = provenance(max(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
         snapshot["fifty_two_week_low"] = provenance(min(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
+    quote = read_raw_latest(cache_root, symbol, "twelve_data", "quote") if provider_enabled(providers, "twelve_data") and provider_endpoint_enabled(endpoint_plan, "twelve_data", "quote") else None
+    if quote:
+        raw, payload = quote
+        if raw_payload_status("twelve_data", payload) == "ok":
+            data = payload.get("data", {})
+            url = payload.get("provider_result", {}).get("url", "")
+            close = number(data.get("close") or data.get("previous_close"))
+            volume = number(data.get("volume"))
+            if close is not None and "latest_close" not in snapshot:
+                snapshot["latest_close"] = provenance(close, "twelve_data", url, "quote", raw)
+            if volume is not None and "latest_volume" not in snapshot:
+                snapshot["latest_volume"] = provenance(volume, "twelve_data", url, "quote", raw)
     market_cap_candidates: list[dict[str, Any]] = []
     pe_candidates: list[dict[str, Any]] = []
     attempted = []
@@ -1374,6 +1392,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     news = rewrite_raw_paths(normalize_news(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     equity_events = rewrite_raw_paths(normalize_equity_events(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     equity_insiders = rewrite_raw_paths(normalize_equity_insiders(cache_root, symbol, providers, endpoint_plan), raw_path_map)
+    etf_holdings = rewrite_raw_paths(normalize_etf_holdings(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     price_raw_path = raw_path_map.get(str(price_raw), str(price_raw) if price_raw else None)
     gaps = default_gaps(identity, snapshot, providers)
     write_json(normalized / "identity.json", identity)
@@ -1384,7 +1403,11 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     write_json(normalized / "equity_fundamentals.json", fundamentals if fundamentals else {"status": "unavailable", "gaps_recorded": True})
     write_json(normalized / "equity_events.json", equity_events)
     write_json(normalized / "equity_insiders.json", equity_insiders)
-    for filename in ["sec_filings_index", "sec_filing_sections", "etf_profile", "etf_holdings", "etf_distributions", "etf_performance"]:
+    if identity.get("asset_type", {}).get("value") == "etf":
+        write_json(normalized / "etf_holdings.json", etf_holdings)
+    else:
+        write_json(normalized / "etf_holdings.json", {"status": "not_applicable", "gaps_recorded": False})
+    for filename in ["sec_filings_index", "sec_filing_sections", "etf_profile", "etf_distributions", "etf_performance"]:
         write_json(normalized / f"{filename}.json", {"status": "not_implemented_in_core_pass", "gaps_recorded": True})
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})
@@ -1420,17 +1443,39 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
         raw = read_raw_latest(cache_root, symbol, "marketaux", "news")
         if raw:
             path, payload = raw
-            for item in payload.get("data", {}).get("data", []):
-                if isinstance(item, dict):
-                    items.append({
-                        "headline": item.get("title"),
-                        "source": item.get("source"),
-                        "url": item.get("url"),
-                        "published_at": item.get("published_at"),
-                        "sentiment": item.get("sentiment_score"),
-                        "raw_path": str(path),
-                        "provider": "marketaux",
-                    })
+            if raw_payload_status("marketaux", payload) == "ok":
+                for item in payload.get("data", {}).get("data", []):
+                    if isinstance(item, dict):
+                        items.append({
+                            "headline": item.get("title"),
+                            "source": item.get("source"),
+                            "url": item.get("url"),
+                            "published_at": item.get("published_at"),
+                            "sentiment": item.get("sentiment_score"),
+                            "raw_path": str(path),
+                            "provider": "marketaux",
+                        })
+    if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "news_sentiment"):
+        raw = read_raw_latest(cache_root, symbol, "alphavantage", "news_sentiment")
+        if raw:
+            path, payload = raw
+            if raw_payload_status("alphavantage", payload) == "ok":
+                url = payload.get("provider_result", {}).get("url", "")
+                for item in payload.get("data", {}).get("feed", []):
+                    if isinstance(item, dict) and (item.get("title") or item.get("url")):
+                        items.append({
+                            "headline": item.get("title"),
+                            "source": item.get("source"),
+                            "url": item.get("url"),
+                            "published_at": item.get("time_published"),
+                            "summary": item.get("summary"),
+                            "sentiment": item.get("overall_sentiment_score"),
+                            "source_url": url,
+                            "raw_path": str(path),
+                            "provider": "alphavantage",
+                            "endpoint": "news_sentiment",
+                            "status": "ok",
+                        })
     if provider_enabled(providers, "fmp"):
         for endpoint in ["stock_news", "press_releases"]:
             if not provider_endpoint_enabled(endpoint_plan, "fmp", endpoint):
@@ -1457,6 +1502,41 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
                         "endpoint": endpoint,
                     })
     return {"items": items, "status": "ok" if items else "empty"}
+
+
+def normalize_etf_holdings(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
+    if not provider_enabled(providers, "fmp") or not provider_endpoint_enabled(endpoint_plan, "fmp", "etf_holdings"):
+        return {"status": "unavailable", "top_holdings": []}
+    raw = read_raw_latest(cache_root, symbol, "fmp", "etf_holdings")
+    if not raw:
+        return {"status": "empty", "top_holdings": []}
+    path, payload = raw
+    status = raw_payload_status("fmp", payload)
+    if status != "ok":
+        return {"status": status, "top_holdings": []}
+    data = payload.get("data", [])
+    if isinstance(data, dict):
+        data = [data]
+    url = payload.get("provider_result", {}).get("url", "")
+    holdings = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict):
+            continue
+        ticker = item.get("asset") or item.get("symbol") or item.get("ticker")
+        weight = number(item.get("weightPercentage") or item.get("weight") or item.get("percentage"))
+        if ticker in (None, "") and weight is None:
+            continue
+        holding: dict[str, Any] = {}
+        if ticker not in (None, ""):
+            holding["ticker"] = provenance(str(ticker).upper(), "fmp", url, "etf_holdings", path)
+        if weight is not None:
+            holding["weight"] = provenance(weight, "fmp", url, "etf_holdings", path, unit="percent")
+        name = item.get("name") or item.get("companyName")
+        if name:
+            holding["name"] = provenance(name, "fmp", url, "etf_holdings", path)
+        holdings.append(holding)
+    return {"status": "ok" if holdings else "empty", "top_holdings": holdings}
 
 
 def normalize_equity_events(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:

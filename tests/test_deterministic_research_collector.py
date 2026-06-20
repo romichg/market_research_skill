@@ -524,6 +524,25 @@ def test_endpoint_plan_filters_cached_raw_and_price_normalization(tmp_path):
     assert prices["prices"] == []
 
 
+def test_expanded_provider_data_normalizes_news_events_and_etf_holdings(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(cache, "SPY", "fmp", "etf_holdings", {"symbol": "SPY"}, [{"asset": "AAPL", "weightPercentage": 7.0}], source_url="https://financialmodelingprep.com/stable/etf/holdings?symbol=SPY")
+    module.write_raw(cache, "SPY", "alphavantage", "news_sentiment", {"function": "NEWS_SENTIMENT", "tickers": "SPY"}, {"feed": [{"title": "ETF flows rise", "url": "https://example.test/spy-news", "time_published": "20260616T120000"}]}, source_url="https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=SPY")
+    module.write_raw(cache, "SPY", "twelve_data", "quote", {"symbol": "SPY"}, {"close": "600.00", "volume": "1000000"}, source_url="https://api.twelvedata.com/quote?symbol=SPY")
+
+    result = module.build_bundle("SPY", "2026-06-16", cache, tmp_path / "data", providers=["fmp", "alphavantage", "twelve_data"], asset_type="etf")
+
+    bundle_dir = Path(result["bundle_dir"])
+    holdings = json.loads((bundle_dir / "normalized" / "etf_holdings.json").read_text(encoding="utf-8"))
+    news = json.loads((bundle_dir / "normalized" / "news.json").read_text(encoding="utf-8"))
+    snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
+    assert holdings["top_holdings"][0]["ticker"]["value"] == "AAPL"
+    assert holdings["top_holdings"][0]["weight"]["value"] == 7.0
+    assert news["items"][0]["provider"] == "alphavantage"
+    assert snapshot["latest_close"]["provider"] == "twelve_data"
+
+
 def test_marketaux_fetch_sends_provider_friendly_headers(tmp_path, monkeypatch):
     module = load_module()
     seen = []

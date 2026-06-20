@@ -71,7 +71,25 @@
         "equity_events": {"type": "object", "additionalProperties": true},
         "equity_insiders": {"type": "object", "additionalProperties": true},
         "etf_profile": {"type": "object", "additionalProperties": true},
-        "etf_holdings": {"type": "object", "additionalProperties": true},
+        "etf_holdings": {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string"},
+            "top_holdings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "ticker": {"$ref": "#/$defs/data_point"},
+                  "weight": {"$ref": "#/$defs/data_point"},
+                  "name": {"$ref": "#/$defs/data_point"}
+                },
+                "additionalProperties": {"$ref": "#/$defs/data_point"}
+              }
+            }
+          },
+          "additionalProperties": true
+        },
         "etf_distributions": {"type": "object", "additionalProperties": true},
         "etf_performance": {"type": "object", "additionalProperties": true}
       },

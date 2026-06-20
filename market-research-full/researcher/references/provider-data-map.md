@@ -5,17 +5,17 @@ Use this map to keep deterministic collection, schemas, and report references al
 ## Normalized Sections
 
 - `identity`: symbol, name, exchange, CIK, SIC/industry, asset type, ADR/foreign filer signals, ETF/fund identifiers.
-- `market_snapshot`: latest completed close, OHLCV snapshot, 52-week range, average volume, market cap, valuation snapshot fields when free data returns them.
+- `market_snapshot`: latest completed close, latest quote fallback, OHLCV snapshot, 52-week range, average volume, market cap, valuation snapshot fields when free data returns them.
 - `prices_daily`: daily OHLCV and adjusted close rows used for local analytics.
 - `technical_signals`: locally computed returns, moving averages, volatility/drawdown-style metrics from `prices_daily`.
-- `news`: provider-supplied headlines, source, URL, publication time, entities, language/country, snippets, and sentiment where returned.
+- `news`: provider-supplied headlines, source, URL, publication time, entities, language/country, snippets, and sentiment where returned, including Alpha Vantage `NEWS_SENTIMENT` feed items when status is ok.
 - `sec_filings_index`: SEC filing metadata, forms, accession numbers, filing/report dates, primary documents, and relevance labels.
 - `sec_filing_sections`: deterministic excerpts or section boundaries from filings when extractable.
 - `equity_fundamentals`: SEC XBRL and free provider fundamentals: revenue, margins, net income, EPS, cash flow, balance sheet, dividends, buybacks, ratios, share count, market cap, enterprise value when available.
 - `equity_events`: earnings dates/results, dividends, splits, IPO/calendar items, press releases, and other corporate actions available from free configured APIs.
 - `equity_insiders`: Form 3/4/5 metadata from SEC and free insider endpoints when available.
 - `etf_profile`: fund name, issuer, benchmark, structure, exchange, inception, expense ratios, AUM/NAV if available.
-- `etf_holdings`: holdings, country/sector/asset exposure, N-PORT data, top holdings, and concentration when free data returns them.
+- `etf_holdings`: holdings, country/sector/asset exposure, N-PORT data, top holdings, and concentration when free data returns them; FMP `etf_holdings` currently normalizes top holding ticker and weight with provenance.
 - `etf_distributions`: dividends, capital gains, SEC/distribution yield if available, tax/distribution facts.
 - `etf_performance`: market/NAV returns, tracking proxy metrics, risk statistics, and benchmark comparison inputs when free data supports them.
 
@@ -27,7 +27,7 @@ Use this map to keep deterministic collection, schemas, and report references al
 | Tiingo | daily metadata and end-of-day prices returned by the configured starter account | `identity`, `prices_daily`, `market_snapshot`, `technical_signals` |
 | EODHD | fundamentals, news, historical market cap, and historical EOD prices returned by the configured account | `identity`, `market_snapshot`, `prices_daily`, `technical_signals`, `equity_fundamentals`, `news` |
 | Alpha Vantage | overview, income statement, balance sheet, cash flow, earnings, ETF profile, news sentiment, and adjusted daily prices | `prices_daily`, `market_snapshot`, `identity`, `equity_fundamentals`, `equity_events`, `news`, `etf_profile`, `etf_holdings` |
-| Twelve Data | quote and profile plus time series available to the configured basic account; time series is a price fallback when higher-priority price providers are unavailable | `identity`, `prices_daily`, `market_snapshot` |
+| Twelve Data | quote and profile plus time series available to the configured basic account; quote is a latest close/volume fallback and time series is a price fallback when higher-priority price providers are unavailable | `identity`, `prices_daily`, `market_snapshot` |
 | MarketAux | finance news, similar news, news by UUID, entity metadata/search/types/industries, market stats, trending entities | `news`, `market_snapshot`, `identity`, `equity_events` |
 | FMP | profile, key metrics TTM, ratios TTM, income statement, balance sheet, cash flow, stock news, press releases, dividends, earnings, splits, insider trading/statistics, and ETF holdings when available to current free account | `identity`, `market_snapshot`, `news`, `equity_fundamentals`, `equity_events`, `equity_insiders`, `etf_holdings` |
 
