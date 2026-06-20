@@ -838,6 +838,56 @@ def test_semantic_error_cached_payloads_do_not_normalize_provider_facts(tmp_path
     assert insiders == {"status": "empty", "items": []}
 
 
+def test_fmp_equity_event_rows_include_source_provenance(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "dividends",
+        {"symbol": "AAPL"},
+        [{"date": "2026-06-01", "dividend": 1.23}],
+        source_url="https://financialmodelingprep.com/stable/dividends?symbol=AAPL",
+    )
+
+    events = module.normalize_equity_events(cache, "AAPL", providers=["fmp"], endpoint_plan={"fmp": {"dividends"}})
+
+    row = events["items"][0]
+    assert row["date"] == "2026-06-01"
+    assert row["dividend"] == 1.23
+    assert row["provider"] == "fmp"
+    assert row["endpoint"] == "dividends"
+    assert row["source_url"] == "https://financialmodelingprep.com/stable/dividends?symbol=AAPL"
+    assert row["raw_path"].endswith(".json")
+    assert row["status"] == "ok"
+
+
+def test_fmp_insider_trading_rows_include_source_provenance(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "insider_trading",
+        {"symbol": "AAPL"},
+        [{"transactionDate": "2026-06-01", "transactionType": "P-Purchase"}],
+        source_url="https://financialmodelingprep.com/stable/insider-trading?symbol=AAPL",
+    )
+
+    insiders = module.normalize_equity_insiders(cache, "AAPL", providers=["fmp"], endpoint_plan={"fmp": {"insider_trading"}})
+
+    row = insiders["items"][0]
+    assert row["transactionDate"] == "2026-06-01"
+    assert row["transactionType"] == "P-Purchase"
+    assert row["provider"] == "fmp"
+    assert row["endpoint"] == "insider_trading"
+    assert row["source_url"] == "https://financialmodelingprep.com/stable/insider-trading?symbol=AAPL"
+    assert row["raw_path"].endswith(".json")
+    assert row["status"] == "ok"
+
+
 def test_fetch_provider_reuses_cached_price_endpoint_when_as_of_changes(tmp_path, monkeypatch):
     module = load_module()
     cache = tmp_path / "cache"

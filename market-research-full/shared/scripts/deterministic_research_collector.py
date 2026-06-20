@@ -1603,9 +1603,10 @@ def normalize_equity_events(cache_root: Path, symbol: str, providers: list[str] 
         if isinstance(data, dict):
             data = [data]
         endpoint_items = []
+        url = payload.get("provider_result", {}).get("url", "")
         for item in data if isinstance(data, list) else []:
             if isinstance(item, dict) and item:
-                endpoint_items.append({"provider": "fmp", "endpoint": endpoint, "raw_path": str(path), **item})
+                endpoint_items.append({**item, "provider": "fmp", "endpoint": endpoint, "source_url": url, "raw_path": str(path), "status": "ok"})
         events[endpoint] = endpoint_items
         events["items"].extend(endpoint_items)
     events["status"] = "ok" if events["items"] else "empty"
@@ -1625,7 +1626,8 @@ def normalize_equity_insiders(cache_root: Path, symbol: str, providers: list[str
                 data = payload.get("data", [])
                 if isinstance(data, dict):
                     data = [data]
-                items = [{"provider": "fmp", "endpoint": "insider_trading", "raw_path": str(path), **item} for item in data if isinstance(item, dict) and item]
+                url = payload.get("provider_result", {}).get("url", "")
+                items = [{**item, "provider": "fmp", "endpoint": "insider_trading", "source_url": url, "raw_path": str(path), "status": "ok"} for item in data if isinstance(item, dict) and item]
                 result["items"] = items
     if provider_endpoint_enabled(endpoint_plan, "fmp", "insider_statistics"):
         raw = read_raw_latest(cache_root, symbol, "fmp", "insider_statistics")
