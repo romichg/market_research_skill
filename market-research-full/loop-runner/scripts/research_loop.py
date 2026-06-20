@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import json
 import shlex
 import subprocess
@@ -16,6 +16,7 @@ import re
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
 SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DEFAULT_CODEX_COMMAND = (
     "codex exec -C {cwd} "
     "--dangerously-bypass-approvals-and-sandbox - < {prompt_file}"
@@ -88,6 +89,18 @@ def normalize_symbol(symbol: str) -> str:
     value = symbol.strip().upper()
     if not SYMBOL_RE.fullmatch(value):
         die(f"Invalid symbol: {symbol!r}")
+    return value
+
+
+def validate_as_of(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    if not AS_OF_RE.fullmatch(value):
+        die(f"Invalid as-of {value!r}; expected YYYY-MM-DD.")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        die(f"Invalid as-of {value!r}; expected a real calendar date.")
     return value
 
 
@@ -297,7 +310,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
 
 def cmd_init_batch(args: argparse.Namespace) -> None:
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
-    args.as_of = args.as_of or date.today().isoformat()
+    args.as_of = validate_as_of(args.as_of or date.today().isoformat())
     root = Path(args.run_root)
     root.mkdir(parents=True, exist_ok=True)
     improvement_notes = ensure_improvement_note_files(root)
@@ -431,7 +444,9 @@ def data_root_for_loop(root: Path) -> Path:
 
 
 def report_date_for_artifact(artifact_run_dir: Path, fallback_as_of: str) -> str:
-    return artifact_run_dir.name if re.fullmatch(r"\d{4}-\d{2}-\d{2}", artifact_run_dir.name) else fallback_as_of
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", artifact_run_dir.name):
+        return validate_as_of(artifact_run_dir.name) or artifact_run_dir.name
+    return validate_as_of(fallback_as_of) or fallback_as_of
 
 
 def validation_output_dir_for_artifact(root: Path, symbol: str, artifact_run_dir: Path, fallback_as_of: str) -> Path:
@@ -525,8 +540,10 @@ def write_iteration_prompts(symbol: str, run_dir: Path, iteration_dir: Path, rem
 
 def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]:
     root = Path(args.run_root)
-    run_dir = root / symbol / args.as_of
-    symbol_dir = root / symbol / args.as_of
+    as_of = validate_as_of(args.as_of) or date.today().isoformat()
+    args.as_of = as_of
+    run_dir = root / symbol / as_of
+    symbol_dir = root / symbol / as_of
     max_loops = args.max_remediation_loops
     if args.dry_run:
         iteration_dir = symbol_dir / "iteration-01"
@@ -633,7 +650,7 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
     args.producer_command = args.producer_command or DEFAULT_CODEX_COMMAND
     args.validator_command = args.validator_command or DEFAULT_CODEX_COMMAND
     args.remediation_command = args.remediation_command or DEFAULT_CODEX_COMMAND
-    args.as_of = args.as_of or date.today().isoformat()
+    args.as_of = validate_as_of(args.as_of or date.today().isoformat())
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
     root = Path(args.run_root)
     root.mkdir(parents=True, exist_ok=True)

@@ -42,6 +42,7 @@ PROVIDER_ENV = {
 }
 DEFAULT_PROVIDERS = ["sec", "tiingo", "eodhd", "alphavantage", "marketaux", "fmp", "twelve_data"]
 SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PROVIDER_ENDPOINT_COSTS = {
     "sec": {"company_tickers": 1, "submissions": 1, "companyfacts": 1},
     "tiingo": {"prices": 1},
@@ -128,6 +129,18 @@ def normalize_symbol(symbol: str) -> str:
     value = symbol.strip().upper()
     if not SYMBOL_RE.fullmatch(value):
         die(f"Invalid symbol: {symbol!r}")
+    return value
+
+
+def validate_as_of(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    if not AS_OF_RE.fullmatch(value):
+        die(f"Invalid as-of {value!r}; expected YYYY-MM-DD.")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        die(f"Invalid as-of {value!r}; expected a real calendar date.")
     return value
 
 
@@ -1252,6 +1265,7 @@ def assert_no_secrets_in_tree(root: Path, config: ProviderConfig | None) -> None
 
 def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, providers: list[str] | None = None, offline: bool = False, config: ProviderConfig | None = None, command: str | None = None, asset_type: str = "auto", warnings: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     symbol = normalize_symbol(symbol)
+    as_of = validate_as_of(as_of) or date.today().isoformat()
     ensure_deterministic_output_root(output_root)
     providers = providers or DEFAULT_PROVIDERS
     endpoint_plan = endpoint_plan or default_endpoint_plan(providers)
@@ -1453,7 +1467,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
     symbol = normalize_symbol(args.symbol)
-    as_of = args.as_of or date.today().isoformat()
+    as_of = validate_as_of(args.as_of or date.today().isoformat())
     paths = resolve_storage_paths(
         root,
         config,

@@ -341,6 +341,48 @@ def test_fetch_rejects_reports_data_dir_for_deterministic_output(tmp_path, monke
     assert not (tmp_path / "reports" / "AAPL" / "2026-06-16" / "manifest.json").exists()
 
 
+@pytest.mark.parametrize(
+    ("as_of", "artifact_path"),
+    [
+        ("../../reports/AAPL/2026-06-16", Path("reports/AAPL/2026-06-16/manifest.json")),
+        ("2026-99-99", Path("data/AAPL/2026-99-99/manifest.json")),
+        ("2026-06-16;touch", Path("data/AAPL/2026-06-16;touch/manifest.json")),
+    ],
+)
+def test_fetch_rejects_invalid_as_of_path_components(tmp_path, monkeypatch, capsys, as_of, artifact_path):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": as_of,
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "runtime_dir": str(tmp_path / "runtime"),
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "equity",
+        },
+    )()
+
+    with pytest.raises(SystemExit) as exc:
+        module.cmd_fetch(args)
+
+    assert exc.value.code == 2
+    assert "Invalid as-of" in capsys.readouterr().err
+    assert not (tmp_path / artifact_path).exists()
+
+
 def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
     module = load_module()
     calls = []

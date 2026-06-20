@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SOURCE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ETF_REQUIRED_FIELDS = ["fund_name", "expense_ratio", "benchmark", "holdings_summary"]
 EQUITY_REQUIRED_FIELDS = ["company_name", "latest_annual_filing", "revenue", "net_income"]
@@ -50,6 +51,18 @@ def validate_source_date(value: str | None) -> str | None:
         datetime.strptime(value, "%Y-%m-%d")
     except ValueError:
         die(f"Invalid source date {value!r}; expected a real calendar date.")
+    return value
+
+
+def validate_as_of(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    if not AS_OF_RE.fullmatch(value):
+        die(f"Invalid as-of {value!r}; expected YYYY-MM-DD.")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        die(f"Invalid as-of {value!r}; expected a real calendar date.")
     return value
 
 
@@ -85,6 +98,7 @@ def sha256_file(path: Path) -> str:
 
 
 def run_dir(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
+    as_of = validate_as_of(as_of)
     return output_root / symbol / as_of if as_of else output_root / symbol
 
 

@@ -111,6 +111,14 @@ def test_invalid_shell_symbol_rejected_by_loop(tmp_path):
     assert "Invalid symbol" in result.stderr
 
 
+def test_run_batch_rejects_traversal_as_of(tmp_path):
+    result = run_harness("run-batch", "EWW", "--run-root", str(tmp_path), "--as-of", "../outside", "--dry-run")
+
+    assert result.returncode != 0
+    assert "Invalid as-of" in result.stderr
+    assert not (tmp_path / "outside" / "iteration-01").exists()
+
+
 def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
     root = tmp_path / "runs"
     good = root / "EWW" / "iteration-01"
