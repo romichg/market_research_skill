@@ -194,7 +194,7 @@ def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     assert calls == ["tiingo"]
 
 
-def test_fetch_skips_provider_when_estimated_cost_exceeds_budget(tmp_path, monkeypatch):
+def test_fetch_trims_provider_to_affordable_endpoints_when_estimated_cost_exceeds_budget(tmp_path, monkeypatch):
     module = load_module()
     calls = []
 
@@ -223,10 +223,10 @@ def test_fetch_skips_provider_when_estimated_cost_exceeds_budget(tmp_path, monke
 
     module.cmd_fetch(args)
 
-    assert calls == [("tiingo", ("prices",))]
+    assert calls == [("eodhd", ("news",)), ("tiingo", ("prices",))]
     manifest_path = tmp_path / "data" / "AAPL" / "2026-06-01" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert any("eodhd" in warning and "budget" in warning for warning in manifest["warnings"])
+    assert any("eodhd" in warning and "budget" in warning and "Limited" in warning for warning in manifest["warnings"])
 
 
 def test_storage_paths_default_to_data_reports_runtime(tmp_path):
@@ -500,6 +500,26 @@ def test_default_endpoint_plan_includes_unique_provider_data():
     assert {"profile", "key_metrics_ttm", "ratios_ttm", "income_statement", "balance_sheet", "cash_flow", "stock_news", "press_releases", "dividends", "earnings", "splits", "insider_trading", "insider_statistics", "etf_holdings"} <= plan["fmp"]
 
 
+def test_default_provider_budgets_cover_expanded_endpoint_plans(tmp_path):
+    module = load_module()
+    plan = module.default_endpoint_plan(["tiingo", "eodhd", "alphavantage", "twelve_data", "marketaux", "fmp"])
+
+    for provider in ["eodhd", "alphavantage"]:
+        budget = module.provider_call_budget(provider, {})
+        endpoints = plan[provider]
+
+        assert module.estimated_provider_call_cost(tmp_path, "AAPL", provider, endpoints=endpoints) <= budget
+        assert module.endpoints_within_budget(tmp_path, "AAPL", provider, budget, endpoints=endpoints) == endpoints
+
+
+def test_endpoint_budget_trimming_keeps_affordable_later_endpoints(tmp_path):
+    module = load_module()
+
+    endpoints = {"overview", "income_statement", "earnings", "etf_profile", "news_sentiment"}
+
+    assert module.endpoints_within_budget(tmp_path, "AAPL", "alphavantage", 3, endpoints=endpoints) == {"earnings", "etf_profile", "news_sentiment"}
+
+
 def test_endpoint_plan_filters_cached_raw_and_price_normalization(tmp_path):
     module = load_module()
     cache = tmp_path / "cache"
@@ -562,6 +582,23 @@ def test_marketaux_fetch_sends_provider_friendly_headers(tmp_path, monkeypatch):
     payload = json.loads(paths[0].read_text(encoding="utf-8"))
     assert "marketaux-secret" in seen[0]["url"]
     assert "marketaux-secret" not in payload["provider_result"]["url"]
+
+
+def test_eodhd_news_uses_country_qualified_symbol(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        seen.append(url)
+        return []
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"EODHD_API_KEY": "eod-secret"}, docs={}, limits={}, loaded_files=[])
+
+    module.fetch_provider("AAPL", "eodhd", "2026-06-17", tmp_path, config, refresh=True, endpoints={"news"})
+
+    assert len(seen) == 1
+    assert "s=AAPL.US" in seen[0]
 
 
 def test_fmp_fetches_and_normalizes_unique_equity_data(tmp_path, monkeypatch):
@@ -643,6 +680,85 @@ def test_non_ok_fmp_news_raw_does_not_create_empty_news_items(tmp_path):
     news = module.normalize_news(cache, "QBTS", providers=["fmp"], endpoint_plan={"fmp": {"stock_news"}})
 
     assert news == {"items": [], "status": "empty"}
+
+
+def test_semantic_error_cached_payloads_do_not_normalize_provider_facts(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "fundamentals",
+        {},
+        {"Error Message": "Invalid API token", "General": {"Name": "Should Not Normalize"}, "Highlights": {"PERatio": 99}},
+        source_url="https://eodhd.example/fundamentals/AAPL.US",
+        status="ok",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "AAPL"},
+        {"Information": "API rate limit reached.", "MarketCapitalization": "123", "RevenueTTM": "456"},
+        source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=AAPL",
+        status="ok",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "profile",
+        {"symbol": "AAPL"},
+        {"Error Message": "Invalid API key", "companyName": "Should Not Normalize", "mktCap": 789},
+        source_url="https://financialmodelingprep.com/stable/profile?symbol=AAPL",
+        status="ok",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "stock_news",
+        {"symbols": "AAPL"},
+        {"Error Message": "Invalid API key", "title": "Should Not Normalize", "url": "https://example.test/bad"},
+        source_url="https://financialmodelingprep.com/stable/news/stock?symbols=AAPL",
+        status="ok",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "dividends",
+        {"symbol": "AAPL"},
+        {"Error Message": "Invalid API key", "date": "2026-06-01", "dividend": 1.23},
+        source_url="https://financialmodelingprep.com/stable/dividends?symbol=AAPL",
+        status="ok",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "insider_trading",
+        {"symbol": "AAPL"},
+        {"Error Message": "Invalid API key", "transactionDate": "2026-06-01"},
+        source_url="https://financialmodelingprep.com/stable/insider-trading?symbol=AAPL",
+        status="ok",
+    )
+
+    identity = module.normalize_identity(cache, "AAPL", providers=["eodhd", "alphavantage", "fmp"])
+    snapshot = module.normalize_market_snapshot(cache, "AAPL", [], None, "", "", providers=["eodhd", "alphavantage", "fmp"])
+    fundamentals = module.normalize_equity_fundamentals(cache, "AAPL", providers=["alphavantage", "fmp"])
+    news = module.normalize_news(cache, "AAPL", providers=["fmp"], endpoint_plan={"fmp": {"stock_news"}})
+    events = module.normalize_equity_events(cache, "AAPL", providers=["fmp"], endpoint_plan={"fmp": {"dividends"}})
+    insiders = module.normalize_equity_insiders(cache, "AAPL", providers=["fmp"], endpoint_plan={"fmp": {"insider_trading"}})
+
+    assert "company_name" not in identity
+    assert "market_capitalization" not in snapshot
+    assert fundamentals == {}
+    assert news == {"items": [], "status": "empty"}
+    assert events == {"status": "empty", "items": []}
+    assert insiders == {"status": "empty", "items": []}
 
 
 def test_fetch_provider_reuses_cached_price_endpoint_when_as_of_changes(tmp_path, monkeypatch):

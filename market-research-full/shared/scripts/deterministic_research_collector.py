@@ -477,6 +477,10 @@ def raw_payload_status(provider: str, payload: dict[str, Any]) -> str:
     return semantic_status if semantic_status != "ok" else stored_status
 
 
+def raw_payload_ok(provider: str, payload: dict[str, Any]) -> bool:
+    return raw_payload_status(provider, payload) == "ok"
+
+
 def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: Path, unit: str | None = None, as_of: str | None = None, status: str = "ok", alternates: list[dict[str, Any]] | None = None, attempted_providers: list[str] | None = None, selection_reason: str | None = None) -> dict[str, Any]:
     point = {
         "value": value,
@@ -604,11 +608,12 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
             paths.append(fetch_with_cache(cache_root, symbol, "tiingo", "prices", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "eodhd" and config.values.get("EODHD_API_KEY"):
         token = config.values["EODHD_API_KEY"]
+        eodhd_symbol = symbol if "." in symbol else f"{symbol}.US"
         specs = {
-            "fundamentals": (f"https://eodhd.com/api/fundamentals/{symbol}.US", {"fmt": "json"}),
-            "news": ("https://eodhd.com/api/news", {"s": symbol, "limit": "10", "fmt": "json"}),
-            "historical_market_cap": (f"https://eodhd.com/api/historical-market-cap/{symbol}.US", {"fmt": "json"}),
-            "prices": (f"https://eodhd.com/api/eod/{symbol}.US", {"fmt": "json", "from": "2021-01-01", "to": as_of}),
+            "fundamentals": (f"https://eodhd.com/api/fundamentals/{eodhd_symbol}", {"fmt": "json"}),
+            "news": ("https://eodhd.com/api/news", {"s": eodhd_symbol, "limit": "10", "fmt": "json"}),
+            "historical_market_cap": (f"https://eodhd.com/api/historical-market-cap/{eodhd_symbol}", {"fmt": "json"}),
+            "prices": (f"https://eodhd.com/api/eod/{eodhd_symbol}", {"fmt": "json", "from": "2021-01-01", "to": as_of}),
         }
         for endpoint, (base, params) in specs.items():
             if endpoint not in selected_endpoints:
@@ -700,10 +705,8 @@ def provider_call_budget(provider: str, budgets: dict[str, int]) -> int:
         return budgets[provider]
     if provider == "sec":
         return 10
-    if provider == "fmp":
-        return sum(PROVIDER_ENDPOINT_COSTS["fmp"].values())
-    if provider == "eodhd":
-        return 10
+    if provider in PROVIDER_ENDPOINT_COSTS:
+        return sum(PROVIDER_ENDPOINT_COSTS[provider].values())
     return 2
 
 
@@ -764,8 +767,6 @@ def endpoints_within_budget(cache_root: Path, symbol: str, provider: str, budget
     for endpoint in ordered:
         endpoint_cost = 0 if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh) else endpoint_costs[endpoint]
         if endpoint_cost > remaining:
-            if not allowed:
-                break
             continue
         allowed.add(endpoint)
         remaining -= endpoint_cost
@@ -845,7 +846,7 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
     providers = providers or DEFAULT_PROVIDERS
     identity: dict[str, Any] = {"input_symbol": provenance(symbol, "input", "", "symbol", Path("")), "normalized_symbol": provenance(symbol, "input", "", "symbol", Path(""))}
     submissions = read_raw_latest(cache_root, symbol, "sec", "submissions") if provider_enabled(providers, "sec") and provider_endpoint_enabled(endpoint_plan, "sec", "submissions") else None
-    if submissions:
+    if submissions and raw_payload_ok("sec", submissions[1]):
         raw, payload = submissions
         data = payload.get("data", {})
         url = payload.get("provider_result", {}).get("url", "")
@@ -859,7 +860,7 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
         asset_type = "adr" if any(form in {"20-F", "40-F", "6-K"} for form in recent_forms) else "equity"
         identity["asset_type"] = provenance(asset_type, "sec", url, "submissions", raw)
     eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals") if provider_enabled(providers, "eodhd") and provider_endpoint_enabled(endpoint_plan, "eodhd", "fundamentals") else None
-    if eod and "company_name" not in identity:
+    if eod and raw_payload_ok("eodhd", eod[1]) and "company_name" not in identity:
         raw, payload = eod
         general = payload.get("data", {}).get("General", {})
         url = payload.get("provider_result", {}).get("url", "")
@@ -872,7 +873,7 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
             asset_type = "etf" if "etf" in category or "fund" in category else "equity"
             identity["asset_type"] = provenance(asset_type, "eodhd", url, "fundamentals", raw)
     fmp = read_raw_latest(cache_root, symbol, "fmp", "profile") if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile") else None
-    if fmp:
+    if fmp and raw_payload_ok("fmp", fmp[1]):
         raw, payload = fmp
         data = first_dict(payload.get("data"))
         url = payload.get("provider_result", {}).get("url", "")
@@ -905,6 +906,8 @@ def normalize_prices(cache_root: Path, symbol: str, providers: list[str] | None 
         if not raw:
             continue
         path, payload = raw
+        if not raw_payload_ok(provider, payload):
+            continue
         data = payload.get("data")
         rows = parse_price_rows(provider, data)
         if rows:
@@ -1005,7 +1008,7 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     quote = read_raw_latest(cache_root, symbol, "twelve_data", "quote") if provider_enabled(providers, "twelve_data") and provider_endpoint_enabled(endpoint_plan, "twelve_data", "quote") else None
     if quote:
         raw, payload = quote
-        if raw_payload_status("twelve_data", payload) == "ok":
+        if raw_payload_ok("twelve_data", payload):
             data = payload.get("data", {})
             url = payload.get("provider_result", {}).get("url", "")
             close = number(data.get("close") or data.get("previous_close"))
@@ -1022,6 +1025,10 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         attempted.append("eodhd")
     if eod:
         raw, payload = eod
+        if not raw_payload_ok("eodhd", payload):
+            eod = None
+    if eod:
+        raw, payload = eod
         data = payload.get("data", {})
         general = data.get("General", {})
         highlights = data.get("Highlights", {})
@@ -1033,6 +1040,10 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     av = read_raw_latest(cache_root, symbol, "alphavantage", "overview") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview") else None
     if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview"):
         attempted.append("alphavantage")
+    if av:
+        raw, payload = av
+        if not raw_payload_ok("alphavantage", payload):
+            av = None
     if av:
         raw, payload = av
         data = payload.get("data", {})
@@ -1049,6 +1060,10 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     fmp = read_raw_latest(cache_root, symbol, "fmp", "profile") if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile") else None
     if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile"):
         attempted.append("fmp")
+    if fmp:
+        raw, payload = fmp
+        if not raw_payload_ok("fmp", payload):
+            fmp = None
     if fmp:
         raw, payload = fmp
         data = first_dict(payload.get("data"))
@@ -1073,7 +1088,7 @@ def normalize_equity_fundamentals(cache_root: Path, symbol: str, providers: list
     providers = providers or DEFAULT_PROVIDERS
     fundamentals: dict[str, Any] = {}
     sec = read_raw_latest(cache_root, symbol, "sec", "companyfacts") if provider_enabled(providers, "sec") and provider_endpoint_enabled(endpoint_plan, "sec", "companyfacts") else None
-    if sec:
+    if sec and raw_payload_ok("sec", sec[1]):
         raw, payload = sec
         data = payload.get("data", {})
         url = payload.get("provider_result", {}).get("url", "")
@@ -1084,7 +1099,7 @@ def normalize_equity_fundamentals(cache_root: Path, symbol: str, providers: list
         if net_income:
             fundamentals["net_income"] = provenance(net_income, "sec", url, "companyfacts", raw, unit="USD", as_of=net_income.get("period_end"))
     av = read_raw_latest(cache_root, symbol, "alphavantage", "overview") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview") else None
-    if av:
+    if av and raw_payload_ok("alphavantage", av[1]):
         raw, payload = av
         data = payload.get("data", {})
         url = payload.get("provider_result", {}).get("url", "")
@@ -1131,7 +1146,7 @@ def fmp_first(cache_root: Path, symbol: str, endpoint: str, endpoint_plan: dict[
     if not raw:
         return None
     path, payload = raw
-    if payload.get("provider_result", {}).get("status") != "ok":
+    if not raw_payload_ok("fmp", payload):
         return None
     item = first_dict(payload.get("data"))
     if not item:
@@ -1443,7 +1458,7 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
         raw = read_raw_latest(cache_root, symbol, "marketaux", "news")
         if raw:
             path, payload = raw
-            if raw_payload_status("marketaux", payload) == "ok":
+            if raw_payload_ok("marketaux", payload):
                 for item in payload.get("data", {}).get("data", []):
                     if isinstance(item, dict):
                         items.append({
@@ -1459,7 +1474,7 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
         raw = read_raw_latest(cache_root, symbol, "alphavantage", "news_sentiment")
         if raw:
             path, payload = raw
-            if raw_payload_status("alphavantage", payload) == "ok":
+            if raw_payload_ok("alphavantage", payload):
                 url = payload.get("provider_result", {}).get("url", "")
                 for item in payload.get("data", {}).get("feed", []):
                     if isinstance(item, dict) and (item.get("title") or item.get("url")):
@@ -1484,7 +1499,7 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
             if not raw:
                 continue
             path, payload = raw
-            if payload.get("provider_result", {}).get("status") != "ok":
+            if not raw_payload_ok("fmp", payload):
                 continue
             data = payload.get("data", [])
             if isinstance(data, dict):
@@ -1551,7 +1566,7 @@ def normalize_equity_events(cache_root: Path, symbol: str, providers: list[str] 
         if not raw:
             continue
         path, payload = raw
-        if payload.get("provider_result", {}).get("status") != "ok":
+        if not raw_payload_ok("fmp", payload):
             continue
         data = payload.get("data", [])
         if isinstance(data, dict):
@@ -1575,7 +1590,7 @@ def normalize_equity_insiders(cache_root: Path, symbol: str, providers: list[str
         raw = read_raw_latest(cache_root, symbol, "fmp", "insider_trading")
         if raw:
             path, payload = raw
-            if payload.get("provider_result", {}).get("status") == "ok":
+            if raw_payload_ok("fmp", payload):
                 data = payload.get("data", [])
                 if isinstance(data, dict):
                     data = [data]
@@ -1585,7 +1600,7 @@ def normalize_equity_insiders(cache_root: Path, symbol: str, providers: list[str
         raw = read_raw_latest(cache_root, symbol, "fmp", "insider_statistics")
         if raw:
             path, payload = raw
-            if payload.get("provider_result", {}).get("status") == "ok":
+            if raw_payload_ok("fmp", payload):
                 data = first_dict(payload.get("data"))
                 if data:
                     result["statistics"] = provenance(data, "fmp", payload.get("provider_result", {}).get("url", ""), "insider_statistics", path)
