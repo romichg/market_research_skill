@@ -40,8 +40,55 @@ PROVIDER_ENV = {
     "eodhd": ["EODHD_API_KEY"],
     "fmp": ["FMP_API_KEY"],
 }
-DEFAULT_PROVIDERS = ["sec", "tiingo", "eodhd", "alphavantage", "twelve_data", "marketaux"]
+DEFAULT_PROVIDERS = ["sec", "tiingo", "eodhd", "alphavantage", "marketaux", "fmp", "twelve_data"]
 SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+PROVIDER_ENDPOINT_COSTS = {
+    "sec": {"company_tickers": 1, "submissions": 1, "companyfacts": 1},
+    "tiingo": {"prices": 1},
+    "eodhd": {"fundamentals": 10, "prices": 1},
+    "alphavantage": {"overview": 1, "prices": 1},
+    "twelve_data": {"prices": 1},
+    "marketaux": {"news": 1},
+    "fmp": {
+        "profile": 1,
+        "key_metrics_ttm": 1,
+        "ratios_ttm": 1,
+        "income_statement": 1,
+        "balance_sheet": 1,
+        "cash_flow": 1,
+        "stock_news": 1,
+        "press_releases": 1,
+        "dividends": 1,
+        "earnings": 1,
+        "splits": 1,
+        "insider_trading": 1,
+        "insider_statistics": 1,
+    },
+}
+UNIQUE_DEFAULT_ENDPOINTS = {
+    "sec": {"company_tickers", "submissions", "companyfacts"},
+    "tiingo": {"prices"},
+    "eodhd": {"fundamentals"},
+    "alphavantage": {"overview"},
+    "marketaux": {"news"},
+    "fmp": {
+        "profile",
+        "key_metrics_ttm",
+        "ratios_ttm",
+        "income_statement",
+        "balance_sheet",
+        "cash_flow",
+        "stock_news",
+        "press_releases",
+        "dividends",
+        "earnings",
+        "splits",
+        "insider_trading",
+        "insider_statistics",
+    },
+    "twelve_data": set(),
+}
+PRICE_PROVIDER_PRIORITY = ["tiingo", "eodhd", "alphavantage", "twelve_data"]
 
 
 class ProviderConfig:
@@ -220,6 +267,7 @@ def write_env_example(repo_root: Path | str, config: ProviderConfig | None = Non
         "TIINGO_API_TOKEN",
         "EODHD_API_KEY",
         "FMP_API_KEY",
+        "MARKETAUX_NEWS_LIMIT",
         "RESEARCH_REPORTS_DIR",
         "RESEARCH_CACHE_DIR",
     ]
@@ -245,8 +293,14 @@ def cache_key(provider: str, endpoint: str, params: dict[str, Any]) -> str:
     return f"{provider}_{safe_endpoint}_{digest}"
 
 
+def cache_symbol_for_endpoint(symbol: str, provider: str, endpoint: str) -> str:
+    if provider == "sec" and endpoint == "company_tickers":
+        return "_global"
+    return normalize_symbol(symbol)
+
+
 def raw_path(cache_root: Path, symbol: str, provider: str, endpoint: str, params: dict[str, Any]) -> Path:
-    return cache_root / normalize_symbol(symbol) / provider / f"{cache_key(provider, endpoint, params)}.json"
+    return cache_root / cache_symbol_for_endpoint(symbol, provider, endpoint) / provider / f"{cache_key(provider, endpoint, params)}.json"
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -289,16 +343,42 @@ def classify_provider_payload(provider: str, data: Any) -> tuple[str, str | None
             return "error", f"Error Message: {data['Error Message']}"
     if provider == "twelve_data" and isinstance(data, dict) and data.get("status") == "error":
         return "error", str(data.get("message") or data.get("code") or "Twelve Data error payload")
+    if provider in {"fmp", "marketaux", "eodhd"} and isinstance(data, dict):
+        message = data.get("Error Message") or data.get("error") or data.get("message") or data.get("Information")
+        if message:
+            message_text = str(message)
+            lowered = message_text.lower()
+            if any(needle in lowered for needle in ["unauthorized", "forbidden", "invalid api", "invalid token", "not authorized"]):
+                return "unauthorized", message_text
+            if any(needle in lowered for needle in ["payment required", "subscription", "premium", "upgrade", "plan"]):
+                return "plan_gated", message_text
+            if any(needle in lowered for needle in ["rate", "limit", "quota", "exceed"]):
+                return "rate_limited", message_text
+            return "error", message_text
     return "ok", None
 
 
 def read_raw_latest(cache_root: Path, symbol: str, provider: str, endpoint: str) -> tuple[Path, dict[str, Any]] | None:
-    root = cache_root / normalize_symbol(symbol) / provider
-    files = sorted(root.glob(f"{provider}_{endpoint}_*.json"))
+    root = cache_root / cache_symbol_for_endpoint(symbol, provider, endpoint) / provider
+    files = sorted(root.glob(f"{provider}_{endpoint}_*.json"), key=lambda path: (path.stat().st_mtime, path.name))
     if not files:
         return None
     path = files[-1]
     return path, read_json(path)
+
+
+def reusable_cached_raw(cache_root: Path, symbol: str, provider: str, endpoint: str, refresh: bool = False) -> Path | None:
+    if refresh:
+        return None
+    latest = read_raw_latest(cache_root, symbol, provider, endpoint)
+    if not latest:
+        return None
+    path, payload = latest
+    status = payload.get("provider_result", {}).get("status", "ok")
+    semantic_status, _ = classify_provider_payload(provider, payload.get("data"))
+    if status == "ok" and semantic_status == "ok":
+        return path
+    return None
 
 
 def provenance(value: Any, provider: str, source_url: str, endpoint: str, raw: Path, unit: str | None = None, as_of: str | None = None, status: str = "ok", alternates: list[dict[str, Any]] | None = None, attempted_providers: list[str] | None = None, selection_reason: str | None = None) -> dict[str, Any]:
@@ -372,31 +452,37 @@ def http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20
             backoff *= policy.backoff_multiplier
 
 
-def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str, params: dict[str, Any], url: str, source_url: str, config: ProviderConfig, headers: dict[str, str] | None = None, refresh: bool = False) -> Path:
+def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str, params: dict[str, Any], url: str, source_url: str, config: ProviderConfig, headers: dict[str, str] | None = None, refresh: bool = False, reuse_endpoint_cache: bool = False) -> Path:
     path = raw_path(cache_root, symbol, provider, endpoint, params)
     if path.exists() and not refresh:
         return path
+    if reuse_endpoint_cache:
+        cached = reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh)
+        if cached:
+            return cached
     try:
         data = http_json(url, headers=headers, retry_policy=retry_policy_for_provider(provider))
         status, semantic_error = classify_provider_payload(provider, data)
         return write_raw(cache_root, symbol, provider, endpoint, params, data, source_url=source_url, status=status, error=semantic_error)
     except HTTPError as exc:
-        status = "rate_limited" if exc.code == 429 else "unauthorized" if exc.code in {401, 403} else "error"
+        status = "rate_limited" if exc.code == 429 else "unauthorized" if exc.code in {401, 403} else "plan_gated" if exc.code == 402 else "error"
         return write_raw(cache_root, symbol, provider, endpoint, params, {}, source_url=redact(source_url, config), status=status, error=f"HTTP {exc.code}")
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
         return write_raw(cache_root, symbol, provider, endpoint, params, {}, source_url=redact(source_url, config), status="error", error=str(exc))
 
 
-def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, config: ProviderConfig, refresh: bool = False) -> list[Path]:
+def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, config: ProviderConfig, refresh: bool = False, endpoints: set[str] | None = None) -> list[Path]:
     symbol = normalize_symbol(symbol)
     paths: list[Path] = []
+    selected_endpoints = endpoints_for_provider(provider, endpoints)
     if provider == "sec":
         ua = config.values.get("SEC_USER_AGENT")
         if not ua:
             return paths
         headers = {"User-Agent": ua}
         tickers_url = "https://www.sec.gov/files/company_tickers.json"
-        paths.append(fetch_with_cache(cache_root, symbol, "sec", "company_tickers", {}, tickers_url, tickers_url, config, headers, refresh))
+        if "company_tickers" in selected_endpoints:
+            paths.append(fetch_with_cache(cache_root, symbol, "sec", "company_tickers", {}, tickers_url, tickers_url, config, headers, refresh, reuse_endpoint_cache=True))
         cik = cik_from_cached_tickers(cache_root, symbol)
         if cik:
             padded = f"{int(cik):010d}"
@@ -404,45 +490,75 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
                 "submissions": f"https://data.sec.gov/submissions/CIK{padded}.json",
                 "companyfacts": f"https://data.sec.gov/api/xbrl/companyfacts/CIK{padded}.json",
             }.items():
-                paths.append(fetch_with_cache(cache_root, symbol, "sec", endpoint, {"cik": padded}, url, url, config, headers, refresh))
-    elif provider == "tiingo" and config.values.get("TIINGO_API_TOKEN"):
+                if endpoint in selected_endpoints:
+                    paths.append(fetch_with_cache(cache_root, symbol, "sec", endpoint, {"cik": padded}, url, url, config, headers, refresh, reuse_endpoint_cache=True))
+    elif provider == "tiingo" and config.values.get("TIINGO_API_TOKEN") and "prices" in selected_endpoints:
         token = config.values["TIINGO_API_TOKEN"]
         params = {"startDate": "2021-01-01", "endDate": as_of}
         query = urlencode({**params, "token": token})
         safe_query = urlencode(params)
         url = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?{query}"
         source = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?{safe_query}"
-        paths.append(fetch_with_cache(cache_root, symbol, "tiingo", "prices", params, url, source, config, refresh=refresh))
+        paths.append(fetch_with_cache(cache_root, symbol, "tiingo", "prices", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "eodhd" and config.values.get("EODHD_API_KEY"):
         token = config.values["EODHD_API_KEY"]
         for endpoint, base in {
             "fundamentals": f"https://eodhd.com/api/fundamentals/{symbol}.US",
             "prices": f"https://eodhd.com/api/eod/{symbol}.US",
         }.items():
+            if endpoint not in selected_endpoints:
+                continue
             params = {"fmt": "json"} if endpoint == "fundamentals" else {"fmt": "json", "from": "2021-01-01", "to": as_of}
             url = f"{base}?{urlencode({**params, 'api_token': token})}"
             source = f"{base}?{urlencode(params)}"
-            paths.append(fetch_with_cache(cache_root, symbol, "eodhd", endpoint, params, url, source, config, refresh=refresh))
+            paths.append(fetch_with_cache(cache_root, symbol, "eodhd", endpoint, params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "alphavantage" and config.values.get("ALPHAVANTAGE_API_KEY"):
         token = config.values["ALPHAVANTAGE_API_KEY"]
         for endpoint, function in {"overview": "OVERVIEW", "prices": "TIME_SERIES_DAILY_ADJUSTED"}.items():
+            if endpoint not in selected_endpoints:
+                continue
             params = {"function": function, "symbol": symbol}
             url = f"https://www.alphavantage.co/query?{urlencode({**params, 'apikey': token})}"
             source = f"https://www.alphavantage.co/query?{urlencode(params)}"
-            paths.append(fetch_with_cache(cache_root, symbol, "alphavantage", endpoint, params, url, source, config, refresh=refresh))
+            paths.append(fetch_with_cache(cache_root, symbol, "alphavantage", endpoint, params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
             time.sleep(0.2)
-    elif provider == "twelve_data" and config.values.get("TWELVE_DATA_API_KEY"):
+    elif provider == "twelve_data" and config.values.get("TWELVE_DATA_API_KEY") and "prices" in selected_endpoints:
         token = config.values["TWELVE_DATA_API_KEY"]
         params = {"symbol": symbol, "interval": "1day", "outputsize": "5000", "end_date": as_of}
         url = f"https://api.twelvedata.com/time_series?{urlencode({**params, 'apikey': token})}"
         source = f"https://api.twelvedata.com/time_series?{urlencode(params)}"
-        paths.append(fetch_with_cache(cache_root, symbol, "twelve_data", "prices", params, url, source, config, refresh=refresh))
-    elif provider == "marketaux" and config.values.get("MARKETAUX_API_TOKEN"):
+        paths.append(fetch_with_cache(cache_root, symbol, "twelve_data", "prices", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
+    elif provider == "marketaux" and config.values.get("MARKETAUX_API_TOKEN") and "news" in selected_endpoints:
         token = config.values["MARKETAUX_API_TOKEN"]
-        params = {"symbols": symbol, "language": "en", "limit": "10"}
+        params = {"symbols": symbol, "language": "en", "limit": config.values.get("MARKETAUX_NEWS_LIMIT", "3")}
         url = f"https://api.marketaux.com/v1/news/all?{urlencode({**params, 'api_token': token})}"
         source = f"https://api.marketaux.com/v1/news/all?{urlencode(params)}"
-        paths.append(fetch_with_cache(cache_root, symbol, "marketaux", "news", params, url, source, config, refresh=refresh))
+        headers = {"User-Agent": "Mozilla/5.0 market-research-skill deterministic collector", "Accept": "application/json"}
+        paths.append(fetch_with_cache(cache_root, symbol, "marketaux", "news", params, url, source, config, headers=headers, refresh=refresh, reuse_endpoint_cache=True))
+    elif provider == "fmp" and config.values.get("FMP_API_KEY"):
+        token = config.values["FMP_API_KEY"]
+        specs = {
+            "profile": ("https://financialmodelingprep.com/stable/profile", {"symbol": symbol}),
+            "key_metrics_ttm": ("https://financialmodelingprep.com/stable/key-metrics-ttm", {"symbol": symbol}),
+            "ratios_ttm": ("https://financialmodelingprep.com/stable/ratios-ttm", {"symbol": symbol}),
+            "income_statement": ("https://financialmodelingprep.com/stable/income-statement", {"symbol": symbol, "limit": "5"}),
+            "balance_sheet": ("https://financialmodelingprep.com/stable/balance-sheet-statement", {"symbol": symbol, "limit": "5"}),
+            "cash_flow": ("https://financialmodelingprep.com/stable/cash-flow-statement", {"symbol": symbol, "limit": "5"}),
+            "stock_news": ("https://financialmodelingprep.com/stable/news/stock", {"symbols": symbol, "limit": "10"}),
+            "press_releases": ("https://financialmodelingprep.com/stable/news/press-releases", {"symbols": symbol, "limit": "10"}),
+            "dividends": ("https://financialmodelingprep.com/stable/dividends", {"symbol": symbol, "limit": "10"}),
+            "earnings": ("https://financialmodelingprep.com/stable/earnings", {"symbol": symbol, "limit": "10"}),
+            "splits": ("https://financialmodelingprep.com/stable/splits", {"symbol": symbol, "limit": "10"}),
+            "insider_trading": ("https://financialmodelingprep.com/stable/insider-trading", {"symbol": symbol, "limit": "10"}),
+            "insider_statistics": ("https://financialmodelingprep.com/stable/insider-trading/statistics", {"symbol": symbol}),
+        }
+        for endpoint, (base, params) in specs.items():
+            if endpoint not in selected_endpoints:
+                continue
+            url = f"{base}?{urlencode({**params, 'apikey': token})}"
+            source = f"{base}?{urlencode(params)}"
+            paths.append(fetch_with_cache(cache_root, symbol, "fmp", endpoint, params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
+            time.sleep(0.05)
     return paths
 
 
@@ -458,7 +574,62 @@ def cik_from_cached_tickers(cache_root: Path, symbol: str) -> str | None:
 
 
 def provider_call_budget(provider: str, budgets: dict[str, int]) -> int:
-    return budgets.get(provider, 10 if provider == "sec" else 2)
+    if provider in budgets:
+        return budgets[provider]
+    if provider == "sec":
+        return 10
+    if provider == "fmp":
+        return sum(PROVIDER_ENDPOINT_COSTS["fmp"].values())
+    if provider == "eodhd":
+        return 10
+    return 2
+
+
+def endpoints_for_provider(provider: str, endpoints: set[str] | None = None) -> set[str]:
+    available = set(PROVIDER_ENDPOINT_COSTS.get(provider, {}))
+    if endpoints is None:
+        return available
+    return {endpoint for endpoint in endpoints if endpoint in available}
+
+
+def default_endpoint_plan(providers: list[str]) -> dict[str, set[str]]:
+    plan = {provider: set(UNIQUE_DEFAULT_ENDPOINTS.get(provider, set(PROVIDER_ENDPOINT_COSTS.get(provider, {})))) for provider in providers}
+    price_provider = next((provider for provider in PRICE_PROVIDER_PRIORITY if provider in providers), None)
+    if price_provider:
+        plan.setdefault(price_provider, set()).add("prices")
+    return plan
+
+
+def parse_provider_endpoints(items: list[str] | None, providers: list[str]) -> dict[str, set[str]]:
+    plan = default_endpoint_plan(providers)
+    for item in items or []:
+        if "=" not in item:
+            die(f"Invalid provider endpoint filter {item!r}; expected PROVIDER=ENDPOINT[,ENDPOINT]")
+        provider, value = item.split("=", 1)
+        provider = provider.strip()
+        requested = {part.strip() for part in value.split(",") if part.strip()}
+        unknown = requested - set(PROVIDER_ENDPOINT_COSTS.get(provider, {}))
+        if unknown:
+            die(f"Unknown endpoint(s) for {provider}: {', '.join(sorted(unknown))}")
+        plan[provider] = requested
+    return plan
+
+
+def provider_endpoint_enabled(endpoint_plan: dict[str, set[str]] | None, provider: str, endpoint: str) -> bool:
+    if endpoint_plan is None:
+        return True
+    return endpoint in endpoint_plan.get(provider, set())
+
+
+def estimated_provider_call_cost(cache_root: Path, symbol: str, provider: str, refresh: bool = False, endpoints: set[str] | None = None) -> int:
+    endpoint_costs = PROVIDER_ENDPOINT_COSTS.get(provider, {})
+    cost = 0
+    for endpoint in endpoints_for_provider(provider, endpoints):
+        endpoint_cost = endpoint_costs[endpoint]
+        if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh):
+            continue
+        cost += endpoint_cost
+    return cost
 
 
 def parse_provider_list(value: str | None, config: ProviderConfig) -> list[str]:
@@ -478,28 +649,62 @@ def parse_budgets(items: list[str] | None) -> dict[str, int]:
     return budgets
 
 
-def collect_provider_status(cache_root: Path, symbol: str, providers: list[str]) -> list[dict[str, Any]]:
+def collect_provider_status(cache_root: Path, symbol: str, providers: list[str], endpoint_plan: dict[str, set[str]] | None = None) -> list[dict[str, Any]]:
     statuses = []
     for provider in providers:
-        root = cache_root / symbol / provider
-        files = sorted(root.glob("*.json")) if root.exists() else []
+        roots = [cache_root / symbol / provider]
+        if provider == "sec":
+            roots.insert(0, cache_root / "_global" / provider)
+        files = []
+        for root in roots:
+            if root.exists():
+                files.extend(root.glob("*.json"))
+        files = sorted(set(files))
         raw_statuses = []
         for path in files:
             payload = read_json(path)
+            endpoint = payload.get("provider_result", {}).get("endpoint")
+            if endpoint and not provider_endpoint_enabled(endpoint_plan, provider, endpoint):
+                continue
             semantic_status, _ = classify_provider_payload(provider, payload.get("data"))
             raw_statuses.append(semantic_status if semantic_status != "ok" else payload.get("provider_result", {}).get("status", "ok"))
         errors = [status for status in raw_statuses if status != "ok"]
-        status = errors[-1] if errors else "ok" if files else "missing"
-        item = {"provider": provider, "raw_files": len(files), "status": status}
+        status = errors[-1] if errors else "ok" if raw_statuses else "missing"
+        item = {"provider": provider, "raw_files": len(raw_statuses), "status": status}
         if errors:
             item["errors"] = len(errors)
         statuses.append(item)
     return statuses
 
 
-def normalize_identity(cache_root: Path, symbol: str) -> dict[str, Any]:
+def provider_enabled(providers: list[str], provider: str) -> bool:
+    return provider in providers
+
+
+def provider_status_warnings(statuses: list[dict[str, Any]]) -> list[str]:
+    warnings = []
+    for item in statuses:
+        status = item.get("status")
+        if status in {"rate_limited", "quota_exhausted"}:
+            warnings.append(f"Provider {item.get('provider')} reported {status}; cached raw response records the exhausted quota location.")
+        elif status == "plan_gated":
+            warnings.append(f"Provider {item.get('provider')} reported plan_gated; cached raw response records the gated endpoint.")
+        elif status == "error":
+            warnings.append(f"Provider {item.get('provider')} reported error; inspect source_manifest.json and raw provider_result.error for the failing endpoint.")
+    return warnings
+
+
+def raise_for_auth_failures(statuses: list[dict[str, Any]]) -> None:
+    failed = [item for item in statuses if item.get("status") == "unauthorized"]
+    if failed:
+        providers = ", ".join(str(item.get("provider")) for item in failed)
+        die(f"Authentication failed for provider(s): {providers}. Check API token or account permissions.")
+
+
+def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
     identity: dict[str, Any] = {"input_symbol": provenance(symbol, "input", "", "symbol", Path("")), "normalized_symbol": provenance(symbol, "input", "", "symbol", Path(""))}
-    submissions = read_raw_latest(cache_root, symbol, "sec", "submissions")
+    submissions = read_raw_latest(cache_root, symbol, "sec", "submissions") if provider_enabled(providers, "sec") and provider_endpoint_enabled(endpoint_plan, "sec", "submissions") else None
     if submissions:
         raw, payload = submissions
         data = payload.get("data", {})
@@ -513,7 +718,7 @@ def normalize_identity(cache_root: Path, symbol: str) -> dict[str, Any]:
         recent_forms = data.get("filings", {}).get("recent", {}).get("form", []) if isinstance(data.get("filings"), dict) else []
         asset_type = "adr" if any(form in {"20-F", "40-F", "6-K"} for form in recent_forms) else "equity"
         identity["asset_type"] = provenance(asset_type, "sec", url, "submissions", raw)
-    eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals")
+    eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals") if provider_enabled(providers, "eodhd") and provider_endpoint_enabled(endpoint_plan, "eodhd", "fundamentals") else None
     if eod and "company_name" not in identity:
         raw, payload = eod
         general = payload.get("data", {}).get("General", {})
@@ -526,12 +731,27 @@ def normalize_identity(cache_root: Path, symbol: str) -> dict[str, Any]:
             category = f"{general.get('Type', '')} {general.get('Category', '')}".lower()
             asset_type = "etf" if "etf" in category or "fund" in category else "equity"
             identity["asset_type"] = provenance(asset_type, "eodhd", url, "fundamentals", raw)
+    fmp = read_raw_latest(cache_root, symbol, "fmp", "profile") if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile") else None
+    if fmp:
+        raw, payload = fmp
+        data = first_dict(payload.get("data"))
+        url = payload.get("provider_result", {}).get("url", "")
+        if data:
+            if data.get("companyName") and "company_name" not in identity:
+                identity["company_name"] = provenance(data["companyName"], "fmp", url, "profile", raw)
+            if data.get("exchangeShortName") and "exchange" not in identity:
+                identity["exchange"] = provenance(data["exchangeShortName"], "fmp", url, "profile", raw)
+            if data.get("industry"):
+                identity["industry"] = provenance(data["industry"], "fmp", url, "profile", raw)
+            if "asset_type" not in identity:
+                identity["asset_type"] = provenance("equity", "fmp", url, "profile", raw)
     if "asset_type" not in identity:
         identity["asset_type"] = provenance("unknown", "deterministic_classifier", "", "classification", Path(""), status="gap")
     return identity
 
 
-def normalize_prices(cache_root: Path, symbol: str) -> tuple[list[dict[str, Any]], Path | None, str, str]:
+def normalize_prices(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> tuple[list[dict[str, Any]], Path | None, str, str]:
+    providers = providers or DEFAULT_PROVIDERS
     sources = [
         ("tiingo", "prices"),
         ("eodhd", "prices"),
@@ -539,6 +759,8 @@ def normalize_prices(cache_root: Path, symbol: str) -> tuple[list[dict[str, Any]
         ("twelve_data", "prices"),
     ]
     for provider, endpoint in sources:
+        if not provider_enabled(providers, provider) or not provider_endpoint_enabled(endpoint_plan, provider, endpoint):
+            continue
         raw = read_raw_latest(cache_root, symbol, provider, endpoint)
         if not raw:
             continue
@@ -631,7 +853,8 @@ def technicals_from_prices(rows: list[dict[str, Any]], provider: str, raw_path_v
     return result
 
 
-def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[str, Any]], price_raw: Path | None, price_provider: str, price_url: str) -> dict[str, Any]:
+def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[str, Any]], price_raw: Path | None, price_provider: str, price_url: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
     snapshot: dict[str, Any] = {}
     if prices:
         latest = prices[-1]
@@ -642,8 +865,9 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     market_cap_candidates: list[dict[str, Any]] = []
     pe_candidates: list[dict[str, Any]] = []
     attempted = []
-    eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals")
-    attempted.append("eodhd")
+    eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals") if provider_enabled(providers, "eodhd") and provider_endpoint_enabled(endpoint_plan, "eodhd", "fundamentals") else None
+    if provider_enabled(providers, "eodhd") and provider_endpoint_enabled(endpoint_plan, "eodhd", "fundamentals"):
+        attempted.append("eodhd")
     if eod:
         raw, payload = eod
         data = payload.get("data", {})
@@ -654,8 +878,9 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
             market_cap_candidates.append(data_point_candidate(general["MarketCapitalization"], "eodhd", url, "fundamentals", raw))
         if highlights.get("PERatio") is not None:
             pe_candidates.append(data_point_candidate(highlights["PERatio"], "eodhd", url, "fundamentals", raw))
-    av = read_raw_latest(cache_root, symbol, "alphavantage", "overview")
-    attempted.append("alphavantage")
+    av = read_raw_latest(cache_root, symbol, "alphavantage", "overview") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview") else None
+    if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview"):
+        attempted.append("alphavantage")
     if av:
         raw, payload = av
         data = payload.get("data", {})
@@ -669,6 +894,20 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         beta = number(data.get("Beta"))
         if beta is not None:
             snapshot["beta"] = provenance(beta, "alphavantage", url, "overview", raw)
+    fmp = read_raw_latest(cache_root, symbol, "fmp", "profile") if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile") else None
+    if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile"):
+        attempted.append("fmp")
+    if fmp:
+        raw, payload = fmp
+        data = first_dict(payload.get("data"))
+        url = payload.get("provider_result", {}).get("url", "")
+        if data:
+            market_cap = number(data.get("mktCap") or data.get("marketCap"))
+            if market_cap is not None:
+                market_cap_candidates.append(data_point_candidate(market_cap, "fmp", url, "profile", raw))
+            beta = number(data.get("beta"))
+            if beta is not None and "beta" not in snapshot:
+                snapshot["beta"] = provenance(beta, "fmp", url, "profile", raw)
     chosen_market_cap = choose_candidate(market_cap_candidates, attempted)
     if chosen_market_cap:
         snapshot["market_capitalization"] = chosen_market_cap
@@ -678,9 +917,21 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     return snapshot
 
 
-def normalize_equity_fundamentals(cache_root: Path, symbol: str) -> dict[str, Any]:
+def normalize_equity_fundamentals(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
     fundamentals: dict[str, Any] = {}
-    av = read_raw_latest(cache_root, symbol, "alphavantage", "overview")
+    sec = read_raw_latest(cache_root, symbol, "sec", "companyfacts") if provider_enabled(providers, "sec") and provider_endpoint_enabled(endpoint_plan, "sec", "companyfacts") else None
+    if sec:
+        raw, payload = sec
+        data = payload.get("data", {})
+        url = payload.get("provider_result", {}).get("url", "")
+        revenue = latest_companyfacts_usd_fact(data, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"])
+        if revenue:
+            fundamentals["revenue"] = provenance(revenue, "sec", url, "companyfacts", raw, unit="USD", as_of=revenue.get("period_end"))
+        net_income = latest_companyfacts_usd_fact(data, ["NetIncomeLoss", "ProfitLoss"])
+        if net_income:
+            fundamentals["net_income"] = provenance(net_income, "sec", url, "companyfacts", raw, unit="USD", as_of=net_income.get("period_end"))
+    av = read_raw_latest(cache_root, symbol, "alphavantage", "overview") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview") else None
     if av:
         raw, payload = av
         data = payload.get("data", {})
@@ -705,10 +956,131 @@ def normalize_equity_fundamentals(cache_root: Path, symbol: str) -> dict[str, An
             value = number(data.get(provider_key))
             if value is not None:
                 fundamentals[out_key] = provenance(value, "alphavantage", url, "overview", raw, unit=unit, as_of=data.get("LatestQuarter"))
+    if provider_enabled(providers, "fmp"):
+        fmp_fundamentals = normalize_fmp_fundamentals(cache_root, symbol, endpoint_plan)
+        fundamentals.update({key: value for key, value in fmp_fundamentals.items() if key not in fundamentals})
     return fundamentals
 
 
-def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+def first_dict(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                return item
+    if isinstance(data, dict):
+        return data
+    return None
+
+
+def fmp_first(cache_root: Path, symbol: str, endpoint: str, endpoint_plan: dict[str, set[str]] | None = None) -> tuple[Path, dict[str, Any], str] | None:
+    if not provider_endpoint_enabled(endpoint_plan, "fmp", endpoint):
+        return None
+    raw = read_raw_latest(cache_root, symbol, "fmp", endpoint)
+    if not raw:
+        return None
+    path, payload = raw
+    if payload.get("provider_result", {}).get("status") != "ok":
+        return None
+    item = first_dict(payload.get("data"))
+    if not item:
+        return None
+    return path, item, payload.get("provider_result", {}).get("url", "")
+
+
+def normalize_fmp_fundamentals(cache_root: Path, symbol: str, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    fundamentals: dict[str, Any] = {}
+
+    latest_income = fmp_first(cache_root, symbol, "income_statement", endpoint_plan)
+    if latest_income:
+        raw, data, url = latest_income
+        for out_key, provider_key, unit in [
+            ("latest_revenue", "revenue", "USD"),
+            ("latest_net_income", "netIncome", "USD"),
+            ("eps", "eps", None),
+        ]:
+            value = number(data.get(provider_key))
+            if value is not None:
+                fundamentals[out_key] = provenance(value, "fmp", url, "income_statement", raw, unit=unit, as_of=data.get("date"))
+
+    latest_balance = fmp_first(cache_root, symbol, "balance_sheet", endpoint_plan)
+    if latest_balance:
+        raw, data, url = latest_balance
+        for out_key, provider_key in [("total_assets", "totalAssets"), ("total_debt", "totalDebt"), ("cash_and_short_term_investments", "cashAndShortTermInvestments")]:
+            value = number(data.get(provider_key))
+            if value is not None:
+                fundamentals[out_key] = provenance(value, "fmp", url, "balance_sheet", raw, unit="USD", as_of=data.get("date"))
+
+    latest_cash_flow = fmp_first(cache_root, symbol, "cash_flow", endpoint_plan)
+    if latest_cash_flow:
+        raw, data, url = latest_cash_flow
+        for out_key, provider_key in [("operating_cash_flow", "operatingCashFlow"), ("free_cash_flow", "freeCashFlow"), ("capital_expenditure", "capitalExpenditure")]:
+            value = number(data.get(provider_key))
+            if value is not None:
+                fundamentals[out_key] = provenance(value, "fmp", url, "cash_flow", raw, unit="USD", as_of=data.get("date"))
+
+    latest_metrics = fmp_first(cache_root, symbol, "key_metrics_ttm", endpoint_plan)
+    if latest_metrics:
+        raw, data, url = latest_metrics
+        for out_key, provider_key in [
+            ("revenue_per_share_ttm", "revenuePerShareTTM"),
+            ("net_income_per_share_ttm", "netIncomePerShareTTM"),
+            ("enterprise_value_ttm", "enterpriseValueTTM"),
+            ("ev_to_sales_ttm", "evToSalesTTM"),
+        ]:
+            value = number(data.get(provider_key))
+            if value is not None:
+                fundamentals[out_key] = provenance(value, "fmp", url, "key_metrics_ttm", raw)
+
+    latest_ratios = fmp_first(cache_root, symbol, "ratios_ttm", endpoint_plan)
+    if latest_ratios:
+        raw, data, url = latest_ratios
+        for out_key, provider_key in [
+            ("gross_profit_margin_ttm", "grossProfitMarginTTM"),
+            ("net_profit_margin_ttm", "netProfitMarginTTM"),
+            ("current_ratio_ttm", "currentRatioTTM"),
+            ("debt_to_equity_ttm", "debtToEquityRatioTTM"),
+            ("return_on_equity_ttm", "returnOnEquityTTM"),
+        ]:
+            value = number(data.get(provider_key))
+            if value is not None:
+                fundamentals[out_key] = provenance(value, "fmp", url, "ratios_ttm", raw)
+    return fundamentals
+
+
+def nested_get(payload: dict[str, Any], *keys: str) -> Any:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    facts = nested_get(companyfacts, "facts", "us-gaap")
+    if not isinstance(facts, dict):
+        return None
+    candidates: list[dict[str, Any]] = []
+    for name in names:
+        values = nested_get(facts, name, "units", "USD")
+        if not isinstance(values, list):
+            continue
+        annual = [item for item in values if isinstance(item, dict) and item.get("form") == "10-K" and item.get("fp") == "FY" and "val" in item]
+        candidates.extend({**item, "_tag": name} for item in annual)
+    if not candidates:
+        return None
+    item = sorted(candidates, key=lambda row: (int(row.get("fy") or 0), str(row.get("end") or ""), str(row.get("filed") or "")))[-1]
+    return {
+        "tag": item.get("_tag"),
+        "value": item.get("val"),
+        "fy": item.get("fy"),
+        "period_end": item.get("end"),
+        "filed": item.get("filed"),
+        "form": item.get("form"),
+    }
+
+
+def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], attempted_providers: list[str]) -> list[dict[str, Any]]:
     requested = {
         "short_interest": "No configured free provider returned reproducible short-interest data.",
         "forward_estimates": "Forward estimates are unavailable from cached configured providers.",
@@ -722,17 +1094,33 @@ def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any]) -> list[dic
     gaps = []
     for field, notes in requested.items():
         if field not in snapshot and field not in identity:
-            gaps.append({"field": field, "status": "unavailable_free_source", "attempted_sources": DEFAULT_PROVIDERS, "notes": notes})
+            gaps.append({"field": field, "status": "unavailable_free_source", "attempted_sources": attempted_providers, "notes": notes})
     return gaps
 
 
-def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: list[str], endpoint_plan: dict[str, set[str]] | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
     entries = []
     path_map: dict[str, str] = {}
-    for path in sorted((cache_root / symbol).glob("*/*.json")) if (cache_root / symbol).exists() else []:
+    roots = []
+    if provider_enabled(providers, "sec"):
+        roots.append(cache_root / "_global" / "sec")
+    roots.extend(cache_root / symbol / provider for provider in providers)
+    files = []
+    for root in roots:
+        if root.exists():
+            files.extend(root.glob("*.json"))
+    seen_targets: set[Path] = set()
+    for path in sorted(files):
         payload = read_json(path)
         provider = payload.get("provider_result", {}).get("provider", path.parent.name)
+        endpoint = payload.get("provider_result", {}).get("endpoint")
+        if endpoint and not provider_endpoint_enabled(endpoint_plan, provider, endpoint):
+            continue
         target = bundle_dir / "raw" / provider / path.name
+        if target in seen_targets:
+            path_map[str(path)] = str(target)
+            continue
+        seen_targets.add(target)
         semantic_status, semantic_error = classify_provider_payload(provider, payload.get("data"))
         if isinstance(payload.get("provider_result"), dict):
             payload["provider_result"]["raw_path"] = str(target)
@@ -748,6 +1136,7 @@ def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path) -> tuple[lis
             "raw_path": str(target),
             "cache_raw_path": str(path),
             "status": payload.get("provider_result", {}).get("status"),
+            "error": payload.get("provider_result", {}).get("error"),
             "sha256": sha256_file(target),
         })
     return entries, path_map
@@ -805,7 +1194,7 @@ def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], s
             lines.append(f"- {key.upper()}: {value}. Source: {point.get('provider')}, `{point.get('raw_path')}`.")
     if fundamentals:
         lines.extend(["", "## Equity Fundamentals"])
-        for key in ["revenue_ttm", "gross_profit_ttm", "ebitda", "eps", "profit_margin", "shares_outstanding"]:
+        for key in ["revenue", "net_income", "revenue_ttm", "gross_profit_ttm", "ebitda", "eps", "profit_margin", "shares_outstanding"]:
             point = fundamentals.get(key)
             if point:
                 lines.append(f"- {key.replace('_', ' ').title()}: {point.get('value')}. Source: {point.get('provider')}, `{point.get('raw_path')}`.")
@@ -827,33 +1216,39 @@ def assert_no_secrets_in_tree(root: Path, config: ProviderConfig | None) -> None
                     die(f"Secret value leaked into output file: {path}")
 
 
-def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, providers: list[str] | None = None, offline: bool = False, config: ProviderConfig | None = None, command: str | None = None, asset_type: str = "auto") -> dict[str, Any]:
+def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, providers: list[str] | None = None, offline: bool = False, config: ProviderConfig | None = None, command: str | None = None, asset_type: str = "auto", warnings: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     symbol = normalize_symbol(symbol)
     providers = providers or DEFAULT_PROVIDERS
+    endpoint_plan = endpoint_plan or default_endpoint_plan(providers)
     bundle_dir = output_root / symbol / as_of
     normalized = bundle_dir / "normalized"
     normalized.mkdir(parents=True, exist_ok=True)
-    raw_entries, raw_path_map = copy_raw_files(cache_root, symbol, bundle_dir)
-    identity = normalize_identity(cache_root, symbol)
+    raw_entries, raw_path_map = copy_raw_files(cache_root, symbol, bundle_dir, providers, endpoint_plan)
+    identity = normalize_identity(cache_root, symbol, providers, endpoint_plan)
     if asset_type != "auto":
         identity["asset_type"] = provenance(asset_type, "cli", "", "asset_type", Path(""))
-    prices, price_raw, price_provider, price_url = normalize_prices(cache_root, symbol)
-    snapshot = normalize_market_snapshot(cache_root, symbol, prices, price_raw, price_provider, price_url)
+    prices, price_raw, price_provider, price_url = normalize_prices(cache_root, symbol, providers, endpoint_plan)
+    snapshot = normalize_market_snapshot(cache_root, symbol, prices, price_raw, price_provider, price_url, providers, endpoint_plan)
     technicals = technicals_from_prices(prices, price_provider, price_raw, price_url)
-    fundamentals = normalize_equity_fundamentals(cache_root, symbol)
+    fundamentals = normalize_equity_fundamentals(cache_root, symbol, providers, endpoint_plan)
     identity = rewrite_raw_paths(identity, raw_path_map)
     snapshot = rewrite_raw_paths(snapshot, raw_path_map)
     technicals = rewrite_raw_paths(technicals, raw_path_map)
     fundamentals = rewrite_raw_paths(fundamentals, raw_path_map)
+    news = rewrite_raw_paths(normalize_news(cache_root, symbol, providers, endpoint_plan), raw_path_map)
+    equity_events = rewrite_raw_paths(normalize_equity_events(cache_root, symbol, providers, endpoint_plan), raw_path_map)
+    equity_insiders = rewrite_raw_paths(normalize_equity_insiders(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     price_raw_path = raw_path_map.get(str(price_raw), str(price_raw) if price_raw else None)
-    gaps = default_gaps(identity, snapshot)
+    gaps = default_gaps(identity, snapshot, providers)
     write_json(normalized / "identity.json", identity)
     write_json(normalized / "market_snapshot.json", snapshot)
     write_json(normalized / "prices_daily.json", {"prices": prices, "provider": price_provider, "raw_path": price_raw_path})
     write_json(normalized / "technical_signals.json", technicals)
-    write_json(normalized / "news.json", normalize_news(cache_root, symbol))
+    write_json(normalized / "news.json", news)
     write_json(normalized / "equity_fundamentals.json", fundamentals if fundamentals else {"status": "unavailable", "gaps_recorded": True})
-    for filename in ["sec_filings_index", "sec_filing_sections", "equity_events", "equity_insiders", "etf_profile", "etf_holdings", "etf_distributions", "etf_performance"]:
+    write_json(normalized / "equity_events.json", equity_events)
+    write_json(normalized / "equity_insiders.json", equity_insiders)
+    for filename in ["sec_filings_index", "sec_filing_sections", "etf_profile", "etf_holdings", "etf_distributions", "etf_performance"]:
         write_json(normalized / f"{filename}.json", {"status": "not_implemented_in_core_pass", "gaps_recorded": True})
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})
@@ -867,10 +1262,11 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         "as_of": as_of,
         "created_at_utc": utc_now(),
         "offline": offline,
-        "provider_status": collect_provider_status(cache_root, symbol, providers),
+        "provider_status": collect_provider_status(cache_root, symbol, providers, endpoint_plan),
+        "endpoint_plan": {provider: sorted(endpoints) for provider, endpoints in endpoint_plan.items()},
         "cache": {"raw_entries": len(raw_entries)},
         "api_limits": config.limits if config else {},
-        "warnings": [],
+        "warnings": warnings or [],
         "errors": [],
     }
     if config:
@@ -881,16 +1277,104 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     return {"symbol": symbol, "bundle_dir": str(bundle_dir), "manifest": str(bundle_dir / "manifest.json")}
 
 
-def normalize_news(cache_root: Path, symbol: str) -> dict[str, Any]:
-    raw = read_raw_latest(cache_root, symbol, "marketaux", "news")
-    if not raw:
-        return {"items": [], "status": "unavailable"}
-    path, payload = raw
+def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
     items = []
-    for item in payload.get("data", {}).get("data", []):
-        if isinstance(item, dict):
-            items.append({"headline": item.get("title"), "source": item.get("source"), "url": item.get("url"), "published_at": item.get("published_at"), "sentiment": item.get("sentiment_score"), "raw_path": str(path), "provider": "marketaux"})
+    if provider_enabled(providers, "marketaux") and provider_endpoint_enabled(endpoint_plan, "marketaux", "news"):
+        raw = read_raw_latest(cache_root, symbol, "marketaux", "news")
+        if raw:
+            path, payload = raw
+            for item in payload.get("data", {}).get("data", []):
+                if isinstance(item, dict):
+                    items.append({
+                        "headline": item.get("title"),
+                        "source": item.get("source"),
+                        "url": item.get("url"),
+                        "published_at": item.get("published_at"),
+                        "sentiment": item.get("sentiment_score"),
+                        "raw_path": str(path),
+                        "provider": "marketaux",
+                    })
+    if provider_enabled(providers, "fmp"):
+        for endpoint in ["stock_news", "press_releases"]:
+            if not provider_endpoint_enabled(endpoint_plan, "fmp", endpoint):
+                continue
+            raw = read_raw_latest(cache_root, symbol, "fmp", endpoint)
+            if not raw:
+                continue
+            path, payload = raw
+            if payload.get("provider_result", {}).get("status") != "ok":
+                continue
+            data = payload.get("data", [])
+            if isinstance(data, dict):
+                data = [data]
+            for item in data if isinstance(data, list) else []:
+                if isinstance(item, dict) and (item.get("title") or item.get("url")):
+                    items.append({
+                        "headline": item.get("title"),
+                        "source": item.get("site") or item.get("publisher"),
+                        "url": item.get("url"),
+                        "published_at": item.get("publishedDate") or item.get("date"),
+                        "text": item.get("text"),
+                        "raw_path": str(path),
+                        "provider": "fmp",
+                        "endpoint": endpoint,
+                    })
     return {"items": items, "status": "ok" if items else "empty"}
+
+
+def normalize_equity_events(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
+    if not provider_enabled(providers, "fmp"):
+        return {"status": "unavailable", "items": []}
+    events: dict[str, Any] = {"status": "empty", "items": []}
+    for endpoint in ["dividends", "earnings", "splits"]:
+        if not provider_endpoint_enabled(endpoint_plan, "fmp", endpoint):
+            continue
+        raw = read_raw_latest(cache_root, symbol, "fmp", endpoint)
+        if not raw:
+            continue
+        path, payload = raw
+        if payload.get("provider_result", {}).get("status") != "ok":
+            continue
+        data = payload.get("data", [])
+        if isinstance(data, dict):
+            data = [data]
+        endpoint_items = []
+        for item in data if isinstance(data, list) else []:
+            if isinstance(item, dict) and item:
+                endpoint_items.append({"provider": "fmp", "endpoint": endpoint, "raw_path": str(path), **item})
+        events[endpoint] = endpoint_items
+        events["items"].extend(endpoint_items)
+    events["status"] = "ok" if events["items"] else "empty"
+    return events
+
+
+def normalize_equity_insiders(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
+    if not provider_enabled(providers, "fmp"):
+        return {"status": "unavailable", "items": []}
+    result: dict[str, Any] = {"status": "empty", "items": []}
+    if provider_endpoint_enabled(endpoint_plan, "fmp", "insider_trading"):
+        raw = read_raw_latest(cache_root, symbol, "fmp", "insider_trading")
+        if raw:
+            path, payload = raw
+            if payload.get("provider_result", {}).get("status") == "ok":
+                data = payload.get("data", [])
+                if isinstance(data, dict):
+                    data = [data]
+                items = [{"provider": "fmp", "endpoint": "insider_trading", "raw_path": str(path), **item} for item in data if isinstance(item, dict) and item]
+                result["items"] = items
+    if provider_endpoint_enabled(endpoint_plan, "fmp", "insider_statistics"):
+        raw = read_raw_latest(cache_root, symbol, "fmp", "insider_statistics")
+        if raw:
+            path, payload = raw
+            if payload.get("provider_result", {}).get("status") == "ok":
+                data = first_dict(payload.get("data"))
+                if data:
+                    result["statistics"] = provenance(data, "fmp", payload.get("provider_result", {}).get("url", ""), "insider_statistics", path)
+    result["status"] = "ok" if result.get("items") or result.get("statistics") else "empty"
+    return result
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
@@ -926,18 +1410,29 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     cache_root = paths["cache_dir"]
     output_root = paths["reports_dir"]
     providers = parse_provider_list(args.providers, config)
+    endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
     budgets = parse_budgets(args.max_provider_calls)
+    warnings: list[str] = []
     if not args.offline:
         for provider in providers:
             budget = provider_call_budget(provider, budgets)
             if budget <= 0:
+                warnings.append(f"Skipped {provider}: provider call budget is {budget}.")
+                continue
+            endpoints = endpoint_plan.get(provider, set())
+            estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=endpoints)
+            if estimated_cost > budget:
+                warnings.append(f"Skipped {provider}: estimated call cost {estimated_cost} exceeds budget {budget}.")
                 continue
             before = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
-            fetch_provider(symbol, provider, as_of, cache_root, config, refresh=args.refresh)
+            fetch_provider(symbol, provider, as_of, cache_root, config, refresh=args.refresh, endpoints=endpoints)
             after = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
             if after - before > budget:
                 die(f"Provider {provider} exceeded call budget {budget}")
-    result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"))
+    statuses = collect_provider_status(cache_root, symbol, providers, endpoint_plan)
+    raise_for_auth_failures(statuses)
+    warnings.extend(provider_status_warnings(statuses))
+    result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"), warnings=warnings, endpoint_plan=endpoint_plan)
     print(redact(json.dumps(result, indent=2, sort_keys=True), config))
 
 
@@ -990,6 +1485,7 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--offline", action="store_true")
     fetch.add_argument("--refresh", action="store_true")
     fetch.add_argument("--max-provider-calls", action="append")
+    fetch.add_argument("--provider-endpoints", action="append", help="Restrict endpoints for a provider, e.g. eodhd=fundamentals or fmp=profile,ratios_ttm.")
     add_common_paths(fetch)
     fetch.set_defaults(func=cmd_fetch)
     normalize = sub.add_parser("normalize")
@@ -999,6 +1495,7 @@ def build_parser() -> argparse.ArgumentParser:
     normalize.add_argument("--offline", action="store_true", default=True)
     normalize.add_argument("--refresh", action="store_true")
     normalize.add_argument("--max-provider-calls", action="append")
+    normalize.add_argument("--provider-endpoints", action="append", help="Restrict endpoints for a provider, e.g. eodhd=fundamentals or fmp=profile,ratios_ttm.")
     add_common_paths(normalize)
     normalize.set_defaults(func=cmd_fetch)
     build_pack = sub.add_parser("build-pack")
@@ -1008,6 +1505,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_pack.add_argument("--offline", action="store_true", default=True)
     build_pack.add_argument("--refresh", action="store_true")
     build_pack.add_argument("--max-provider-calls", action="append")
+    build_pack.add_argument("--provider-endpoints", action="append", help="Restrict endpoints for a provider, e.g. eodhd=fundamentals or fmp=profile,ratios_ttm.")
     add_common_paths(build_pack)
     build_pack.set_defaults(func=cmd_fetch)
     list_cache = sub.add_parser("list-cache")

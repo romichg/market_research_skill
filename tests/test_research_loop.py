@@ -75,6 +75,13 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "Do not delete validator outputs" in remediation
 
 
+def test_invalid_shell_symbol_rejected_by_loop(tmp_path):
+    result = run_harness("run-batch", "AAPL;touch", "--run-root", str(tmp_path), "--dry-run")
+
+    assert result.returncode != 0
+    assert "Invalid symbol" in result.stderr
+
+
 def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
     root = tmp_path / "runs"
     good = root / "EWW" / "iteration-01"
@@ -224,6 +231,46 @@ def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
+
+
+def test_run_batch_validates_latest_dated_deterministic_bundle(tmp_path):
+    root = tmp_path / "batch"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; import json; "
+        "run_dir = Path(r'{run_dir}') / '2026-06-01'; "
+        "(run_dir / 'normalized').mkdir(parents=True, exist_ok=True); "
+        "(run_dir / 'research_input_pack.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / 'manifest.json').write_text(json.dumps({'symbol':'{symbol}','asset_type':'equity'}), encoding='utf-8'); "
+        "(run_dir / 'source_manifest.json').write_text(json.dumps({'sources':[]}), encoding='utf-8'); "
+        "(run_dir / 'gaps.json').write_text(json.dumps({'gaps':[]}), encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{run_dir}'); "
+        "assert run_dir.name == '2026-06-01', run_dir; "
+        "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "passed"
+    assert payload["symbols"]["EWW"]["artifact_run_dir"].endswith("EWW/2026-06-01")
+    assert payload["symbols"]["EWW"]["validation_json"].endswith("EWW/2026-06-01/EWW-validation-scaffold.json")
 
 
 def test_collect_feedback_writes_manual_improvement_package(tmp_path):

@@ -30,7 +30,7 @@ Defaults launch child sessions with:
 codex exec -C {cwd} --dangerously-bypass-approvals-and-sandbox - < {prompt_file}
 ```
 
-Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing the expected artifacts, the harness logs the timeout and continues to the next phase.
+Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing the expected artifacts, the harness logs the timeout and continues to the next phase. When a producer writes a dated deterministic bundle such as `SYMBOL/YYYY-MM-DD/`, the harness validates that dated bundle and records it as `artifact_run_dir` in `research-loop-summary.json`.
 
 ## Supervision
 
@@ -57,6 +57,7 @@ Each run root contains:
 - `SYMBOL/source_manifest.json`
 - `SYMBOL/gaps.json`
 - `SYMBOL/normalized/`
+- `SYMBOL/YYYY-MM-DD/` when the deterministic producer writes a dated bundle; this path is reported as `artifact_run_dir`
 - `SYMBOL/SYMBOL-research.md`
 - `SYMBOL/SYMBOL-research.json`
 - `SYMBOL/SYMBOL-validation.md`

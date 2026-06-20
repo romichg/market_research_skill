@@ -137,6 +137,9 @@ def append_manifest_source_gap(output_root: Path, symbol: str, gap: dict[str, An
 def cmd_init_run(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
     out = run_dir(Path(args.output_root), symbol)
+    manifest = out / "run_manifest.json"
+    if manifest.exists() and not args.force:
+        die(f"Run directory already initialized for {symbol}; pass --force to overwrite.")
     source_bundle = out / "source_bundle"
     source_bundle.mkdir(parents=True, exist_ok=True)
     now = utc_now()
@@ -727,6 +730,7 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init-run", help="Create a run directory and manifest.")
     init.add_argument("symbol")
     init.add_argument("--output-root", default="./market-research-runs")
+    init.add_argument("--force", action="store_true", help="Overwrite an existing initialized run manifest.")
     init.set_defaults(func=cmd_init_run)
 
     classify = sub.add_parser("classify", help="Record manual/best-effort classification.")

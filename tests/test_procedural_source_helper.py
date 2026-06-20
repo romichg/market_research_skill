@@ -30,6 +30,31 @@ def test_init_run_creates_manifest(tmp_path):
     assert manifest["procedural_gap_fills"] == []
 
 
+def test_init_run_refuses_to_overwrite_existing_manifest_without_force(tmp_path):
+    run_helper("init-run", "aapl", "--output-root", str(tmp_path))
+    manifest_path = tmp_path / "AAPL" / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["procedural_gap_fills"] = [{"field": "expense_ratio", "value": "0.03%"}]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_helper("init-run", "AAPL", "--output-root", str(tmp_path))
+
+    assert result.returncode != 0
+    assert "already initialized" in result.stderr
+    persisted = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert persisted["procedural_gap_fills"] == [{"field": "expense_ratio", "value": "0.03%"}]
+
+
+def test_init_run_force_overwrites_existing_manifest(tmp_path):
+    run_helper("init-run", "aapl", "--output-root", str(tmp_path))
+
+    result = run_helper("init-run", "AAPL", "--output-root", str(tmp_path), "--force")
+
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((tmp_path / "AAPL" / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["procedural_gap_fills"] == []
+
+
 def test_invalid_symbol_rejected(tmp_path):
     result = run_helper("init-run", "../AAPL", "--output-root", str(tmp_path))
     assert result.returncode != 0

@@ -41,7 +41,25 @@ python3 {baseDir}/scripts/deterministic_research_collector.py doctor
 python3 {baseDir}/scripts/deterministic_research_collector.py fetch SYMBOL --asset-type auto --as-of YYYY-MM-DD --reports-dir ./reports
 ```
 
-Use `--providers sec,tiingo,eodhd` to restrict calls and `--max-provider-calls PROVIDER=N` to stay within free-tier budgets. Use offline mode to rebuild normalized outputs without rerunning successful provider collection:
+Use `--providers sec,tiingo,eodhd` to restrict calls, `--provider-endpoints PROVIDER=ENDPOINT[,ENDPOINT]` to avoid duplicate endpoint families, and `--max-provider-calls PROVIDER=N` to stay within free-tier budgets. Provider and endpoint filters apply to both live fetches and cached raw data used during bundle construction, preventing stale cached providers or duplicate cached endpoints from slipping into a quota-preserving run. The collector estimates provider endpoint cost before network calls and skips providers whose estimated cost exceeds the provided or conservative default budget. Successful raw endpoint responses are reused across later `as_of` dates unless `--refresh` is passed, so do not use `--refresh` unless the user specifically needs a fresh provider pull.
+
+Recommended quota-safe starting points:
+
+```bash
+# Rebuild from frozen raw data only.
+python3 {baseDir}/scripts/deterministic_research_collector.py fetch SYMBOL --offline --as-of YYYY-MM-DD --reports-dir ./reports
+
+# Live refresh using only polite SEC access and one price provider.
+python3 {baseDir}/scripts/deterministic_research_collector.py fetch SYMBOL --providers sec,tiingo --as-of YYYY-MM-DD --reports-dir ./reports
+
+# Opt into EODHD fundamentals without duplicating Tiingo price history.
+python3 {baseDir}/scripts/deterministic_research_collector.py fetch SYMBOL --providers sec,tiingo,eodhd --provider-endpoints eodhd=fundamentals --max-provider-calls eodhd=10 --as-of YYYY-MM-DD --reports-dir ./reports
+
+# Scrappy full equity pass: one price source plus unique fundamentals/news/events.
+python3 {baseDir}/scripts/deterministic_research_collector.py fetch SYMBOL --providers sec,tiingo,eodhd,alphavantage,marketaux,fmp --provider-endpoints tiingo=prices --provider-endpoints eodhd=fundamentals --provider-endpoints alphavantage=overview --provider-endpoints marketaux=news --provider-endpoints fmp=profile,key_metrics_ttm,ratios_ttm,income_statement,balance_sheet,cash_flow,stock_news,press_releases,dividends,earnings,splits,insider_trading,insider_statistics --max-provider-calls sec=3 --max-provider-calls tiingo=1 --max-provider-calls eodhd=10 --max-provider-calls alphavantage=1 --max-provider-calls marketaux=1 --max-provider-calls fmp=13 --as-of YYYY-MM-DD --reports-dir ./reports
+```
+
+Use offline mode to rebuild normalized outputs without rerunning successful provider collection:
 
 ```bash
 python3 {baseDir}/scripts/deterministic_research_collector.py fetch SYMBOL --offline --as-of YYYY-MM-DD --reports-dir ./reports
@@ -60,7 +78,7 @@ reports/SYMBOL/AS_OF/
   research_input_pack.md
 ```
 
-Use this output as the primary factual input. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap; do not invent or infer unsupported values. Live API calls use conservative retries/backoff for transient 429/503/network failures and do not retry unauthorized or not-found responses aggressively.
+Use this output as the primary factual input. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap with only the attempted providers listed. Do not invent or infer unsupported values. Live API calls use conservative retries/backoff for transient 429/503/network failures and do not retry unauthorized or not-found responses aggressively. Provider authentication failures exit with a clear error; provider rate-limit or endpoint errors are promoted into `manifest.json` warnings and preserved in `source_manifest.json` plus raw `provider_result.error`.
 
 2. If deterministic output is sparse or a legacy research bundle is required, normalize the symbol to uppercase and create the run:
 

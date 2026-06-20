@@ -166,7 +166,7 @@ def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     module = load_module()
     calls = []
 
-    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False):
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
         calls.append(provider)
         return []
 
@@ -192,6 +192,225 @@ def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     assert calls == ["tiingo"]
 
 
+def test_fetch_skips_provider_when_estimated_cost_exceeds_budget(tmp_path, monkeypatch):
+    module = load_module()
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd,tiingo",
+            "max_provider_calls": ["eodhd=1", "tiingo=1"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    assert calls == [("tiingo", ("prices",))]
+    manifest_path = tmp_path / "reports" / "AAPL" / "2026-06-01" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert any("eodhd" in warning and "budget" in warning for warning in manifest["warnings"])
+
+
+def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
+    module = load_module()
+    calls = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        calls.append(url)
+        return {} if "fundamentals" in url or "OVERVIEW" in url else []
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(
+        values={
+            "EODHD_API_KEY": "eod-secret",
+            "ALPHAVANTAGE_API_KEY": "av-secret",
+            "TIINGO_API_TOKEN": "tiingo-secret",
+        },
+        docs={},
+        limits={},
+        loaded_files=[],
+    )
+
+    module.fetch_provider("QBTS", "eodhd", "2026-06-17", tmp_path, config, refresh=True, endpoints={"fundamentals"})
+    module.fetch_provider("QBTS", "alphavantage", "2026-06-17", tmp_path, config, refresh=True, endpoints={"overview"})
+    module.fetch_provider("QBTS", "tiingo", "2026-06-17", tmp_path, config, refresh=True, endpoints={"prices"})
+
+    assert any("/fundamentals/QBTS.US" in url for url in calls)
+    assert any("function=OVERVIEW" in url for url in calls)
+    assert any("/tiingo/daily/QBTS/prices" in url for url in calls)
+    assert not any("/eod/QBTS.US" in url for url in calls)
+    assert not any("TIME_SERIES_DAILY_ADJUSTED" in url for url in calls)
+
+
+def test_endpoint_plan_filters_cached_raw_and_price_normalization(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(cache, "QBTS", "eodhd", "fundamentals", {}, {"General": {"Name": "D-Wave Quantum Inc.", "MarketCapitalization": 100}}, source_url="https://eodhd.example/fundamentals/QBTS.US")
+    module.write_raw(cache, "QBTS", "eodhd", "prices", {}, [{"date": "2026-06-16", "adjusted_close": 10}], source_url="https://eodhd.example/eod/QBTS.US")
+
+    result = module.build_bundle(
+        "QBTS",
+        "2026-06-17",
+        cache,
+        tmp_path / "reports",
+        providers=["eodhd"],
+        endpoint_plan={"eodhd": {"fundamentals"}},
+        asset_type="equity",
+    )
+
+    bundle_dir = Path(result["bundle_dir"])
+    source_manifest = json.loads((bundle_dir / "source_manifest.json").read_text(encoding="utf-8"))
+    prices = json.loads((bundle_dir / "normalized" / "prices_daily.json").read_text(encoding="utf-8"))
+
+    assert [source["endpoint"] for source in source_manifest["sources"]] == ["fundamentals"]
+    assert prices["prices"] == []
+
+
+def test_marketaux_fetch_sends_provider_friendly_headers(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        seen.append({"url": url, "headers": headers or {}})
+        return {"data": []}
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"MARKETAUX_API_TOKEN": "marketaux-secret"}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.fetch_provider("AAPL", "marketaux", "2026-06-19", tmp_path, config, refresh=True, endpoints={"news"})
+
+    assert len(paths) == 1
+    assert seen[0]["headers"]["Accept"] == "application/json"
+    assert "market-research-skill" in seen[0]["headers"]["User-Agent"]
+    payload = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert "marketaux-secret" in seen[0]["url"]
+    assert "marketaux-secret" not in payload["provider_result"]["url"]
+
+
+def test_fmp_fetches_and_normalizes_unique_equity_data(tmp_path, monkeypatch):
+    module = load_module()
+    cache = tmp_path / "cache"
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        seen.append(url)
+        if "/stable/profile" in url:
+            return [{"companyName": "D-Wave Quantum Inc.", "exchangeShortName": "NYSE", "industry": "Computer Hardware", "mktCap": 1230000000, "beta": 1.4}]
+        if "key-metrics-ttm" in url:
+            return [{"revenuePerShareTTM": 1.2, "netIncomePerShareTTM": -0.4, "enterpriseValueTTM": 1400000000}]
+        if "ratios-ttm" in url:
+            return [{"grossProfitMarginTTM": 0.52, "currentRatioTTM": 4.1}]
+        if "income-statement" in url:
+            return [{"date": "2025-12-31", "revenue": 100000000, "netIncome": -50000000, "eps": -0.2}]
+        if "balance-sheet-statement" in url:
+            return [{"date": "2025-12-31", "totalAssets": 400000000, "totalDebt": 20000000}]
+        if "cash-flow-statement" in url:
+            return [{"date": "2025-12-31", "freeCashFlow": -60000000}]
+        if "/news/stock" in url:
+            return [{"title": "D-Wave announces customer win", "site": "Example News", "url": "https://example.test/news", "publishedDate": "2026-06-10"}]
+        if "/news/press-releases" in url:
+            return [{"title": "D-Wave press release", "url": "https://example.test/pr", "publishedDate": "2026-06-09"}]
+        if "insider-trading/statistics" in url:
+            return [{"symbol": "QBTS", "totalPurchases": 1, "totalSales": 2}]
+        return []
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"FMP_API_KEY": "fmp-secret"}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.fetch_provider(
+        "QBTS",
+        "fmp",
+        "2026-06-17",
+        cache,
+        config,
+        refresh=True,
+        endpoints={"profile", "key_metrics_ttm", "ratios_ttm", "income_statement", "balance_sheet", "cash_flow", "stock_news", "press_releases", "insider_statistics"},
+    )
+
+    assert len(paths) == 9
+    assert all("fmp-secret" in url for url in seen)
+    assert all("fmp-secret" not in json.loads(path.read_text(encoding="utf-8"))["provider_result"]["url"] for path in paths)
+
+    result = module.build_bundle("QBTS", "2026-06-17", cache, tmp_path / "reports", providers=["fmp"], asset_type="equity")
+    bundle_dir = Path(result["bundle_dir"])
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+    snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
+    fundamentals = json.loads((bundle_dir / "normalized" / "equity_fundamentals.json").read_text(encoding="utf-8"))
+    news = json.loads((bundle_dir / "normalized" / "news.json").read_text(encoding="utf-8"))
+    insiders = json.loads((bundle_dir / "normalized" / "equity_insiders.json").read_text(encoding="utf-8"))
+
+    assert identity["company_name"]["provider"] == "fmp"
+    assert identity["industry"]["value"] == "Computer Hardware"
+    assert snapshot["market_capitalization"]["provider"] == "fmp"
+    assert fundamentals["latest_revenue"]["value"] == 100000000
+    assert fundamentals["gross_profit_margin_ttm"]["provider"] == "fmp"
+    assert news["items"][0]["provider"] == "fmp"
+    assert insiders["statistics"]["provider"] == "fmp"
+
+
+def test_non_ok_fmp_news_raw_does_not_create_empty_news_items(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "QBTS",
+        "fmp",
+        "stock_news",
+        {"symbols": "QBTS", "limit": "10"},
+        {},
+        source_url="https://financialmodelingprep.com/stable/news/stock?symbols=QBTS&limit=10",
+        status="plan_gated",
+        error="HTTP 402",
+    )
+
+    news = module.normalize_news(cache, "QBTS", providers=["fmp"], endpoint_plan={"fmp": {"stock_news"}})
+
+    assert news == {"items": [], "status": "empty"}
+
+
+def test_fetch_provider_reuses_cached_price_endpoint_when_as_of_changes(tmp_path, monkeypatch):
+    module = load_module()
+    cache = tmp_path / "cache"
+    cached = module.write_raw(
+        cache,
+        "AAPL",
+        "tiingo",
+        "prices",
+        {"startDate": "2021-01-01", "endDate": "2026-06-01"},
+        [{"date": "2026-05-29", "adjClose": 132}],
+        source_url="https://api.tiingo.com/tiingo/daily/AAPL/prices?startDate=2021-01-01&endDate=2026-06-01",
+    )
+    calls = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        calls.append(url)
+        return [{"date": "2026-06-15", "adjClose": 133}]
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"TIINGO_API_TOKEN": "secret-token"}, docs={}, limits={}, loaded_files=[])
+
+    paths = module.fetch_provider("AAPL", "tiingo", "2026-06-15", cache, config, refresh=False)
+
+    assert paths == [cached]
+    assert calls == []
+
+
 def test_live_fetch_urls_do_not_store_tokens_in_source_url(tmp_path, monkeypatch):
     module = load_module()
     seen = []
@@ -209,6 +428,167 @@ def test_live_fetch_urls_do_not_store_tokens_in_source_url(tmp_path, monkeypatch
     payload = json.loads(paths[0].read_text(encoding="utf-8"))
     assert "secret-token" in seen[0]
     assert "secret-token" not in payload["provider_result"]["url"]
+
+
+def test_sec_company_tickers_cache_is_shared_across_symbols(tmp_path, monkeypatch):
+    module = load_module()
+    calls = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+        calls.append(url)
+        if url.endswith("company_tickers.json"):
+            return {
+                "0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."},
+                "1": {"ticker": "VTI", "cik_str": 36405, "title": "Vanguard Total Stock Market ETF"},
+            }
+        if "CIK0000320193" in url:
+            return {"name": "Apple Inc.", "filings": {"recent": {"form": ["10-K"]}}}
+        if "CIK0000036405" in url:
+            return {"name": "Vanguard Total Stock Market ETF", "filings": {"recent": {"form": ["N-1A"]}}}
+        return {}
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"SEC_USER_AGENT": "test@example.com"}, docs={}, limits={}, loaded_files=[])
+
+    module.fetch_provider("AAPL", "sec", "2026-06-16", tmp_path, config, refresh=False)
+    module.fetch_provider("VTI", "sec", "2026-06-16", tmp_path, config, refresh=False)
+
+    assert sum(1 for url in calls if url.endswith("company_tickers.json")) == 1
+    assert (tmp_path / "_global" / "sec").exists()
+
+
+def test_fetch_raises_clear_error_on_provider_auth_failure(tmp_path, monkeypatch):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return [
+            module.write_raw(
+                cache_root,
+                symbol,
+                provider,
+                "prices",
+                {},
+                {},
+                source_url="https://example.test/prices",
+                status="unauthorized",
+                error="HTTP 403",
+            )
+        ]
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo",
+            "max_provider_calls": ["tiingo=1"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    try:
+        module.cmd_fetch(args)
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("cmd_fetch should fail on provider authentication errors")
+
+
+def test_fetch_logs_rate_limit_status_in_manifest(tmp_path, monkeypatch):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return [
+            module.write_raw(
+                cache_root,
+                symbol,
+                provider,
+                "prices",
+                {},
+                {"Information": "API rate limit reached."},
+                source_url="https://example.test/query",
+                status="ok",
+            )
+        ]
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "alphavantage",
+            "max_provider_calls": ["alphavantage=2"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    manifest = json.loads((tmp_path / "reports" / "AAPL" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["provider_status"][0]["status"] == "rate_limited"
+    assert any("rate_limited" in warning and "alphavantage" in warning for warning in manifest["warnings"])
+
+
+def test_fetch_logs_provider_error_status_in_manifest(tmp_path, monkeypatch):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return [
+            module.write_raw(
+                cache_root,
+                symbol,
+                provider,
+                "companyfacts",
+                {},
+                {},
+                source_url="https://data.sec.gov/api/xbrl/companyfacts/CIK0000884394.json",
+                status="error",
+                error="HTTP 404",
+            )
+        ]
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "SPY",
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "etf",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    manifest = json.loads((tmp_path / "reports" / "SPY" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
+    source_manifest = json.loads((tmp_path / "reports" / "SPY" / "2026-06-16" / "source_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["provider_status"][0]["status"] == "error"
+    assert any("error" in warning and "sec" in warning for warning in manifest["warnings"])
+    assert source_manifest["sources"][0]["error"] == "HTTP 404"
 
 
 def test_explicit_asset_type_overrides_auto_classification(tmp_path):
@@ -233,6 +613,89 @@ def test_explicit_asset_type_overrides_auto_classification(tmp_path):
     assert identity["asset_type"]["provider"] == "cli"
 
 
+def test_sec_companyfacts_promote_equity_fundamentals_without_extra_provider(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "companyfacts",
+        {"cik": "0000320193"},
+        {
+            "entityName": "Apple Inc.",
+            "facts": {
+                "us-gaap": {
+                    "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                        "units": {"USD": [{"form": "10-K", "fp": "FY", "fy": 2025, "end": "2025-09-27", "filed": "2025-10-31", "val": 416161000000}]}
+                    },
+                    "NetIncomeLoss": {
+                        "units": {"USD": [{"form": "10-K", "fp": "FY", "fy": 2025, "end": "2025-09-27", "filed": "2025-10-31", "val": 112010000000}]}
+                    },
+                }
+            },
+        },
+        source_url="https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+    )
+
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "reports", providers=["sec"], offline=True)
+
+    fundamentals = json.loads((Path(result["bundle_dir"]) / "normalized" / "equity_fundamentals.json").read_text(encoding="utf-8"))
+    assert fundamentals["revenue"]["value"]["value"] == 416161000000
+    assert fundamentals["revenue"]["provider"] == "sec"
+    assert fundamentals["net_income"]["value"]["value"] == 112010000000
+
+
+def test_gaps_record_only_attempted_providers(tmp_path):
+    module = load_module()
+
+    result = module.build_bundle("SPY", "2026-06-16", tmp_path / "cache", tmp_path / "reports", providers=["sec", "tiingo"], asset_type="etf")
+
+    gaps = json.loads((Path(result["bundle_dir"]) / "gaps.json").read_text(encoding="utf-8"))
+    assert gaps["gaps"]
+    assert {tuple(gap["attempted_sources"]) for gap in gaps["gaps"]} == {("sec", "tiingo")}
+
+
+def test_build_bundle_ignores_cached_providers_not_selected(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "AAPL"},
+        {"MarketCapitalization": "3000000000000", "PERatio": "30", "RevenueTTM": "400000000000"},
+        source_url="https://www.alphavantage.co/query?function=OVERVIEW&symbol=AAPL",
+    )
+
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "reports", providers=["sec"], asset_type="equity")
+
+    bundle_dir = Path(result["bundle_dir"])
+    source_manifest = json.loads((bundle_dir / "source_manifest.json").read_text(encoding="utf-8"))
+    snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
+    fundamentals = json.loads((bundle_dir / "normalized" / "equity_fundamentals.json").read_text(encoding="utf-8"))
+    assert source_manifest["sources"] == []
+    assert "market_capitalization" not in snapshot
+    assert fundamentals == {"gaps_recorded": True, "status": "unavailable"}
+
+
+def test_copy_raw_files_deduplicates_global_and_legacy_symbol_sec_cache(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(cache, "ECH", "sec", "company_tickers", {}, {"0": {"ticker": "ECH"}}, source_url="https://www.sec.gov/files/company_tickers.json")
+    global_path = cache / "_global" / "sec" / "sec_company_tickers_44136fa355b3678a.json"
+    legacy_path = cache / "ECH" / "sec" / "sec_company_tickers_44136fa355b3678a.json"
+    legacy_path.parent.mkdir(parents=True)
+    legacy_path.write_text(global_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = module.build_bundle("ECH", "2026-06-17", cache, tmp_path / "reports", providers=["sec"], asset_type="etf")
+
+    source_manifest = json.loads((Path(result["bundle_dir"]) / "source_manifest.json").read_text(encoding="utf-8"))
+    company_tickers = [source for source in source_manifest["sources"] if source["endpoint"] == "company_tickers"]
+    assert len(company_tickers) == 1
+
+
 def test_provider_status_reports_cached_errors(tmp_path):
     module = load_module()
     cache = tmp_path / "cache"
@@ -241,6 +704,16 @@ def test_provider_status_reports_cached_errors(tmp_path):
     statuses = module.collect_provider_status(cache, "AAPL", ["eodhd"])
 
     assert statuses == [{"provider": "eodhd", "raw_files": 1, "status": "unauthorized", "errors": 1}]
+
+
+def test_provider_status_counts_global_sec_cache(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(cache, "AAPL", "sec", "company_tickers", {}, {"0": {"ticker": "AAPL", "cik_str": 320193}}, source_url="https://www.sec.gov/files/company_tickers.json")
+
+    statuses = module.collect_provider_status(cache, "VTI", ["sec"])
+
+    assert statuses == [{"provider": "sec", "raw_files": 1, "status": "ok"}]
 
 
 def test_provider_status_reclassifies_cached_semantic_errors(tmp_path):

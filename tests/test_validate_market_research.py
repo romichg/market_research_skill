@@ -100,6 +100,29 @@ def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path
     assert validation["data_gaps"] == [{"field": "short_interest", "status": "unavailable_free_source"}]
 
 
+def test_validator_discovers_latest_nested_deterministic_bundle(tmp_path):
+    symbol_dir = tmp_path / "AAPL"
+    old_run = symbol_dir / "2026-05-01"
+    new_run = symbol_dir / "2026-06-01"
+    for run_dir in [old_run, new_run]:
+        normalized = run_dir / "normalized"
+        normalized.mkdir(parents=True)
+        (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+        (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+        (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+        (run_dir / "gaps.json").write_text(json.dumps({"gaps": [{"field": run_dir.name, "status": "unavailable_free_source"}]}), encoding="utf-8")
+        (normalized / "identity.json").write_text(json.dumps({"asset_type": {"value": "equity", "provider": "cli", "raw_path": "", "source_url": ""}}), encoding="utf-8")
+
+    result = run_validator(str(symbol_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["validation_json"] == str(new_run / "AAPL-validation-scaffold.json")
+    validation = json.loads((new_run / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["report_markdown"] == str(new_run / "research_input_pack.md")
+    assert validation["data_gaps"] == [{"field": "2026-06-01", "status": "unavailable_free_source"}]
+
+
 def test_validator_flags_deterministic_values_missing_provenance(tmp_path):
     run_dir = tmp_path / "AAPL" / "2026-06-01"
     normalized = run_dir / "normalized"

@@ -1,3 +1,28 @@
+# Original Ask from user:
+Great, now lets plan some change 1. I'd like you to make sure you go through all the
+  documentation in all 6 data providers. Make sure that deterministic tool gathers all available,
+  unique, data first. Now that we know that keys are correct and you are able to fetch at least
+  test data from each source.  2. ensure that the research step uses all the available data, ammend
+  the research step to make sure it knows about all the available data. 3. This repo is a mess.
+  there are 3 skills, a data directory, reports, market-research-runs. Lets organize the skills
+  into one directory "market-research-full" with loop runner, researcher, and veryfier as
+  subdirectories. "data" should contain only the deterministic data, "reports" should contain only
+  the final reports. "runtime" should contain any runtime artifacts that are not "data" and not
+  "reports". data,reports, and runtime should be organized by symbol, then by date, where it makes
+  sense. 4. the last ECH report was short. Remember that determinstic content is only part of the
+  research. We want to make sure the research includes technical analisys (idealy done procduraly
+  based on deterministic data, if no actual deterministc analysis is avaialbe). Research should
+  also include other things that help in the investment decision. So, review and update where
+  necessary the procedural portion of the researcher.  5. The verifier simply needs to validate the
+  procedural calculations and research by validating the sources and conclusions that the
+  researcher made. It shouldn't be making another paralel research. So review the verifier. Finally
+  test all parts of this, and then test the full loop on a new ETF and equity (pick something).
+  Review the report, and tweak anything needed to make the report top notch. Itterate on a few
+  ETF's and equities until fully satisfied. I'd like to see in the end an awesome report on the
+  final ETF and an equity. You have my permission to work relentnessly without asking.
+
+# Plan from plan mode
+
 # Market Research Full Rework Plan
 
 ## Summary

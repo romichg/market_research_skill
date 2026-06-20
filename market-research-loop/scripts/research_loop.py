@@ -9,9 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+import re
 
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
+SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
 DEFAULT_CODEX_COMMAND = (
     "codex exec -C {cwd} "
     "--dangerously-bypass-approvals-and-sandbox - < {prompt_file}"
@@ -82,7 +84,7 @@ def ensure_improvement_note_files(root: Path) -> dict[str, str]:
 
 def normalize_symbol(symbol: str) -> str:
     value = symbol.strip().upper()
-    if not value or any(char in value for char in "/\\"):
+    if not SYMBOL_RE.fullmatch(value):
         die(f"Invalid symbol: {symbol!r}")
     return value
 
@@ -361,13 +363,32 @@ def run_shell_command(command: str, log_path: Path, *, timeout_seconds: int | No
     return CommandResult(returncode=returncode, timed_out=timed_out)
 
 
-def producer_artifacts_exist(run_dir: Path, symbol: str) -> bool:
-    legacy = (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists()
-    deterministic = all(
-        (run_dir / name).exists()
+def deterministic_bundle_exists(path: Path) -> bool:
+    return all(
+        (path / name).exists()
         for name in ["research_input_pack.md", "manifest.json", "source_manifest.json", "gaps.json", "normalized"]
     )
+
+
+def producer_artifacts_exist(run_dir: Path, symbol: str) -> bool:
+    legacy = (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists()
+    deterministic = deterministic_bundle_exists(run_dir) or (
+        run_dir.exists() and any(deterministic_bundle_exists(path) for path in run_dir.iterdir() if path.is_dir())
+    )
     return legacy or deterministic
+
+
+def latest_producer_run_dir(run_dir: Path, symbol: str) -> Path | None:
+    candidates: list[Path] = []
+    if (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists():
+        candidates.append(run_dir)
+    if deterministic_bundle_exists(run_dir):
+        candidates.append(run_dir)
+    if run_dir.exists():
+        candidates.extend(path for path in run_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
 def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:
@@ -433,9 +454,16 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         producer_template = args.remediation_command if remediation else args.producer_command
         if not producer_template:
             die("Missing remediation command template.")
+        if remediation:
+            command_run_dir = latest_producer_run_dir(run_dir, symbol) or run_dir
+        else:
+            command_run_dir = run_dir
+        prompts["producer"].write_text(
+            remediation_prompt(str(command_run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+            encoding="utf-8",
+        )
         commands = {
-            "producer": render_command(producer_template, prompt_file=prompts["producer"], symbol=symbol, run_dir=run_dir, iteration_dir=iteration_dir),
-            "validator": render_command(args.validator_command, prompt_file=prompts["validator"], symbol=symbol, run_dir=run_dir, iteration_dir=iteration_dir),
+            "producer": render_command(producer_template, prompt_file=prompts["producer"], symbol=symbol, run_dir=command_run_dir, iteration_dir=iteration_dir),
         }
         write_json(iteration_dir / "commands.json", commands)
         producer_result = run_shell_command(
@@ -452,12 +480,16 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
                 "exit_code": producer_result.returncode,
                 "timed_out": producer_result.timed_out,
             }
+        effective_run_dir = latest_producer_run_dir(run_dir, symbol) or run_dir
+        prompts["validator"].write_text(validator_prompt(str(effective_run_dir)), encoding="utf-8")
+        commands["validator"] = render_command(args.validator_command, prompt_file=prompts["validator"], symbol=symbol, run_dir=effective_run_dir, iteration_dir=iteration_dir)
+        write_json(iteration_dir / "commands.json", commands)
         validator_result = run_shell_command(
             commands["validator"],
             iteration_dir / "validator.log",
             timeout_seconds=args.command_timeout_seconds,
         )
-        validation_path = latest_validation_in_run_dir(run_dir, symbol)
+        validation_path = latest_validation_in_run_dir(effective_run_dir, symbol)
         validator_complete = validator_result.returncode == 0 or validation_path is not None
         if not validator_complete:
             return {
@@ -481,6 +513,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         "status": status,
         "iterations": iteration,
         "run_dir": str(run_dir),
+        "artifact_run_dir": str(latest_producer_run_dir(run_dir, symbol) or run_dir),
         "validation_json": str(validation_path) if validation_path else None,
         "open_blocking_issue_ids": blocking_ids,
     }

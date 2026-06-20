@@ -30,26 +30,44 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def is_deterministic_bundle(path: Path) -> bool:
+    return (
+        (path / "research_input_pack.md").exists()
+        and (path / "manifest.json").exists()
+        and (path / "source_manifest.json").exists()
+        and (path / "gaps.json").exists()
+        and (path / "normalized").exists()
+    )
+
+
+def deterministic_bundle_result(run_dir: Path) -> dict[str, Any]:
+    manifest_path = run_dir / "manifest.json"
+    manifest = read_json(manifest_path)
+    symbol = str(manifest.get("symbol") or run_dir.parent.name).upper()
+    return {
+        "bundle_type": "deterministic_data_bundle",
+        "symbol": symbol,
+        "run_dir": run_dir,
+        "report_markdown": run_dir / "research_input_pack.md",
+        "report_json": None,
+        "manifest": manifest_path,
+        "source_manifest": run_dir / "source_manifest.json",
+        "gaps": run_dir / "gaps.json",
+        "normalized": run_dir / "normalized",
+    }
+
+
 def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> dict[str, Any]:
     if not run_dir.exists() or not run_dir.is_dir():
         die(f"Run directory not found: {run_dir}")
     md_path = Path(report_md) if report_md else next(iter(sorted(run_dir.glob("*-research.md"))), None)
     json_path = Path(report_json) if report_json else next(iter(sorted(run_dir.glob("*-research.json"))), None)
-    deterministic_md = run_dir / "research_input_pack.md"
-    manifest_path = run_dir / "manifest.json"
-    if deterministic_md.exists() and manifest_path.exists() and report_md is None and report_json is None:
-        manifest = read_json(manifest_path)
-        symbol = str(manifest.get("symbol") or run_dir.parent.name).upper()
-        return {
-            "bundle_type": "deterministic_data_bundle",
-            "symbol": symbol,
-            "report_markdown": deterministic_md,
-            "report_json": None,
-            "manifest": manifest_path,
-            "source_manifest": run_dir / "source_manifest.json",
-            "gaps": run_dir / "gaps.json",
-            "normalized": run_dir / "normalized",
-        }
+    if report_md is None and report_json is None:
+        if is_deterministic_bundle(run_dir):
+            return deterministic_bundle_result(run_dir)
+        nested = [path for path in run_dir.iterdir() if path.is_dir() and is_deterministic_bundle(path)]
+        if nested:
+            return deterministic_bundle_result(sorted(nested, key=lambda path: path.name)[-1])
     if md_path is None or not md_path.exists():
         die("Could not find research markdown artifact.")
     if json_path is None or not json_path.exists():
@@ -163,6 +181,7 @@ def prevent_accidental_overwrite(out_prefix: Path, force: bool) -> None:
 def cmd_validate(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir)
     bundle = discover(run_dir, args.report_md, args.report_json)
+    artifact_run_dir = bundle.get("run_dir", run_dir)
     symbol = bundle["symbol"]
     md_path = bundle["report_markdown"]
     json_path = bundle.get("report_json")
@@ -187,7 +206,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "sources_inspected": [],
         "fresh_context_instruction": "Use this helper output as deterministic lint only; validate non-deterministic claims and cited-source interpretation without rerunning successful deterministic provider collection.",
     }
-    out_prefix = Path(args.output_prefix) if args.output_prefix else run_dir / f"{symbol}-validation-scaffold"
+    out_prefix = Path(args.output_prefix) if args.output_prefix else artifact_run_dir / f"{symbol}-validation-scaffold"
     prevent_accidental_overwrite(out_prefix, args.force)
     write_json(out_prefix.with_suffix(".json"), validation)
     lines = [
