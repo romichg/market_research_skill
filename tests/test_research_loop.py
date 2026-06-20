@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -318,6 +319,47 @@ def test_run_batch_validates_canonical_reports_bundle_when_run_dir_is_runtime(tm
     assert payload["symbols"]["EWW"]["run_dir"] == str(runtime_root / "EWW")
     assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_root / "EWW" / "2026-06-01")
     assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
+
+
+def test_run_batch_failed_producer_does_not_use_stale_canonical_reports_bundle(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    reports_root = tmp_path / "reports"
+    stale_bundle = reports_root / "EWW" / "2026-01-01"
+    (stale_bundle / "normalized").mkdir(parents=True)
+    (stale_bundle / "research_input_pack.md").write_text("stale", encoding="utf-8")
+    (stale_bundle / "manifest.json").write_text(json.dumps({"symbol": "EWW", "asset_type": "etf"}), encoding="utf-8")
+    (stale_bundle / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (stale_bundle / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    old_time = 1_700_000_000
+    for path in [stale_bundle, stale_bundle / "normalized", *stale_bundle.iterdir()]:
+        os.utime(path, (old_time, old_time))
+    validator_marker = tmp_path / "validator-used"
+    producer = f"{sys.executable} -c \"import sys; sys.exit(7)\""
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"Path(r'{validator_marker}').write_text('used', encoding='utf-8'); "
+        "run_dir = Path(r'{run_dir}'); "
+        "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "producer_failed"
+    assert payload["symbols"]["EWW"]["exit_code"] == 7
+    assert not validator_marker.exists()
 
 
 def test_collect_feedback_writes_manual_improvement_package(tmp_path):

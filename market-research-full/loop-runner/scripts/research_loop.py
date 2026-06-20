@@ -7,6 +7,7 @@ import json
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 import re
@@ -383,7 +384,7 @@ def canonical_report_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
     return out
 
 
-def latest_producer_run_dir(run_dir: Path, symbol: str) -> Path | None:
+def latest_producer_run_dir(run_dir: Path, symbol: str, *, modified_since: float | None = None) -> Path | None:
     candidates: list[Path] = []
     if (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists():
         candidates.append(run_dir)
@@ -396,6 +397,8 @@ def latest_producer_run_dir(run_dir: Path, symbol: str) -> Path | None:
             candidates.append(reports_symbol_dir)
         if reports_symbol_dir.exists():
             candidates.extend(path for path in reports_symbol_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
+    if modified_since is not None:
+        candidates = [path for path in candidates if path.stat().st_mtime >= modified_since]
     if not candidates:
         return None
     return max(candidates, key=lambda path: path.stat().st_mtime)
@@ -476,12 +479,16 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
             "producer": render_command(producer_template, prompt_file=prompts["producer"], symbol=symbol, run_dir=command_run_dir, iteration_dir=iteration_dir),
         }
         write_json(iteration_dir / "commands.json", commands)
+        producer_started_at = time.time()
         producer_result = run_shell_command(
             commands["producer"],
             iteration_dir / "producer.log",
             timeout_seconds=args.command_timeout_seconds,
         )
-        artifact_run_dir = latest_producer_run_dir(run_dir, symbol)
+        if producer_result.returncode == 0:
+            artifact_run_dir = latest_producer_run_dir(run_dir, symbol)
+        else:
+            artifact_run_dir = latest_producer_run_dir(run_dir, symbol, modified_since=producer_started_at)
         producer_complete = artifact_run_dir is not None
         if not producer_complete:
             return {
