@@ -232,10 +232,9 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
 def latest_validation_for_symbol(symbol_dir: Path, reports_symbol_dir: Path | None = None) -> Path | None:
     candidates = sorted(symbol_dir.glob("iteration-*/validation.json"))
     if not candidates:
-        candidates = sorted(symbol_dir.glob("**/*-validation.json")) + sorted(symbol_dir.glob("**/*-validation-scaffold.json"))
+        candidates = sorted(symbol_dir.glob("**/*-validation.json"))
     if reports_symbol_dir and reports_symbol_dir.exists():
         candidates.extend(sorted(reports_symbol_dir.glob("**/*-validation.json")))
-        candidates.extend(sorted(reports_symbol_dir.glob("**/*-validation-scaffold.json")))
     return candidates[-1] if candidates else None
 
 
@@ -367,11 +366,11 @@ def cmd_init_batch(args: argparse.Namespace) -> None:
 def render_command(template: str, *, prompt_file: Path, symbol: str, run_dir: Path, iteration_dir: Path, validation_output_dir: Path | None = None) -> str:
     validation_output_dir = validation_output_dir or run_dir
     replacements = {
-        "{prompt_file}": str(prompt_file),
+        "{prompt_file}": shlex.quote(str(prompt_file)),
         "{symbol}": symbol,
-        "{run_dir}": str(run_dir),
-        "{iteration_dir}": str(iteration_dir),
-        "{validation_output_dir}": str(validation_output_dir),
+        "{run_dir}": shlex.quote(str(run_dir)),
+        "{iteration_dir}": shlex.quote(str(iteration_dir)),
+        "{validation_output_dir}": shlex.quote(str(validation_output_dir)),
         "{cwd}": shlex.quote(str(Path.cwd())),
     }
     rendered = template
@@ -536,9 +535,8 @@ def latest_producer_run_dir(run_dir: Path, symbol: str, *, modified_since: float
 def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:
     names = [
         run_dir / f"{symbol}-validation.json",
-        run_dir / f"{symbol}-validation-scaffold.json",
     ]
-    globbed = sorted(run_dir.glob("*-validation.json")) + sorted(run_dir.glob("*-validation-scaffold.json"))
+    globbed = sorted(run_dir.glob("*-validation.json"))
     seen: set[Path] = set()
     out: list[Path] = []
     for path in names + globbed:

@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -261,7 +262,7 @@ def test_summarize_finds_validation_json_in_sibling_reports_tree(tmp_path):
     reports_symbol = tmp_path / "reports" / "EWW" / "2026-06-16"
     runtime_symbol.mkdir(parents=True)
     reports_symbol.mkdir(parents=True)
-    (reports_symbol / "EWW-validation-scaffold.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
+    (reports_symbol / "EWW-validation.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
 
     result = run_harness("summarize", str(root))
 
@@ -269,6 +270,23 @@ def test_summarize_finds_validation_json_in_sibling_reports_tree(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["passed"] == ["EWW"]
     assert payload["failed"] == []
+
+
+def test_summarize_does_not_treat_validation_scaffold_as_completed_validation(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "EWW" / "2026-06-16"
+    reports_symbol = tmp_path / "reports" / "EWW" / "2026-06-16"
+    runtime_symbol.mkdir(parents=True)
+    reports_symbol.mkdir(parents=True)
+    (reports_symbol / "EWW-validation-scaffold.json").write_text(json.dumps({"scaffold": True, "issues": []}), encoding="utf-8")
+
+    result = run_harness("summarize", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["passed"] == []
+    assert payload["failed"] == ["EWW"]
+    assert payload["unresolved_blocking_issues"]["EWW"] == ["missing-validation-json"]
 
 
 def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
@@ -303,6 +321,41 @@ def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
     assert commands["validator"] == f"validator {iteration / 'validator.prompt.md'}"
     assert (root / "loop-skill-issues.md").exists()
     assert (root / "operator-notes.md").exists()
+
+
+def test_run_batch_dry_run_quotes_path_placeholders(tmp_path):
+    root = tmp_path / "mr loop review;echo injected"
+    as_of = "2026-06-16"
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        "producer {prompt_file} {run_dir} {iteration_dir}",
+        "--validator-command",
+        "validator {prompt_file} {run_dir} {iteration_dir} {validation_output_dir}",
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    iteration = root / "EWW" / as_of / "iteration-01"
+    run_dir = root / "EWW" / as_of
+    commands = json.loads((iteration / "commands.json").read_text(encoding="utf-8"))
+    assert commands["producer"] == (
+        f"producer {shlex.quote(str(iteration / 'producer-initial.prompt.md'))} "
+        f"{shlex.quote(str(run_dir))} "
+        f"{shlex.quote(str(iteration))}"
+    )
+    assert commands["validator"] == (
+        f"validator {shlex.quote(str(iteration / 'validator.prompt.md'))} "
+        f"{shlex.quote(str(run_dir))} "
+        f"{shlex.quote(str(iteration))} "
+        f"{shlex.quote(str(run_dir))}"
+    )
 
 
 def test_run_batch_defaults_to_supported_codex_exec_command(tmp_path):
@@ -522,7 +575,7 @@ def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(
         f"expected = Path(r'{reports_root}') / '{{symbol}}' / '2026-06-16'; "
         "assert output_dir == expected, f'{output_dir} != {expected}'; "
         "output_dir.mkdir(parents=True, exist_ok=True); "
-        "(output_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "(output_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
         "\""
     )
 
@@ -545,7 +598,47 @@ def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
     assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(data_bundle)
-    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-16" / "EWW-validation-scaffold.json")
+    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-16" / "EWW-validation.json")
+
+
+def test_run_batch_requires_completed_validation_json_not_scaffold(tmp_path):
+    root = tmp_path / "batch"
+    reports_bundle = tmp_path / "reports" / "EWW" / "2026-06-16"
+    as_of = "2026-06-16"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{run_dir}'); "
+        "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"scaffold\\\": true, \\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "missing_validation"
+    assert payload["symbols"]["EWW"]["run_dir"] == str(root / "EWW" / as_of)
 
 
 def test_run_batch_ignores_runtime_dated_deterministic_bundle(tmp_path):
@@ -612,7 +705,7 @@ def test_run_batch_validates_canonical_data_bundle_when_run_dir_is_runtime(tmp_p
         f"expected_output = Path(r'{reports_root}') / '{{symbol}}' / '2026-06-01'; "
         "assert output_dir == expected_output, f'{output_dir} != {expected_output}'; "
         "output_dir.mkdir(parents=True, exist_ok=True); "
-        "(output_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "(output_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
         "\""
     )
 
@@ -634,7 +727,7 @@ def test_run_batch_validates_canonical_data_bundle_when_run_dir_is_runtime(tmp_p
     assert payload["symbols"]["EWW"]["status"] == "passed"
     assert payload["symbols"]["EWW"]["run_dir"] == str(runtime_root / "EWW" / as_of)
     assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(data_root / "EWW" / "2026-06-01")
-    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
+    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation.json")
 
 
 def test_run_batch_failed_producer_does_not_use_stale_canonical_data_bundle(tmp_path):
@@ -705,7 +798,7 @@ def test_run_batch_failed_producer_can_continue_with_fresh_canonical_data_bundle
         f"expected_output = Path(r'{reports_root}') / '{{symbol}}' / '2026-06-01'; "
         "assert output_dir == expected_output, f'{output_dir} != {expected_output}'; "
         "output_dir.mkdir(parents=True, exist_ok=True); "
-        "(output_dir / '{symbol}-validation-scaffold.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "(output_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
         "\""
     )
 
@@ -724,7 +817,7 @@ def test_run_batch_failed_producer_can_continue_with_fresh_canonical_data_bundle
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
     assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(data_bundle)
-    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation-scaffold.json")
+    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_root / "EWW" / "2026-06-01" / "EWW-validation.json")
 
 
 def test_collect_feedback_writes_manual_improvement_package(tmp_path):
