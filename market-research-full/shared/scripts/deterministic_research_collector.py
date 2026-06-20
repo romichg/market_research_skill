@@ -765,7 +765,7 @@ def endpoints_within_budget(cache_root: Path, symbol: str, provider: str, budget
     allowed: set[str] = set()
     remaining = budget
     for endpoint in ordered:
-        endpoint_cost = 0 if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh) else endpoint_costs[endpoint]
+        endpoint_cost = endpoint_costs[endpoint]
         if endpoint_cost > remaining:
             continue
         allowed.add(endpoint)
@@ -1036,13 +1036,14 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         raw, payload = quote
         if raw_payload_ok("twelve_data", payload):
             data = payload.get("data", {})
-            url = payload.get("provider_result", {}).get("url", "")
-            close = number(data.get("close") or data.get("previous_close"))
-            volume = number(data.get("volume"))
-            if close is not None and "latest_close" not in snapshot:
-                snapshot["latest_close"] = provenance(close, "twelve_data", url, "quote", raw)
-            if volume is not None and "latest_volume" not in snapshot:
-                snapshot["latest_volume"] = provenance(volume, "twelve_data", url, "quote", raw)
+            if isinstance(data, dict):
+                url = payload.get("provider_result", {}).get("url", "")
+                close = number(data.get("close") or data.get("previous_close"))
+                volume = number(data.get("volume"))
+                if close is not None and "latest_close" not in snapshot:
+                    snapshot["latest_close"] = provenance(close, "twelve_data", url, "quote", raw)
+                if volume is not None and "latest_volume" not in snapshot:
+                    snapshot["latest_volume"] = provenance(volume, "twelve_data", url, "quote", raw)
     market_cap_candidates: list[dict[str, Any]] = []
     pe_candidates: list[dict[str, Any]] = []
     attempted = []
@@ -1509,7 +1510,9 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
         if raw:
             path, payload = raw
             if raw_payload_ok("marketaux", payload):
-                for item in payload.get("data", {}).get("data", []):
+                data = payload.get("data", {})
+                feed = data.get("data", []) if isinstance(data, dict) else []
+                for item in feed:
                     if isinstance(item, dict):
                         items.append(news_item("marketaux", "news", path, payload, item, item.get("title"), item.get("source"), item.get("url"), item.get("published_at")))
     if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "news_sentiment"):
@@ -1517,7 +1520,9 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
         if raw:
             path, payload = raw
             if raw_payload_ok("alphavantage", payload):
-                for item in payload.get("data", {}).get("feed", []):
+                data = payload.get("data", {})
+                feed = data.get("feed", []) if isinstance(data, dict) else []
+                for item in feed:
                     if isinstance(item, dict) and (item.get("title") or item.get("url")):
                         items.append(news_item("alphavantage", "news_sentiment", path, payload, item, item.get("title"), item.get("source"), item.get("url"), item.get("time_published")))
     if provider_enabled(providers, "fmp"):
@@ -1696,6 +1701,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     ensure_deterministic_output_root(output_root, runtime_root=paths["runtime_dir"], reports_root=paths["reports_dir"])
     providers = parse_provider_list(args.providers, config)
     endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
+    effective_endpoint_plan = {provider: set(endpoints) for provider, endpoints in endpoint_plan.items()}
     budgets = parse_budgets(args.max_provider_calls)
     warnings: list[str] = []
     if not args.offline:
@@ -1703,6 +1709,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             budget = provider_call_budget(provider, budgets)
             if budget <= 0:
                 warnings.append(f"Skipped {provider}: provider call budget is {budget}.")
+                effective_endpoint_plan[provider] = set()
                 continue
             endpoints = endpoint_plan.get(provider, set())
             estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=endpoints)
@@ -1710,18 +1717,20 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 budgeted_endpoints = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=args.refresh, endpoints=endpoints)
                 if not budgeted_endpoints:
                     warnings.append(f"Skipped {provider}: estimated call cost {estimated_cost} exceeds budget {budget}.")
+                    effective_endpoint_plan[provider] = set()
                     continue
                 warnings.append(f"Limited {provider}: estimated call cost {estimated_cost} exceeds budget {budget}; fetching {', '.join(sorted(budgeted_endpoints))}.")
                 endpoints = budgeted_endpoints
+            effective_endpoint_plan[provider] = set(endpoints)
             before = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
             fetch_provider(symbol, provider, as_of, cache_root, config, refresh=args.refresh, endpoints=endpoints)
             after = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
             if after - before > budget:
                 die(f"Provider {provider} exceeded call budget {budget}")
-    statuses = collect_provider_status(cache_root, symbol, providers, endpoint_plan)
+    statuses = collect_provider_status(cache_root, symbol, providers, effective_endpoint_plan)
     raise_for_auth_failures(statuses)
     warnings.extend(provider_status_warnings(statuses))
-    result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"), warnings=warnings, endpoint_plan=endpoint_plan)
+    result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"), warnings=warnings, endpoint_plan=effective_endpoint_plan)
     print(redact(json.dumps(result, indent=2, sort_keys=True), config))
 
 

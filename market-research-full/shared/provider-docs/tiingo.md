@@ -5,7 +5,7 @@ Official docs checked:
 - https://www.tiingo.com/documentation/fundamentals
 
 Free/configured endpoints to attempt:
-- metadata: symbol metadata from `/tiingo/daily/{symbol}`; unique fields include exchange/name where returned; normalized target is `identity`.
+- metadata: symbol metadata from `/tiingo/daily/{symbol}`; unique fields include exchange/name where returned; raw evidence only in this iteration.
 - prices: daily adjusted EOD history from `/tiingo/daily/{symbol}/prices`; primary price source for `prices_daily`, `market_snapshot`, and `technical_signals`.
 
 Plan-gated or fallback endpoints:

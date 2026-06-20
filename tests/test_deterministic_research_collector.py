@@ -229,6 +229,65 @@ def test_fetch_trims_provider_to_affordable_endpoints_when_estimated_cost_exceed
     assert any("eodhd" in warning and "budget" in warning and "Limited" in warning for warning in manifest["warnings"])
 
 
+def test_budget_trimmed_endpoint_plan_controls_bundle_outputs(tmp_path, monkeypatch):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "fundamentals",
+        {},
+        {"General": {"Name": "Stale EODHD Name", "MarketCapitalization": 123}},
+        source_url="https://eodhd.example/fundamentals/AAPL.US",
+    )
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        if provider == "eodhd" and endpoints == {"news"}:
+            return [
+                module.write_raw(
+                    cache_root,
+                    symbol,
+                    "eodhd",
+                    "news",
+                    {"s": "AAPL.US"},
+                    [{"title": "Budgeted EODHD news", "link": "https://example.test/eodhd"}],
+                    source_url="https://eodhd.com/api/news?s=AAPL.US",
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(cache),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd",
+            "max_provider_calls": ["eodhd=1"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    bundle_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_manifest = json.loads((bundle_dir / "source_manifest.json").read_text(encoding="utf-8"))
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+
+    assert manifest["endpoint_plan"]["eodhd"] == ["news"]
+    assert [source["endpoint"] for source in source_manifest["sources"]] == ["news"]
+    assert "company_name" not in identity
+
+
 def test_storage_paths_default_to_data_reports_runtime(tmp_path):
     module = load_module()
     config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
@@ -561,6 +620,35 @@ def test_expanded_provider_data_normalizes_news_events_and_etf_holdings(tmp_path
     assert holdings["top_holdings"][0]["weight"]["value"] == 7.0
     assert news["items"][0]["provider"] == "alphavantage"
     assert snapshot["latest_close"]["provider"] == "twelve_data"
+
+
+def test_malformed_ok_expanded_payloads_do_not_crash(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "SPY",
+        "alphavantage",
+        "news_sentiment",
+        {"function": "NEWS_SENTIMENT", "tickers": "SPY"},
+        [],
+        source_url="https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=SPY",
+    )
+    module.write_raw(
+        cache,
+        "SPY",
+        "twelve_data",
+        "quote",
+        {"symbol": "SPY"},
+        [],
+        source_url="https://api.twelvedata.com/quote?symbol=SPY",
+    )
+
+    news = module.normalize_news(cache, "SPY", providers=["alphavantage"], endpoint_plan={"alphavantage": {"news_sentiment"}})
+    snapshot = module.normalize_market_snapshot(cache, "SPY", [], None, "", "", providers=["twelve_data"], endpoint_plan={"twelve_data": {"quote"}})
+
+    assert news == {"items": [], "status": "empty"}
+    assert snapshot == {}
 
 
 def test_news_normalization_includes_eodhd_and_consistent_provenance(tmp_path):
