@@ -389,6 +389,10 @@ def deterministic_bundle_exists(path: Path) -> bool:
     )
 
 
+def final_report_exists(path: Path, symbol: str) -> bool:
+    return (path / f"{symbol}-research.md").exists() and (path / f"{symbol}-research.json").exists()
+
+
 def reports_root_for_loop(root: Path) -> Path:
     for parent in (root, *root.parents):
         if parent.name == "runtime":
@@ -420,15 +424,38 @@ def canonical_data_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
     return out
 
 
+def canonical_report_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
+    candidates = [Path.cwd() / "reports" / symbol]
+    for parent in (run_dir, *run_dir.parents):
+        if parent.name == "runtime":
+            candidates.append(parent.parent / "reports" / symbol)
+        candidates.append(parent / "reports" / symbol)
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for path in candidates:
+        resolved = path.resolve(strict=False)
+        if resolved not in seen:
+            out.append(path)
+            seen.add(resolved)
+    return out
+
+
 def latest_producer_run_dir(run_dir: Path, symbol: str, *, modified_since: float | None = None) -> Path | None:
     candidates: list[Path] = []
-    if (run_dir / f"{symbol}-research.md").exists() and (run_dir / f"{symbol}-research.json").exists():
-        candidates.append(run_dir)
+    for report_symbol_dir in canonical_report_symbol_dirs(run_dir, symbol):
+        if report_symbol_dir.exists():
+            candidates.extend(
+                path
+                for path in report_symbol_dir.iterdir()
+                if path.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and final_report_exists(path, symbol)
+            )
     for data_symbol_dir in canonical_data_symbol_dirs(run_dir, symbol):
-        if deterministic_bundle_exists(data_symbol_dir):
-            candidates.append(data_symbol_dir)
         if data_symbol_dir.exists():
-            candidates.extend(path for path in data_symbol_dir.iterdir() if path.is_dir() and deterministic_bundle_exists(path))
+            candidates.extend(
+                path
+                for path in data_symbol_dir.iterdir()
+                if path.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and deterministic_bundle_exists(path)
+            )
     if modified_since is not None:
         candidates = [path for path in candidates if path.stat().st_mtime >= modified_since]
     if not candidates:

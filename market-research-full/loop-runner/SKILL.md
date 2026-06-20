@@ -56,7 +56,7 @@ Each run root contains:
 - `operator-notes.md`
 - `SYMBOL/AS_OF/iteration-*/producer.log`
 - `SYMBOL/AS_OF/iteration-*/validator.log`
-- canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/` when produced outside the runtime tree
+- canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/`
 - final research and validation artifacts, including validation for deterministic bundles, under `reports/SYMBOL/YYYY-MM-DD/`
 - producer and validator skill issue files when observed
 
@@ -74,7 +74,7 @@ This writes `skill-improvement-feedback.md` and `.json`. Review those manually, 
 
 ## Failure Handling
 
-- `producer_failed`: inspect `producer.log`; if report artifacts exist, check whether the artifact-complete fallback should have applied.
+- `producer_failed`: inspect `producer.log`; if canonical `reports/SYMBOL/YYYY-MM-DD/` or `data/SYMBOL/YYYY-MM-DD/` artifacts exist, check whether the artifact-complete fallback should have applied.
 - `validator_failed`: inspect `validator.log`; check for partial validation JSON.
 - `failed_blocking_issues`: inspect the latest validation JSON, then either let the loop run another remediation if budget remains or report unresolved blocking IDs.
 - Repeated harness failures: append concrete details to `loop-skill-issues.md`.

@@ -225,11 +225,13 @@ def test_run_batch_dry_run_uses_runtime_symbol_date_layout(tmp_path):
 
 def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):
     root = tmp_path / "batch"
+    reports_bundle = tmp_path / "reports" / "EWW" / "2026-06-16"
     as_of = "2026-06-16"
     producer = (
         f"{sys.executable} -c \""
         "from pathlib import Path; import time; "
-        "run_dir = Path(r'{run_dir}'); "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
         "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
         "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8'); "
         "time.sleep(5)"
@@ -239,6 +241,7 @@ def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):
         f"{sys.executable} -c \""
         "from pathlib import Path; "
         "run_dir = Path(r'{run_dir}'); "
+        f"assert run_dir == Path(r'{reports_bundle}'), run_dir; "
         "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
         "\""
     )
@@ -261,8 +264,41 @@ def test_run_batch_continues_when_timed_out_producer_wrote_artifacts(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
+    assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_bundle)
+    assert payload["symbols"]["EWW"]["validation_json"] == str(reports_bundle / "EWW-validation.json")
     producer_log = root / "EWW" / as_of / "iteration-01" / "producer.log"
     assert "timed_out=True" in producer_log.read_text(encoding="utf-8")
+
+
+def test_run_batch_failed_producer_does_not_use_stale_runtime_research_report(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    stale_runtime_report = runtime_root / "EWW" / as_of
+    stale_runtime_report.mkdir(parents=True)
+    (stale_runtime_report / "EWW-research.md").write_text("stale", encoding="utf-8")
+    (stale_runtime_report / "EWW-research.json").write_text("{}", encoding="utf-8")
+    validator_marker = tmp_path / "validator-used"
+    producer = f"{sys.executable} -c \"import sys; sys.exit(7)\""
+    validator = f"{sys.executable} -c \"from pathlib import Path; Path(r'{validator_marker}').write_text('used', encoding='utf-8')\""
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "producer_failed"
+    assert payload["symbols"]["EWW"]["exit_code"] == 7
+    assert not validator_marker.exists()
 
 
 def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(tmp_path):

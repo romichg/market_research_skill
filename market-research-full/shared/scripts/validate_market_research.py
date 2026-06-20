@@ -41,10 +41,39 @@ def is_deterministic_bundle(path: Path) -> bool:
     )
 
 
+DETERMINISTIC_BUNDLE_LOCATION_MESSAGE = (
+    "Deterministic bundles must be under data/SYMBOL/YYYY-MM-DD. "
+    "Place or copy deterministic bundles under data/SYMBOL/YYYY-MM-DD, "
+    "or pass a final report directory under reports."
+)
+
+
+def is_date_component(value: str) -> bool:
+    return re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is not None
+
+
+def is_canonical_data_bundle_path(path: Path, symbol: str) -> bool:
+    return (
+        is_date_component(path.name)
+        and path.parent.name.upper() == symbol.upper()
+        and path.parent.parent.name == "data"
+    )
+
+
+def is_canonical_data_symbol_dir(path: Path) -> bool:
+    return path.parent.name == "data"
+
+
+def ensure_canonical_data_bundle_path(path: Path, symbol: str) -> None:
+    if not is_canonical_data_bundle_path(path, symbol):
+        die(DETERMINISTIC_BUNDLE_LOCATION_MESSAGE)
+
+
 def deterministic_bundle_result(run_dir: Path) -> dict[str, Any]:
     manifest_path = run_dir / "manifest.json"
     manifest = read_json(manifest_path)
     symbol = str(manifest.get("symbol") or run_dir.parent.name).upper()
+    ensure_canonical_data_bundle_path(run_dir, symbol)
     return {
         "bundle_type": "deterministic_data_bundle",
         "symbol": symbol,
@@ -68,7 +97,12 @@ def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> d
             return deterministic_bundle_result(run_dir)
         nested = [path for path in run_dir.iterdir() if path.is_dir() and is_deterministic_bundle(path)]
         if nested:
-            return deterministic_bundle_result(sorted(nested, key=lambda path: path.name)[-1])
+            if not is_canonical_data_symbol_dir(run_dir):
+                die(DETERMINISTIC_BUNDLE_LOCATION_MESSAGE)
+            dated_nested = [path for path in nested if is_date_component(path.name)]
+            if not dated_nested:
+                die(DETERMINISTIC_BUNDLE_LOCATION_MESSAGE)
+            return deterministic_bundle_result(sorted(dated_nested, key=lambda path: path.name)[-1])
     if md_path is None or not md_path.exists():
         die("Could not find research markdown artifact.")
     if json_path is None or not json_path.exists():
@@ -181,17 +215,9 @@ def prevent_accidental_overwrite(out_prefix: Path, force: bool) -> None:
 
 def default_output_prefix(bundle: dict[str, Any], artifact_run_dir: Path, symbol: str) -> Path:
     if bundle["bundle_type"] == "deterministic_data_bundle":
-        parts = artifact_run_dir.parts
-        for marker in ["data", "runtime", "reports"]:
-            if marker in parts:
-                marker_index = parts.index(marker)
-                repo_root = Path(*parts[:marker_index]) if marker_index else Path(artifact_run_dir.anchor)
-                break
-        else:
-            repo_root = artifact_run_dir.parent.parent if artifact_run_dir.parent.name == symbol else artifact_run_dir.parent
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", artifact_run_dir.name):
-            return repo_root / "reports" / symbol / artifact_run_dir.name / f"{symbol}-validation-scaffold"
-        return repo_root / "reports" / symbol / f"{symbol}-validation-scaffold"
+        ensure_canonical_data_bundle_path(artifact_run_dir, symbol)
+        repo_root = artifact_run_dir.parent.parent.parent
+        return repo_root / "reports" / symbol / artifact_run_dir.name / f"{symbol}-validation-scaffold"
     return artifact_run_dir / f"{symbol}-validation-scaffold"
 
 

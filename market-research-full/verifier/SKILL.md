@@ -26,7 +26,7 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 
 ## Workflow
 
-1. Inspect the run directory shape. The helper supports legacy `SYMBOL-research.md/json` runs, deterministic `data/SYMBOL/AS_OF/` bundles, and a symbol parent directory containing dated deterministic bundles. When a deterministic data bundle is provided, write the scaffold under `reports/SYMBOL/AS_OF/`. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
+1. Inspect the run directory shape. The helper supports final report directories under `reports/SYMBOL/AS_OF/`, deterministic `data/SYMBOL/AS_OF/` bundles, and a `data/SYMBOL/` parent directory containing dated deterministic bundles. Deterministic bundles outside `data/SYMBOL/AS_OF/` are not valid inputs. When a deterministic data bundle is provided, write the scaffold under `reports/SYMBOL/AS_OF/`. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
 
 ```bash
 python3 {baseDir}/../shared/scripts/validate_market_research.py data/SYMBOL/AS_OF --output-prefix reports/SYMBOL/AS_OF/SYMBOL-validation-scaffold
