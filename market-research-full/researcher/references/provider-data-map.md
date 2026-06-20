@@ -25,10 +25,10 @@ Use this map to keep deterministic collection, schemas, and report references al
 | --- | --- | --- |
 | SEC EDGAR | company tickers, submissions, companyfacts, companyconcept, frames, filing documents, Form N-PORT datasets, investment company series/class data | `identity`, `sec_filings_index`, `sec_filing_sections`, `equity_fundamentals`, `equity_insiders`, `etf_profile`, `etf_holdings` |
 | Tiingo | daily metadata and end-of-day prices returned by the configured starter account | `identity`, `prices_daily`, `market_snapshot`, `technical_signals` |
-| EODHD | fundamentals, news, historical market cap, and historical EOD prices returned by the configured account | `identity`, `market_snapshot`, `prices_daily`, `technical_signals`, `equity_fundamentals`, `news` |
+| EODHD | fundamentals, news, raw-only historical market cap evidence, and historical EOD prices returned by the configured account | `identity`, `market_snapshot`, `prices_daily`, `technical_signals`, `equity_fundamentals`, `news` |
 | Alpha Vantage | overview, news sentiment, adjusted daily prices, and raw-only income statement, balance sheet, cash flow, earnings, and ETF profile evidence in this iteration | `prices_daily`, `market_snapshot`, `identity`, `equity_fundamentals`, `news` |
 | Twelve Data | quote and profile plus time series available to the configured basic account; quote is a latest close/volume fallback, profile contributes identity fields, and time series is a price fallback when higher-priority price providers are unavailable | `identity`, `prices_daily`, `market_snapshot` |
-| MarketAux | finance news, similar news, news by UUID, entity metadata/search/types/industries, market stats, trending entities | `news`, `market_snapshot`, `identity`, `equity_events` |
+| MarketAux | news | `news` |
 | FMP | profile, key metrics TTM, ratios TTM, income statement, balance sheet, cash flow, stock news, press releases, dividends, earnings, splits, insider trading/statistics, and ETF holdings when available to current free account | `identity`, `market_snapshot`, `news`, `equity_fundamentals`, `equity_events`, `equity_insiders`, `etf_holdings` |
 
 ## Rate-Limit-Aware Fetch Policy
@@ -38,7 +38,7 @@ The deterministic collector must be cache-first:
 - Reuse successful raw endpoint cache files for later `as_of` dates unless `--refresh` is passed.
 - Apply `--providers` to both live fetching and cached-data normalization. A run restricted to `sec,tiingo` must not silently include older Alpha Vantage, EODHD, Twelve Data, MarketAux, or FMP cache files.
 - Estimate provider cost before network calls. If the estimated cost is above `--max-provider-calls PROVIDER=N` or the default conservative budget, skip the provider and write a manifest warning.
-- Use endpoint-level planning to avoid duplicated daily price history. The default deterministic plan fetches Tiingo metadata and prices when Tiingo is configured, EODHD fundamentals/news/historical market cap without EOD prices, Alpha Vantage overview/news sentiment plus raw statement/event/ETF profile evidence without adjusted daily prices, Twelve Data quote/profile without time series, MarketAux news, and FMP unique equity/ETF endpoints. Twelve Data prices are a fallback when no higher-priority configured price provider is selected.
+- Use endpoint-level planning to avoid duplicated daily price history. The default deterministic plan fetches Tiingo metadata and prices when Tiingo is configured, EODHD fundamentals/news plus raw historical market cap evidence without EOD prices, Alpha Vantage overview/news sentiment plus raw statement/event/ETF profile evidence without adjusted daily prices, Twelve Data quote/profile without time series, MarketAux news, and FMP unique equity/ETF endpoints. Twelve Data prices are a fallback when no higher-priority configured price provider is selected.
 - Treat provider authentication failure as fatal with a clear error. Treat provider rate limits and endpoint errors as non-fatal bundle warnings when other selected evidence remains usable.
 - Use `--offline` for reruns, validation prep, report regeneration, and post-run inspection whenever raw files already exist.
 - Prefer SEC and one price provider for first-pass bundles. Add scarce providers only for named gaps.

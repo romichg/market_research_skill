@@ -8,7 +8,7 @@ Official docs checked:
 Free/configured endpoints to attempt:
 - fundamentals: `/api/fundamentals/{symbol}.US`; unique company/fund fundamentals, classifications, valuation fields, ETF fields when returned; normalized targets are `identity`, `market_snapshot`, `equity_fundamentals`, and ETF fields.
 - news: `/api/news`; unique provider news; normalized target is `news`.
-- historical_market_cap: `/api/historical-market-cap/{symbol}.US`; unique historical market-cap context; normalized target is `market_snapshot` or a future `market_cap_history` artifact.
+- historical_market_cap: `/api/historical-market-cap/{symbol}.US`; unique historical market-cap context; raw evidence only in this iteration. Do not treat it as normalized `market_snapshot` or `market_cap_history` until a dedicated normalizer exists.
 
 Plan-gated or fallback endpoints:
 - prices: `/api/eod/{symbol}.US`; fallback price source only when Tiingo prices are not available.
