@@ -31,6 +31,19 @@ def test_validator_discovers_research_bundle(tmp_path):
     assert validation["sources_inspected"] == []
 
 
+def test_validator_accepts_reports_dir_when_project_parent_is_named_runtime(tmp_path):
+    project = tmp_path / "runtime" / "project"
+    run_dir = project / "reports" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
+    (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    assert (run_dir / "AAPL-validation-scaffold.json").exists()
+
+
 def test_validator_rejects_runtime_research_bundle(tmp_path):
     run_dir = tmp_path / "runtime" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)
@@ -114,6 +127,26 @@ def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path
     validation = json.loads((reports_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["bundle_type"] == "deterministic_data_bundle"
     assert validation["data_gaps"] == [{"field": "short_interest", "status": "unavailable_free_source"}]
+
+
+def test_validator_accepts_data_dir_when_project_parent_is_named_runtime(tmp_path):
+    project = tmp_path / "runtime" / "project"
+    run_dir = project / "data" / "AAPL" / "2026-06-01"
+    reports_dir = project / "reports" / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text(json.dumps({"asset_type": {"value": "equity", "provider": "cli", "raw_path": "", "source_url": ""}}), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["validation_json"] == str(reports_dir / "AAPL-validation-scaffold.json")
+    assert (reports_dir / "AAPL-validation-scaffold.json").exists()
 
 
 def test_validator_rejects_runtime_output_prefix_for_deterministic_bundle(tmp_path):

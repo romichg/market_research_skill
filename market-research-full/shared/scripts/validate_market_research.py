@@ -59,12 +59,11 @@ def is_canonical_data_bundle_path(path: Path, symbol: str) -> bool:
         is_date_component(path.name)
         and path.parent.name.upper() == symbol.upper()
         and path.parent.parent.name == "data"
-        and "runtime" not in path.parent.parent.parent.parts
     )
 
 
 def is_canonical_data_symbol_dir(path: Path) -> bool:
-    return path.parent.name == "data" and "runtime" not in path.parent.parent.parts
+    return path.parent.name == "data"
 
 
 def ensure_canonical_data_bundle_path(path: Path, symbol: str) -> None:
@@ -77,7 +76,6 @@ def is_canonical_report_dir_path(path: Path, symbol: str) -> bool:
         is_date_component(path.name)
         and path.parent.name.upper() == symbol.upper()
         and path.parent.parent.name == "reports"
-        and "runtime" not in path.parent.parent.parent.parts
     )
 
 

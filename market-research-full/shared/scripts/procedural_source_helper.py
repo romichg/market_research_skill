@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SOURCE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ETF_REQUIRED_FIELDS = ["fund_name", "expense_ratio", "benchmark", "holdings_summary"]

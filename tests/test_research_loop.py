@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 HARNESS = Path(__file__).resolve().parents[1] / "market-research-full" / "loop-runner" / "scripts" / "research_loop.py"
 
 
@@ -111,12 +113,69 @@ def test_invalid_shell_symbol_rejected_by_loop(tmp_path):
     assert "Invalid symbol" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("symbol", "artifact_path"),
+    [
+        (".", Path("runs/2026-06-16/iteration-01")),
+        ("..", Path("2026-06-16/iteration-01")),
+    ],
+)
+def test_dot_symbol_path_components_rejected_by_loop(tmp_path, symbol, artifact_path):
+    root = tmp_path / "runs"
+    result = run_harness("run-batch", symbol, "--run-root", str(root), "--as-of", "2026-06-16", "--dry-run")
+
+    assert result.returncode != 0
+    assert "Invalid symbol" in result.stderr
+    assert not (tmp_path / artifact_path).exists()
+
+
 def test_run_batch_rejects_traversal_as_of(tmp_path):
     result = run_harness("run-batch", "EWW", "--run-root", str(tmp_path), "--as-of", "../outside", "--dry-run")
 
     assert result.returncode != 0
     assert "Invalid as-of" in result.stderr
     assert not (tmp_path / "outside" / "iteration-01").exists()
+
+
+def test_run_batch_finds_reports_when_project_parent_is_named_runtime(tmp_path):
+    project = tmp_path / "runtime" / "project"
+    root = project / "batch"
+    reports_bundle = project / "reports" / "EWW" / "2026-06-16"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{run_dir}'); "
+        f"assert run_dir == Path(r'{reports_bundle}'), run_dir; "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        "2026-06-16",
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "passed"
+    assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_bundle)
 
 
 def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):

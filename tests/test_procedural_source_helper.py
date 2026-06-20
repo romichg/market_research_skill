@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "market-research-full" / "shared" / "scripts" / "procedural_source_helper.py"
 
@@ -86,6 +88,22 @@ def test_invalid_symbol_rejected(tmp_path):
     result = run_helper("init-run", "../AAPL", "--output-root", str(tmp_path))
     assert result.returncode != 0
     assert "Invalid symbol" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("symbol", "artifact_path"),
+    [
+        (".", Path("runs/run_manifest.json")),
+        ("..", Path("run_manifest.json")),
+    ],
+)
+def test_dot_symbol_path_components_rejected(tmp_path, symbol, artifact_path):
+    output_root = tmp_path / "runs"
+    result = run_helper("init-run", symbol, "--output-root", str(output_root))
+
+    assert result.returncode != 0
+    assert "Invalid symbol" in result.stderr
+    assert not (tmp_path / artifact_path).exists()
 
 
 def test_classify_manual_updates_manifest(tmp_path):

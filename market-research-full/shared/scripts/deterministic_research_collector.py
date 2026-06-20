@@ -41,7 +41,7 @@ PROVIDER_ENV = {
     "fmp": ["FMP_API_KEY"],
 }
 DEFAULT_PROVIDERS = ["sec", "tiingo", "eodhd", "alphavantage", "marketaux", "fmp", "twelve_data"]
-SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PROVIDER_ENDPOINT_COSTS = {
     "sec": {"company_tickers": 1, "submissions": 1, "companyfacts": 1},
@@ -327,9 +327,18 @@ DETERMINISTIC_OUTPUT_ROOT_MESSAGE = (
 )
 
 
-def ensure_deterministic_output_root(output_root: Path) -> None:
-    parts = output_root.resolve(strict=False).parts
-    if output_root.name != "data" or "runtime" in parts or "reports" in parts:
+def is_relative_to_path(path: Path, root: Path | None) -> bool:
+    if root is None:
+        return False
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=False))
+    except ValueError:
+        return False
+    return True
+
+
+def ensure_deterministic_output_root(output_root: Path, runtime_root: Path | None = None, reports_root: Path | None = None) -> None:
+    if output_root.name != "data" or is_relative_to_path(output_root, runtime_root) or is_relative_to_path(output_root, reports_root):
         die(DETERMINISTIC_OUTPUT_ROOT_MESSAGE)
 
 
@@ -1478,7 +1487,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     )
     cache_root = paths["cache_dir"]
     output_root = paths["data_dir"]
-    ensure_deterministic_output_root(output_root)
+    ensure_deterministic_output_root(output_root, runtime_root=paths["runtime_dir"], reports_root=paths["reports_dir"])
     providers = parse_provider_list(args.providers, config)
     endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
     budgets = parse_budgets(args.max_provider_calls)

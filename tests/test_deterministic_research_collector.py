@@ -383,6 +383,79 @@ def test_fetch_rejects_invalid_as_of_path_components(tmp_path, monkeypatch, caps
     assert not (tmp_path / artifact_path).exists()
 
 
+@pytest.mark.parametrize(
+    ("symbol", "artifact_path"),
+    [
+        (".", Path("data/2026-06-16/manifest.json")),
+        ("..", Path("2026-06-16/manifest.json")),
+    ],
+)
+def test_fetch_rejects_dot_symbol_path_components(tmp_path, monkeypatch, capsys, symbol, artifact_path):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": symbol,
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "runtime_dir": str(tmp_path / "runtime"),
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "equity",
+        },
+    )()
+
+    with pytest.raises(SystemExit) as exc:
+        module.cmd_fetch(args)
+
+    assert exc.value.code == 2
+    assert "Invalid symbol" in capsys.readouterr().err
+    assert not (tmp_path / artifact_path).exists()
+
+
+def test_fetch_accepts_project_under_runtime_parent(tmp_path, monkeypatch):
+    module = load_module()
+    project = tmp_path / "runtime" / "project"
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(project),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": str(project / "data"),
+            "cache_dir": str(project / "cache"),
+            "reports_dir": str(project / "reports"),
+            "runtime_dir": str(project / "runtime"),
+            "providers": "sec",
+            "max_provider_calls": ["sec=3"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "equity",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    assert (project / "data" / "AAPL" / "2026-06-16" / "manifest.json").exists()
+
+
 def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
     module = load_module()
     calls = []

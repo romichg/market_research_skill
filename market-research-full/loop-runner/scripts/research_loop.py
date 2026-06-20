@@ -15,7 +15,7 @@ import re
 
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
-SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,12}$")
+SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DEFAULT_CODEX_COMMAND = (
     "codex exec -C {cwd} "
@@ -430,17 +430,19 @@ def loop_root_for_run_dir(run_dir: Path, symbol: str) -> Path:
 
 
 def reports_root_for_loop(root: Path) -> Path:
-    for parent in (root, *root.parents):
-        if parent.name == "runtime":
-            return parent.parent / "reports"
-    return root.parent / "reports"
+    return storage_base_for_loop(root) / "reports"
 
 
 def data_root_for_loop(root: Path) -> Path:
-    for parent in (root, *root.parents):
-        if parent.name == "runtime":
-            return parent.parent / "data"
-    return root.parent / "data"
+    return storage_base_for_loop(root) / "data"
+
+
+def storage_base_for_loop(root: Path) -> Path:
+    if root.name == "runtime":
+        return root.parent
+    if root.parent.name == "runtime":
+        return root.parent.parent
+    return root.parent
 
 
 def report_date_for_artifact(artifact_run_dir: Path, fallback_as_of: str) -> str:
