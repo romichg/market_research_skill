@@ -487,6 +487,19 @@ def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
     assert not any("TIME_SERIES_DAILY_ADJUSTED" in url for url in calls)
 
 
+def test_default_endpoint_plan_includes_unique_provider_data():
+    module = load_module()
+
+    plan = module.default_endpoint_plan(["tiingo", "eodhd", "alphavantage", "twelve_data", "marketaux", "fmp"])
+
+    assert plan["tiingo"] == {"metadata", "prices"}
+    assert {"fundamentals", "news", "historical_market_cap"} <= plan["eodhd"]
+    assert {"overview", "income_statement", "balance_sheet", "cash_flow", "earnings", "etf_profile", "news_sentiment"} <= plan["alphavantage"]
+    assert {"quote", "profile"} <= plan["twelve_data"]
+    assert plan["marketaux"] == {"news"}
+    assert {"profile", "key_metrics_ttm", "ratios_ttm", "income_statement", "balance_sheet", "cash_flow", "stock_news", "press_releases", "dividends", "earnings", "splits", "insider_trading", "insider_statistics", "etf_holdings"} <= plan["fmp"]
+
+
 def test_endpoint_plan_filters_cached_raw_and_price_normalization(tmp_path):
     module = load_module()
     cache = tmp_path / "cache"

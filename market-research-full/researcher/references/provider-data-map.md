@@ -24,12 +24,12 @@ Use this map to keep deterministic collection, schemas, and report references al
 | Provider | Free/configured endpoint families | Normalized sections |
 | --- | --- | --- |
 | SEC EDGAR | company tickers, submissions, companyfacts, companyconcept, frames, filing documents, Form N-PORT datasets, investment company series/class data | `identity`, `sec_filings_index`, `sec_filing_sections`, `equity_fundamentals`, `equity_insiders`, `etf_profile`, `etf_holdings` |
-| Tiingo | end-of-day prices and daily metadata returned by the configured starter account | `prices_daily`, `market_snapshot`, `technical_signals` |
-| EODHD | fundamentals and historical EOD prices returned by the configured account | `identity`, `market_snapshot`, `prices_daily`, `technical_signals`, `equity_fundamentals` |
-| Alpha Vantage | adjusted daily prices and company overview currently wired in deterministic fetches | `prices_daily`, `market_snapshot`, `identity`, `equity_fundamentals` |
-| Twelve Data | time series available to the configured basic account; used as price fallback when higher-priority price providers are unavailable | `prices_daily`, `market_snapshot` |
+| Tiingo | daily metadata and end-of-day prices returned by the configured starter account | `identity`, `prices_daily`, `market_snapshot`, `technical_signals` |
+| EODHD | fundamentals, news, historical market cap, and historical EOD prices returned by the configured account | `identity`, `market_snapshot`, `prices_daily`, `technical_signals`, `equity_fundamentals`, `news` |
+| Alpha Vantage | overview, income statement, balance sheet, cash flow, earnings, ETF profile, news sentiment, and adjusted daily prices | `prices_daily`, `market_snapshot`, `identity`, `equity_fundamentals`, `equity_events`, `news`, `etf_profile`, `etf_holdings` |
+| Twelve Data | quote and profile plus time series available to the configured basic account; time series is a price fallback when higher-priority price providers are unavailable | `identity`, `prices_daily`, `market_snapshot` |
 | MarketAux | finance news, similar news, news by UUID, entity metadata/search/types/industries, market stats, trending entities | `news`, `market_snapshot`, `identity`, `equity_events` |
-| FMP | profile, key metrics TTM, ratios TTM, income statement, balance sheet, cash flow, stock news, press releases, dividends, earnings, splits, insider trading/statistics when available to current free account | `identity`, `market_snapshot`, `news`, `equity_fundamentals`, `equity_events`, `equity_insiders` |
+| FMP | profile, key metrics TTM, ratios TTM, income statement, balance sheet, cash flow, stock news, press releases, dividends, earnings, splits, insider trading/statistics, and ETF holdings when available to current free account | `identity`, `market_snapshot`, `news`, `equity_fundamentals`, `equity_events`, `equity_insiders`, `etf_holdings` |
 
 ## Rate-Limit-Aware Fetch Policy
 
@@ -38,7 +38,7 @@ The deterministic collector must be cache-first:
 - Reuse successful raw endpoint cache files for later `as_of` dates unless `--refresh` is passed.
 - Apply `--providers` to both live fetching and cached-data normalization. A run restricted to `sec,tiingo` must not silently include older Alpha Vantage, EODHD, Twelve Data, MarketAux, or FMP cache files.
 - Estimate provider cost before network calls. If the estimated cost is above `--max-provider-calls PROVIDER=N` or the default conservative budget, skip the provider and write a manifest warning.
-- Use endpoint-level planning to avoid duplicated daily price history. The default deterministic plan fetches Tiingo prices when Tiingo is configured, EODHD fundamentals without EOD prices, Alpha Vantage overview without adjusted daily prices, MarketAux news, and FMP unique equity endpoints. Twelve Data prices are a fallback when no higher-priority configured price provider is selected.
+- Use endpoint-level planning to avoid duplicated daily price history. The default deterministic plan fetches Tiingo metadata and prices when Tiingo is configured, EODHD fundamentals/news/historical market cap without EOD prices, Alpha Vantage overview/statements/events/news sentiment without adjusted daily prices, Twelve Data quote/profile without time series, MarketAux news, and FMP unique equity/ETF endpoints. Twelve Data prices are a fallback when no higher-priority configured price provider is selected.
 - Treat provider authentication failure as fatal with a clear error. Treat provider rate limits and endpoint errors as non-fatal bundle warnings when other selected evidence remains usable.
 - Use `--offline` for reruns, validation prep, report regeneration, and post-run inspection whenever raw files already exist.
 - Prefer SEC and one price provider for first-pass bundles. Add scarce providers only for named gaps.
@@ -48,12 +48,13 @@ Conservative endpoint cost estimates used by the collector:
 | Provider | Endpoint family | Estimated cost |
 | --- | --- | ---: |
 | SEC EDGAR | company tickers, submissions, companyfacts | 1 each |
-| Tiingo | daily prices | 1 |
-| EODHD | fundamentals, EOD prices | 10 + 1 |
-| Alpha Vantage | overview, adjusted daily prices | 1 + 1 |
-| Twelve Data | daily time series | 1 |
+| Tiingo | daily metadata, daily prices | 1 each |
+| EODHD | fundamentals, news, historical market cap, EOD prices | 10 + 1 + 1 + 1 |
+| Alpha Vantage | overview, income statement, balance sheet, cash flow, earnings, ETF profile, news sentiment, adjusted daily prices | 10 + 5 + 5 + 5 + 1 + 1 + 1 + 1 |
+| Twelve Data | quote, profile, daily time series | 1 each |
 | MarketAux | news | 1 |
-| FMP | profile, key metrics TTM, ratios TTM, income statement, balance sheet, cash flow, stock news, press releases, dividends, earnings, splits, insider trading, insider statistics | 1 each |
+| FMP | profile, key metrics TTM, ratios TTM, stock news, press releases, dividends, earnings, splits, insider trading, insider statistics, ETF holdings | 1 each |
+| FMP | income statement, balance sheet, cash flow | 5 each |
 
 Official limit notes checked June 2026:
 

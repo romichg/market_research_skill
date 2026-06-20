@@ -45,18 +45,27 @@ SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PROVIDER_ENDPOINT_COSTS = {
     "sec": {"company_tickers": 1, "submissions": 1, "companyfacts": 1},
-    "tiingo": {"prices": 1},
-    "eodhd": {"fundamentals": 10, "prices": 1},
-    "alphavantage": {"overview": 1, "prices": 1},
-    "twelve_data": {"prices": 1},
+    "tiingo": {"metadata": 1, "prices": 1},
+    "eodhd": {"fundamentals": 10, "news": 1, "historical_market_cap": 1, "prices": 1},
+    "alphavantage": {
+        "overview": 10,
+        "income_statement": 5,
+        "balance_sheet": 5,
+        "cash_flow": 5,
+        "earnings": 1,
+        "etf_profile": 1,
+        "news_sentiment": 1,
+        "prices": 1,
+    },
+    "twelve_data": {"quote": 1, "profile": 1, "prices": 1},
     "marketaux": {"news": 1},
     "fmp": {
         "profile": 1,
         "key_metrics_ttm": 1,
         "ratios_ttm": 1,
-        "income_statement": 1,
-        "balance_sheet": 1,
-        "cash_flow": 1,
+        "income_statement": 5,
+        "balance_sheet": 5,
+        "cash_flow": 5,
         "stock_news": 1,
         "press_releases": 1,
         "dividends": 1,
@@ -64,13 +73,14 @@ PROVIDER_ENDPOINT_COSTS = {
         "splits": 1,
         "insider_trading": 1,
         "insider_statistics": 1,
+        "etf_holdings": 1,
     },
 }
 UNIQUE_DEFAULT_ENDPOINTS = {
     "sec": {"company_tickers", "submissions", "companyfacts"},
-    "tiingo": {"prices"},
-    "eodhd": {"fundamentals"},
-    "alphavantage": {"overview"},
+    "tiingo": {"metadata", "prices"},
+    "eodhd": {"fundamentals", "news", "historical_market_cap"},
+    "alphavantage": {"overview", "income_statement", "balance_sheet", "cash_flow", "earnings", "etf_profile", "news_sentiment"},
     "marketaux": {"news"},
     "fmp": {
         "profile",
@@ -86,10 +96,34 @@ UNIQUE_DEFAULT_ENDPOINTS = {
         "splits",
         "insider_trading",
         "insider_statistics",
+        "etf_holdings",
     },
-    "twelve_data": set(),
+    "twelve_data": {"quote", "profile"},
 }
 PRICE_PROVIDER_PRIORITY = ["tiingo", "eodhd", "alphavantage", "twelve_data"]
+ENDPOINT_BUDGET_PRIORITY = {
+    "tiingo": ["prices", "metadata"],
+    "eodhd": ["fundamentals", "news", "historical_market_cap", "prices"],
+    "alphavantage": ["prices", "overview", "income_statement", "balance_sheet", "cash_flow", "earnings", "etf_profile", "news_sentiment"],
+    "twelve_data": ["prices", "quote", "profile"],
+    "marketaux": ["news"],
+    "fmp": [
+        "profile",
+        "key_metrics_ttm",
+        "ratios_ttm",
+        "income_statement",
+        "balance_sheet",
+        "cash_flow",
+        "stock_news",
+        "press_releases",
+        "dividends",
+        "earnings",
+        "splits",
+        "insider_trading",
+        "insider_statistics",
+        "etf_holdings",
+    ],
+}
 
 
 class ProviderConfig:
@@ -530,7 +564,7 @@ def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str
 def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, config: ProviderConfig, refresh: bool = False, endpoints: set[str] | None = None) -> list[Path]:
     symbol = normalize_symbol(symbol)
     paths: list[Path] = []
-    selected_endpoints = endpoints_for_provider(provider, endpoints)
+    selected_endpoints = {"prices"} if provider == "tiingo" and endpoints is None else endpoints_for_provider(provider, endpoints)
     if provider == "sec":
         ua = config.values.get("SEC_USER_AGENT")
         if not ua:
@@ -548,42 +582,67 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
             }.items():
                 if endpoint in selected_endpoints:
                     paths.append(fetch_with_cache(cache_root, symbol, "sec", endpoint, {"cik": padded}, url, url, config, headers, refresh, reuse_endpoint_cache=True))
-    elif provider == "tiingo" and config.values.get("TIINGO_API_TOKEN") and "prices" in selected_endpoints:
+    elif provider == "tiingo" and config.values.get("TIINGO_API_TOKEN"):
         token = config.values["TIINGO_API_TOKEN"]
-        params = {"startDate": "2021-01-01", "endDate": as_of}
-        query = urlencode({**params, "token": token})
-        safe_query = urlencode(params)
-        url = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?{query}"
-        source = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?{safe_query}"
-        paths.append(fetch_with_cache(cache_root, symbol, "tiingo", "prices", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
+        if "metadata" in selected_endpoints:
+            params = {}
+            url = f"https://api.tiingo.com/tiingo/daily/{symbol}?{urlencode({'token': token})}"
+            source = f"https://api.tiingo.com/tiingo/daily/{symbol}"
+            paths.append(fetch_with_cache(cache_root, symbol, "tiingo", "metadata", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
+        if "prices" in selected_endpoints:
+            params = {"startDate": "2021-01-01", "endDate": as_of}
+            query = urlencode({**params, "token": token})
+            safe_query = urlencode(params)
+            url = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?{query}"
+            source = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?{safe_query}"
+            paths.append(fetch_with_cache(cache_root, symbol, "tiingo", "prices", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "eodhd" and config.values.get("EODHD_API_KEY"):
         token = config.values["EODHD_API_KEY"]
-        for endpoint, base in {
-            "fundamentals": f"https://eodhd.com/api/fundamentals/{symbol}.US",
-            "prices": f"https://eodhd.com/api/eod/{symbol}.US",
-        }.items():
+        specs = {
+            "fundamentals": (f"https://eodhd.com/api/fundamentals/{symbol}.US", {"fmt": "json"}),
+            "news": ("https://eodhd.com/api/news", {"s": symbol, "limit": "10", "fmt": "json"}),
+            "historical_market_cap": (f"https://eodhd.com/api/historical-market-cap/{symbol}.US", {"fmt": "json"}),
+            "prices": (f"https://eodhd.com/api/eod/{symbol}.US", {"fmt": "json", "from": "2021-01-01", "to": as_of}),
+        }
+        for endpoint, (base, params) in specs.items():
             if endpoint not in selected_endpoints:
                 continue
-            params = {"fmt": "json"} if endpoint == "fundamentals" else {"fmt": "json", "from": "2021-01-01", "to": as_of}
             url = f"{base}?{urlencode({**params, 'api_token': token})}"
             source = f"{base}?{urlencode(params)}"
             paths.append(fetch_with_cache(cache_root, symbol, "eodhd", endpoint, params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "alphavantage" and config.values.get("ALPHAVANTAGE_API_KEY"):
         token = config.values["ALPHAVANTAGE_API_KEY"]
-        for endpoint, function in {"overview": "OVERVIEW", "prices": "TIME_SERIES_DAILY_ADJUSTED"}.items():
+        functions = {
+            "overview": "OVERVIEW",
+            "income_statement": "INCOME_STATEMENT",
+            "balance_sheet": "BALANCE_SHEET",
+            "cash_flow": "CASH_FLOW",
+            "earnings": "EARNINGS",
+            "etf_profile": "ETF_PROFILE",
+            "news_sentiment": "NEWS_SENTIMENT",
+            "prices": "TIME_SERIES_DAILY_ADJUSTED",
+        }
+        for endpoint, function in functions.items():
             if endpoint not in selected_endpoints:
                 continue
-            params = {"function": function, "symbol": symbol}
+            params = {"function": function, "tickers": symbol} if endpoint == "news_sentiment" else {"function": function, "symbol": symbol}
             url = f"https://www.alphavantage.co/query?{urlencode({**params, 'apikey': token})}"
             source = f"https://www.alphavantage.co/query?{urlencode(params)}"
             paths.append(fetch_with_cache(cache_root, symbol, "alphavantage", endpoint, params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
             time.sleep(0.2)
-    elif provider == "twelve_data" and config.values.get("TWELVE_DATA_API_KEY") and "prices" in selected_endpoints:
+    elif provider == "twelve_data" and config.values.get("TWELVE_DATA_API_KEY"):
         token = config.values["TWELVE_DATA_API_KEY"]
-        params = {"symbol": symbol, "interval": "1day", "outputsize": "5000", "end_date": as_of}
-        url = f"https://api.twelvedata.com/time_series?{urlencode({**params, 'apikey': token})}"
-        source = f"https://api.twelvedata.com/time_series?{urlencode(params)}"
-        paths.append(fetch_with_cache(cache_root, symbol, "twelve_data", "prices", params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
+        specs = {
+            "quote": ("https://api.twelvedata.com/quote", {"symbol": symbol}),
+            "profile": ("https://api.twelvedata.com/profile", {"symbol": symbol}),
+            "prices": ("https://api.twelvedata.com/time_series", {"symbol": symbol, "interval": "1day", "outputsize": "5000", "end_date": as_of}),
+        }
+        for endpoint, (base, params) in specs.items():
+            if endpoint not in selected_endpoints:
+                continue
+            url = f"{base}?{urlencode({**params, 'apikey': token})}"
+            source = f"{base}?{urlencode(params)}"
+            paths.append(fetch_with_cache(cache_root, symbol, "twelve_data", endpoint, params, url, source, config, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "marketaux" and config.values.get("MARKETAUX_API_TOKEN") and "news" in selected_endpoints:
         token = config.values["MARKETAUX_API_TOKEN"]
         params = {"symbols": symbol, "language": "en", "limit": config.values.get("MARKETAUX_NEWS_LIMIT", "3")}
@@ -607,6 +666,7 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
             "splits": ("https://financialmodelingprep.com/stable/splits", {"symbol": symbol, "limit": "10"}),
             "insider_trading": ("https://financialmodelingprep.com/stable/insider-trading", {"symbol": symbol, "limit": "10"}),
             "insider_statistics": ("https://financialmodelingprep.com/stable/insider-trading/statistics", {"symbol": symbol}),
+            "etf_holdings": ("https://financialmodelingprep.com/stable/etf/holdings", {"symbol": symbol}),
         }
         for endpoint, (base, params) in specs.items():
             if endpoint not in selected_endpoints:
@@ -686,6 +746,24 @@ def estimated_provider_call_cost(cache_root: Path, symbol: str, provider: str, r
             continue
         cost += endpoint_cost
     return cost
+
+
+def endpoints_within_budget(cache_root: Path, symbol: str, provider: str, budget: int, refresh: bool = False, endpoints: set[str] | None = None) -> set[str]:
+    selected = endpoints_for_provider(provider, endpoints)
+    endpoint_costs = PROVIDER_ENDPOINT_COSTS.get(provider, {})
+    ordered = [endpoint for endpoint in ENDPOINT_BUDGET_PRIORITY.get(provider, []) if endpoint in selected]
+    ordered.extend(sorted(selected - set(ordered)))
+    allowed: set[str] = set()
+    remaining = budget
+    for endpoint in ordered:
+        endpoint_cost = 0 if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh) else endpoint_costs[endpoint]
+        if endpoint_cost > remaining:
+            if not allowed:
+                break
+            continue
+        allowed.add(endpoint)
+        remaining -= endpoint_cost
+    return allowed
 
 
 def parse_provider_list(value: str | None, config: ProviderConfig) -> list[str]:
@@ -1501,8 +1579,12 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             endpoints = endpoint_plan.get(provider, set())
             estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=endpoints)
             if estimated_cost > budget:
-                warnings.append(f"Skipped {provider}: estimated call cost {estimated_cost} exceeds budget {budget}.")
-                continue
+                budgeted_endpoints = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=args.refresh, endpoints=endpoints)
+                if not budgeted_endpoints:
+                    warnings.append(f"Skipped {provider}: estimated call cost {estimated_cost} exceeds budget {budget}.")
+                    continue
+                warnings.append(f"Limited {provider}: estimated call cost {estimated_cost} exceeds budget {budget}; fetching {', '.join(sorted(budgeted_endpoints))}.")
+                endpoints = budgeted_endpoints
             before = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
             fetch_provider(symbol, provider, as_of, cache_root, config, refresh=args.refresh, endpoints=endpoints)
             after = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
