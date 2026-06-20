@@ -11,6 +11,13 @@ def test_only_market_research_full_is_active_skill_tree():
         assert not (ROOT / name).exists(), f"{name} must be moved into market-research-full"
 
 
+def test_generated_artifact_roots_are_ignored():
+    ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    ignored = {line.strip() for line in ignore_text.splitlines() if line.strip() and not line.startswith("#")}
+
+    assert {"data/", "reports/", "runtime/"} <= ignored
+
+
 def test_active_files_do_not_reference_old_skill_paths():
     forbidden = [
         "market-research" + "/scripts/",
