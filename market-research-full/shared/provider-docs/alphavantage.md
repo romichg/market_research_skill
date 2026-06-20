@@ -5,11 +5,11 @@ Official docs checked:
 
 Free/configured endpoints to attempt:
 - overview: `OVERVIEW`; unique overview, valuation, dividend, and classification fields; normalized targets are `identity`, `market_snapshot`, and `equity_fundamentals`.
-- income_statement: `INCOME_STATEMENT`; normalized target is `equity_fundamentals`.
-- balance_sheet: `BALANCE_SHEET`; normalized target is `equity_fundamentals`.
-- cash_flow: `CASH_FLOW`; normalized target is `equity_fundamentals`.
-- earnings: `EARNINGS`; normalized target is `equity_events`.
-- etf_profile: `ETF_PROFILE`; normalized target is ETF profile/holdings fields when returned.
+- income_statement: `INCOME_STATEMENT`; raw evidence only in this iteration; future normalized target is `equity_fundamentals`.
+- balance_sheet: `BALANCE_SHEET`; raw evidence only in this iteration; future normalized target is `equity_fundamentals`.
+- cash_flow: `CASH_FLOW`; raw evidence only in this iteration; future normalized target is `equity_fundamentals`.
+- earnings: `EARNINGS`; raw evidence only in this iteration; future normalized target is `equity_events`.
+- etf_profile: `ETF_PROFILE`; raw evidence only in this iteration; future normalized target is ETF profile/holdings fields when returned.
 - news_sentiment: `NEWS_SENTIMENT`; normalized target is `news`.
 
 Plan-gated or fallback endpoints:

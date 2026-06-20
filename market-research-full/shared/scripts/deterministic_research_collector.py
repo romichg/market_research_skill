@@ -886,6 +886,32 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
                 identity["industry"] = provenance(data["industry"], "fmp", url, "profile", raw)
             if "asset_type" not in identity:
                 identity["asset_type"] = provenance("equity", "fmp", url, "profile", raw)
+    twelve = read_raw_latest(cache_root, symbol, "twelve_data", "profile") if provider_enabled(providers, "twelve_data") and provider_endpoint_enabled(endpoint_plan, "twelve_data", "profile") else None
+    if twelve and raw_payload_ok("twelve_data", twelve[1]):
+        raw, payload = twelve
+        data = first_dict(payload.get("data"))
+        url = payload.get("provider_result", {}).get("url", "")
+        if data:
+            name = data.get("name") or data.get("company_name") or data.get("instrument_name")
+            if name and "company_name" not in identity:
+                identity["company_name"] = provenance(name, "twelve_data", url, "profile", raw)
+            exchange = data.get("exchange") or data.get("exchange_name") or data.get("mic_code")
+            if exchange and "exchange" not in identity:
+                identity["exchange"] = provenance(exchange, "twelve_data", url, "profile", raw)
+            currency = data.get("currency") or data.get("currency_base")
+            if currency:
+                identity["currency"] = provenance(currency, "twelve_data", url, "profile", raw)
+            if "asset_type" not in identity:
+                type_text = str(data.get("type") or data.get("instrument_type") or "").lower()
+                if "etf" in type_text:
+                    asset_type = "etf"
+                elif "fund" in type_text:
+                    asset_type = "fund"
+                elif any(value in type_text for value in ["stock", "common", "equity"]):
+                    asset_type = "equity"
+                else:
+                    asset_type = "unknown"
+                identity["asset_type"] = provenance(asset_type, "twelve_data", url, "profile", raw, status="ok" if asset_type != "unknown" else "gap")
     if "asset_type" not in identity:
         identity["asset_type"] = provenance("unknown", "deterministic_classifier", "", "classification", Path(""), status="gap")
     return identity
@@ -1454,6 +1480,30 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
 def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     providers = providers or DEFAULT_PROVIDERS
     items = []
+
+    def news_item(provider: str, endpoint: str, path: Path, payload: dict[str, Any], item: dict[str, Any], headline: Any, source: Any, url_value: Any, published_at: Any) -> dict[str, Any]:
+        result = {
+            "headline": headline,
+            "source": source,
+            "url": url_value,
+            "published_at": published_at,
+            "raw_path": str(path),
+            "provider": provider,
+            "endpoint": endpoint,
+            "source_url": payload.get("provider_result", {}).get("url", ""),
+            "status": "ok",
+        }
+        for out_key, provider_key in [
+            ("sentiment", "sentiment_score"),
+            ("sentiment", "overall_sentiment_score"),
+            ("summary", "summary"),
+            ("text", "text"),
+            ("text", "content"),
+        ]:
+            if out_key not in result and item.get(provider_key) is not None:
+                result[out_key] = item.get(provider_key)
+        return result
+
     if provider_enabled(providers, "marketaux") and provider_endpoint_enabled(endpoint_plan, "marketaux", "news"):
         raw = read_raw_latest(cache_root, symbol, "marketaux", "news")
         if raw:
@@ -1461,36 +1511,15 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
             if raw_payload_ok("marketaux", payload):
                 for item in payload.get("data", {}).get("data", []):
                     if isinstance(item, dict):
-                        items.append({
-                            "headline": item.get("title"),
-                            "source": item.get("source"),
-                            "url": item.get("url"),
-                            "published_at": item.get("published_at"),
-                            "sentiment": item.get("sentiment_score"),
-                            "raw_path": str(path),
-                            "provider": "marketaux",
-                        })
+                        items.append(news_item("marketaux", "news", path, payload, item, item.get("title"), item.get("source"), item.get("url"), item.get("published_at")))
     if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "news_sentiment"):
         raw = read_raw_latest(cache_root, symbol, "alphavantage", "news_sentiment")
         if raw:
             path, payload = raw
             if raw_payload_ok("alphavantage", payload):
-                url = payload.get("provider_result", {}).get("url", "")
                 for item in payload.get("data", {}).get("feed", []):
                     if isinstance(item, dict) and (item.get("title") or item.get("url")):
-                        items.append({
-                            "headline": item.get("title"),
-                            "source": item.get("source"),
-                            "url": item.get("url"),
-                            "published_at": item.get("time_published"),
-                            "summary": item.get("summary"),
-                            "sentiment": item.get("overall_sentiment_score"),
-                            "source_url": url,
-                            "raw_path": str(path),
-                            "provider": "alphavantage",
-                            "endpoint": "news_sentiment",
-                            "status": "ok",
-                        })
+                        items.append(news_item("alphavantage", "news_sentiment", path, payload, item, item.get("title"), item.get("source"), item.get("url"), item.get("time_published")))
     if provider_enabled(providers, "fmp"):
         for endpoint in ["stock_news", "press_releases"]:
             if not provider_endpoint_enabled(endpoint_plan, "fmp", endpoint):
@@ -1506,16 +1535,18 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
                 data = [data]
             for item in data if isinstance(data, list) else []:
                 if isinstance(item, dict) and (item.get("title") or item.get("url")):
-                    items.append({
-                        "headline": item.get("title"),
-                        "source": item.get("site") or item.get("publisher"),
-                        "url": item.get("url"),
-                        "published_at": item.get("publishedDate") or item.get("date"),
-                        "text": item.get("text"),
-                        "raw_path": str(path),
-                        "provider": "fmp",
-                        "endpoint": endpoint,
-                    })
+                    items.append(news_item("fmp", endpoint, path, payload, item, item.get("title"), item.get("site") or item.get("publisher"), item.get("url"), item.get("publishedDate") or item.get("date")))
+    if provider_enabled(providers, "eodhd") and provider_endpoint_enabled(endpoint_plan, "eodhd", "news"):
+        raw = read_raw_latest(cache_root, symbol, "eodhd", "news")
+        if raw:
+            path, payload = raw
+            if raw_payload_ok("eodhd", payload):
+                data = payload.get("data", [])
+                if isinstance(data, dict):
+                    data = data.get("data") or data.get("news") or [data]
+                for item in data if isinstance(data, list) else []:
+                    if isinstance(item, dict) and (item.get("title") or item.get("link") or item.get("url")):
+                        items.append(news_item("eodhd", "news", path, payload, item, item.get("title"), item.get("source"), item.get("link") or item.get("url"), item.get("date") or item.get("published_at")))
     return {"items": items, "status": "ok" if items else "empty"}
 
 

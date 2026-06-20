@@ -563,6 +563,83 @@ def test_expanded_provider_data_normalizes_news_events_and_etf_holdings(tmp_path
     assert snapshot["latest_close"]["provider"] == "twelve_data"
 
 
+def test_news_normalization_includes_eodhd_and_consistent_provenance(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "marketaux",
+        "news",
+        {"symbols": "AAPL"},
+        {"data": [{"title": "MarketAux headline", "source": "MarketAux Source", "url": "https://example.test/marketaux", "published_at": "2026-06-16"}]},
+        source_url="https://api.marketaux.com/v1/news/all?symbols=AAPL",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "alphavantage",
+        "news_sentiment",
+        {"function": "NEWS_SENTIMENT", "tickers": "AAPL"},
+        {"feed": [{"title": "Alpha headline", "source": "Alpha Source", "url": "https://example.test/alpha", "time_published": "20260616T120000"}]},
+        source_url="https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=AAPL",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "fmp",
+        "stock_news",
+        {"symbols": "AAPL"},
+        [{"title": "FMP headline", "site": "FMP Source", "url": "https://example.test/fmp", "publishedDate": "2026-06-16"}],
+        source_url="https://financialmodelingprep.com/stable/news/stock?symbols=AAPL",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "news",
+        {"s": "AAPL.US"},
+        [{"title": "EODHD headline", "source": "EODHD Source", "link": "https://example.test/eodhd", "date": "2026-06-16"}],
+        source_url="https://eodhd.com/api/news?s=AAPL.US",
+    )
+
+    news = module.normalize_news(
+        cache,
+        "AAPL",
+        providers=["marketaux", "alphavantage", "fmp", "eodhd"],
+        endpoint_plan={"marketaux": {"news"}, "alphavantage": {"news_sentiment"}, "fmp": {"stock_news"}, "eodhd": {"news"}},
+    )
+
+    assert {item["provider"] for item in news["items"]} == {"marketaux", "alphavantage", "fmp", "eodhd"}
+    for item in news["items"]:
+        assert {"provider", "endpoint", "source_url", "raw_path", "status"} <= set(item)
+        assert item["status"] == "ok"
+        assert item["source_url"]
+        assert item["raw_path"].endswith(".json")
+
+
+def test_twelve_data_profile_normalizes_identity_fields(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "SPY",
+        "twelve_data",
+        "profile",
+        {"symbol": "SPY"},
+        {"name": "SPDR S&P 500 ETF Trust", "exchange": "NYSE Arca", "type": "ETF", "currency": "USD"},
+        source_url="https://api.twelvedata.com/profile?symbol=SPY",
+    )
+
+    identity = module.normalize_identity(cache, "SPY", providers=["twelve_data"], endpoint_plan={"twelve_data": {"profile"}})
+
+    assert identity["company_name"]["value"] == "SPDR S&P 500 ETF Trust"
+    assert identity["company_name"]["provider"] == "twelve_data"
+    assert identity["exchange"]["value"] == "NYSE Arca"
+    assert identity["asset_type"]["value"] == "etf"
+    assert identity["currency"]["value"] == "USD"
+
+
 def test_marketaux_fetch_sends_provider_friendly_headers(tmp_path, monkeypatch):
     module = load_module()
     seen = []
