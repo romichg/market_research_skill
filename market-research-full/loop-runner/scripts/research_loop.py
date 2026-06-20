@@ -393,11 +393,41 @@ def final_report_exists(path: Path, symbol: str) -> bool:
     return (path / f"{symbol}-research.md").exists() and (path / f"{symbol}-research.json").exists()
 
 
+def artifact_mtime(path: Path, symbol: str) -> float:
+    files = [path]
+    if final_report_exists(path, symbol):
+        files.extend([path / f"{symbol}-research.md", path / f"{symbol}-research.json"])
+    if deterministic_bundle_exists(path):
+        files.extend(
+            [
+                path / "research_input_pack.md",
+                path / "manifest.json",
+                path / "source_manifest.json",
+                path / "gaps.json",
+                path / "normalized",
+            ]
+        )
+    return max(candidate.stat().st_mtime for candidate in files if candidate.exists())
+
+
+def loop_root_for_run_dir(run_dir: Path, symbol: str) -> Path:
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", run_dir.name) and run_dir.parent.name == symbol:
+        return run_dir.parent.parent
+    return run_dir
+
+
 def reports_root_for_loop(root: Path) -> Path:
     for parent in (root, *root.parents):
         if parent.name == "runtime":
             return parent.parent / "reports"
     return root.parent / "reports"
+
+
+def data_root_for_loop(root: Path) -> Path:
+    for parent in (root, *root.parents):
+        if parent.name == "runtime":
+            return parent.parent / "data"
+    return root.parent / "data"
 
 
 def report_date_for_artifact(artifact_run_dir: Path, fallback_as_of: str) -> str:
@@ -409,11 +439,8 @@ def validation_output_dir_for_artifact(root: Path, symbol: str, artifact_run_dir
 
 
 def canonical_data_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
-    candidates = [Path.cwd() / "data" / symbol]
-    for parent in (run_dir, *run_dir.parents):
-        if parent.name == "runtime":
-            candidates.append(parent.parent / "data" / symbol)
-        candidates.append(parent / "data" / symbol)
+    loop_root = loop_root_for_run_dir(run_dir, symbol)
+    candidates = [data_root_for_loop(loop_root) / symbol]
     seen: set[Path] = set()
     out: list[Path] = []
     for path in candidates:
@@ -425,11 +452,8 @@ def canonical_data_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
 
 
 def canonical_report_symbol_dirs(run_dir: Path, symbol: str) -> list[Path]:
-    candidates = [Path.cwd() / "reports" / symbol]
-    for parent in (run_dir, *run_dir.parents):
-        if parent.name == "runtime":
-            candidates.append(parent.parent / "reports" / symbol)
-        candidates.append(parent / "reports" / symbol)
+    loop_root = loop_root_for_run_dir(run_dir, symbol)
+    candidates = [reports_root_for_loop(loop_root) / symbol]
     seen: set[Path] = set()
     out: list[Path] = []
     for path in candidates:
@@ -457,10 +481,10 @@ def latest_producer_run_dir(run_dir: Path, symbol: str, *, modified_since: float
                 if path.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and deterministic_bundle_exists(path)
             )
     if modified_since is not None:
-        candidates = [path for path in candidates if path.stat().st_mtime >= modified_since]
+        candidates = [path for path in candidates if artifact_mtime(path, symbol) >= modified_since]
     if not candidates:
         return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    return max(candidates, key=lambda path: artifact_mtime(path, symbol))
 
 
 def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:
@@ -544,10 +568,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
             iteration_dir / "producer.log",
             timeout_seconds=args.command_timeout_seconds,
         )
-        if producer_result.returncode == 0:
-            artifact_run_dir = latest_producer_run_dir(run_dir, symbol)
-        else:
-            artifact_run_dir = latest_producer_run_dir(run_dir, symbol, modified_since=producer_started_at)
+        artifact_run_dir = latest_producer_run_dir(run_dir, symbol, modified_since=producer_started_at)
         producer_complete = artifact_run_dir is not None
         if not producer_complete:
             return {

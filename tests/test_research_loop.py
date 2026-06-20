@@ -301,6 +301,84 @@ def test_run_batch_failed_producer_does_not_use_stale_runtime_research_report(tm
     assert not validator_marker.exists()
 
 
+def test_run_batch_ignores_nested_runtime_reports_and_data_dirs(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    nested_reports = runtime_root / "EWW" / as_of / "reports" / "EWW" / "2026-06-01"
+    nested_reports.mkdir(parents=True)
+    (nested_reports / "EWW-research.md").write_text("nested", encoding="utf-8")
+    (nested_reports / "EWW-research.json").write_text("{}", encoding="utf-8")
+    nested_data = runtime_root / "EWW" / as_of / "data" / "EWW" / "2026-06-01"
+    (nested_data / "normalized").mkdir(parents=True)
+    (nested_data / "research_input_pack.md").write_text("nested", encoding="utf-8")
+    (nested_data / "manifest.json").write_text(json.dumps({"symbol": "EWW", "asset_type": "etf"}), encoding="utf-8")
+    (nested_data / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (nested_data / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    validator_marker = tmp_path / "validator-used"
+    producer = f"{sys.executable} -c \"import sys; sys.exit(0)\""
+    validator = f"{sys.executable} -c \"from pathlib import Path; Path(r'{validator_marker}').write_text('used', encoding='utf-8')\""
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "producer_failed"
+    assert payload["symbols"]["EWW"]["exit_code"] == 0
+    assert not validator_marker.exists()
+
+
+def test_run_batch_exit_zero_does_not_use_stale_canonical_artifacts(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    stale_reports = tmp_path / "reports" / "EWW" / "2026-01-01"
+    stale_reports.mkdir(parents=True)
+    (stale_reports / "EWW-research.md").write_text("stale", encoding="utf-8")
+    (stale_reports / "EWW-research.json").write_text("{}", encoding="utf-8")
+    stale_data = tmp_path / "data" / "EWW" / "2026-01-01"
+    (stale_data / "normalized").mkdir(parents=True)
+    (stale_data / "research_input_pack.md").write_text("stale", encoding="utf-8")
+    (stale_data / "manifest.json").write_text(json.dumps({"symbol": "EWW", "asset_type": "etf"}), encoding="utf-8")
+    (stale_data / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (stale_data / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    old_time = 1_700_000_000
+    for directory in [stale_reports, stale_data]:
+        for path in [directory, *directory.iterdir()]:
+            os.utime(path, (old_time, old_time))
+    validator_marker = tmp_path / "validator-used"
+    producer = f"{sys.executable} -c \"import sys; sys.exit(0)\""
+    validator = f"{sys.executable} -c \"from pathlib import Path; Path(r'{validator_marker}').write_text('used', encoding='utf-8')\""
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "producer_failed"
+    assert payload["symbols"]["EWW"]["exit_code"] == 0
+    assert not validator_marker.exists()
+
+
 def test_run_batch_continues_when_timed_out_producer_wrote_deterministic_bundle(tmp_path):
     root = tmp_path / "batch"
     data_bundle = tmp_path / "data" / "EWW" / "2026-06-16"

@@ -11,8 +11,8 @@ def run_validator(*args):
 
 
 def test_validator_discovers_research_bundle(tmp_path):
-    run_dir = tmp_path / "AAPL"
-    run_dir.mkdir()
+    run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
     (run_dir / "run_manifest.json").write_text(json.dumps({"symbol": "AAPL"}), encoding="utf-8")
     (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
     (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
@@ -31,6 +31,19 @@ def test_validator_discovers_research_bundle(tmp_path):
     assert validation["sources_inspected"] == []
 
 
+def test_validator_rejects_runtime_research_bundle(tmp_path):
+    run_dir = tmp_path / "runtime" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
+    (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode != 0
+    assert "Final report directories must be under reports/SYMBOL/YYYY-MM-DD" in result.stderr
+    assert not (run_dir / "AAPL-validation-scaffold.json").exists()
+
+
 def test_validator_flags_missing_json(tmp_path):
     run_dir = tmp_path / "MSFT"
     run_dir.mkdir()
@@ -41,8 +54,8 @@ def test_validator_flags_missing_json(tmp_path):
 
 
 def test_validator_refuses_to_overwrite_existing_judgment_validation_without_force(tmp_path):
-    run_dir = tmp_path / "AAPL"
-    run_dir.mkdir()
+    run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    run_dir.mkdir(parents=True)
     (run_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
     (run_dir / "AAPL-research.json").write_text(json.dumps({"symbol": "AAPL", "security_type": "equity", "material_claims": [], "data_gaps": []}), encoding="utf-8")
     existing = run_dir / "AAPL-validation.md"
@@ -54,8 +67,8 @@ def test_validator_refuses_to_overwrite_existing_judgment_validation_without_for
 
 
 def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
-    run_dir = tmp_path / "ECH"
-    run_dir.mkdir()
+    run_dir = tmp_path / "reports" / "ECH" / "2026-06-01"
+    run_dir.mkdir(parents=True)
     (run_dir / "ECH-research.md").write_text("# ECH Research\n", encoding="utf-8")
     (run_dir / "ECH-research.json").write_text(
         json.dumps(

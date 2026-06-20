@@ -46,6 +46,7 @@ DETERMINISTIC_BUNDLE_LOCATION_MESSAGE = (
     "Place or copy deterministic bundles under data/SYMBOL/YYYY-MM-DD, "
     "or pass a final report directory under reports."
 )
+FINAL_REPORT_LOCATION_MESSAGE = "Final report directories must be under reports/SYMBOL/YYYY-MM-DD."
 
 
 def is_date_component(value: str) -> bool:
@@ -57,16 +58,31 @@ def is_canonical_data_bundle_path(path: Path, symbol: str) -> bool:
         is_date_component(path.name)
         and path.parent.name.upper() == symbol.upper()
         and path.parent.parent.name == "data"
+        and "runtime" not in path.parent.parent.parent.parts
     )
 
 
 def is_canonical_data_symbol_dir(path: Path) -> bool:
-    return path.parent.name == "data"
+    return path.parent.name == "data" and "runtime" not in path.parent.parent.parts
 
 
 def ensure_canonical_data_bundle_path(path: Path, symbol: str) -> None:
     if not is_canonical_data_bundle_path(path, symbol):
         die(DETERMINISTIC_BUNDLE_LOCATION_MESSAGE)
+
+
+def is_canonical_report_dir_path(path: Path, symbol: str) -> bool:
+    return (
+        is_date_component(path.name)
+        and path.parent.name.upper() == symbol.upper()
+        and path.parent.parent.name == "reports"
+        and "runtime" not in path.parent.parent.parent.parts
+    )
+
+
+def ensure_canonical_report_dir_path(path: Path, symbol: str) -> None:
+    if not is_canonical_report_dir_path(path, symbol):
+        die(FINAL_REPORT_LOCATION_MESSAGE)
 
 
 def deterministic_bundle_result(run_dir: Path) -> dict[str, Any]:
@@ -109,6 +125,7 @@ def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> d
         die("Could not find research JSON artifact.")
     payload = read_json(json_path)
     symbol = str(payload.get("symbol") or md_path.name.split("-")[0]).upper()
+    ensure_canonical_report_dir_path(run_dir, symbol)
     return {
         "bundle_type": "legacy_research_report",
         "symbol": symbol,
