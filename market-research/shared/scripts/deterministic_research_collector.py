@@ -476,20 +476,38 @@ def classify_provider_payload(provider: str, data: Any) -> tuple[str, str | None
         if "Error Message" in data:
             return "error", f"Error Message: {data['Error Message']}"
     if provider == "twelve_data" and isinstance(data, dict) and data.get("status") == "error":
-        return "error", str(data.get("message") or data.get("code") or "Twelve Data error payload")
+        message_text = str(data.get("message") or data.get("code") or "Twelve Data error payload")
+        return classify_provider_error_message(message_text), message_text
     if provider in {"fmp", "marketaux", "eodhd"} and isinstance(data, dict):
         message = data.get("Error Message") or data.get("error") or data.get("message") or data.get("Information")
         if message:
             message_text = str(message)
-            lowered = message_text.lower()
-            if any(needle in lowered for needle in ["unauthorized", "forbidden", "invalid api", "invalid token", "not authorized"]):
-                return "unauthorized", message_text
-            if any(needle in lowered for needle in ["payment required", "subscription", "premium", "upgrade", "plan"]):
-                return "plan_gated", message_text
-            if any(needle in lowered for needle in ["rate", "limit", "quota", "exceed"]):
-                return "rate_limited", message_text
-            return "error", message_text
+            return classify_provider_error_message(message_text), message_text
     return "ok", None
+
+
+def classify_provider_error_message(message: str) -> str:
+    lowered = message.lower()
+    plan_needles = [
+        "available exclusively",
+        "available starting with",
+        "only eod data allowed",
+        "payment required",
+        "subscription",
+        "premium",
+        "upgrade",
+        " plan",
+        "plans",
+        "pricing",
+        "free users",
+    ]
+    if any(needle in lowered for needle in plan_needles):
+        return "plan_gated"
+    if any(needle in lowered for needle in ["unauthorized", "forbidden", "invalid api", "invalid token", "not authorized"]):
+        return "unauthorized"
+    if any(needle in lowered for needle in ["rate", "limit", "quota", "exceed"]):
+        return "rate_limited"
+    return "error"
 
 
 def extract_html_title(body: str) -> str | None:
@@ -503,6 +521,10 @@ def classify_http_error(provider: str, code: int, body: str) -> tuple[str, str]:
     title = extract_html_title(body)
     if provider == "sec" and code == 403 and title and "Request Rate Threshold Exceeded" in title:
         return "rate_limited", f"HTTP 403: {title}"
+    body_text = re.sub(r"\s+", " ", body).strip()
+    body_status = classify_provider_error_message(body_text) if body_text else None
+    if body_status in {"plan_gated", "rate_limited"}:
+        return body_status, body_text or f"HTTP {code}"
     if code == 429:
         return "rate_limited", f"HTTP {code}"
     if code in {401, 403}:
@@ -883,8 +905,9 @@ def collect_provider_status(cache_root: Path, symbol: str, providers: list[str],
             semantic_status, _ = classify_provider_payload(provider, payload.get("data"))
             raw_statuses.append(semantic_status if semantic_status != "ok" else payload.get("provider_result", {}).get("status", "ok"))
         errors = [status for status in raw_statuses if status != "ok"]
+        ok_files = sum(1 for status in raw_statuses if status == "ok")
         status = errors[-1] if errors else "ok" if raw_statuses else "missing"
-        item = {"provider": provider, "raw_files": len(raw_statuses), "status": status}
+        item = {"provider": provider, "raw_files": len(raw_statuses), "ok_files": ok_files, "status": status}
         if errors:
             item["errors"] = len(errors)
         statuses.append(item)
@@ -903,13 +926,15 @@ def provider_status_warnings(statuses: list[dict[str, Any]]) -> list[str]:
             warnings.append(f"Provider {item.get('provider')} reported {status}; cached raw response records the exhausted quota location.")
         elif status == "plan_gated":
             warnings.append(f"Provider {item.get('provider')} reported plan_gated; cached raw response records the gated endpoint.")
+        elif status == "unauthorized":
+            warnings.append(f"Provider {item.get('provider')} reported unauthorized for one or more endpoints; usable endpoint data was preserved when available.")
         elif status == "error":
             warnings.append(f"Provider {item.get('provider')} reported error; inspect source_manifest.json and raw provider_result.error for the failing endpoint.")
     return warnings
 
 
 def raise_for_auth_failures(statuses: list[dict[str, Any]]) -> None:
-    failed = [item for item in statuses if item.get("status") == "unauthorized"]
+    failed = [item for item in statuses if item.get("status") == "unauthorized" and not item.get("ok_files")]
     if failed:
         providers = ", ".join(str(item.get("provider")) for item in failed)
         die(f"Authentication failed for provider(s): {providers}. Check API token or account permissions.")

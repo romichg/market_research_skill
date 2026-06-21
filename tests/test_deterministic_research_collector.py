@@ -1227,6 +1227,90 @@ def test_fetch_raises_clear_error_on_provider_auth_failure(tmp_path, monkeypatch
         raise AssertionError("cmd_fetch should fail on provider authentication errors")
 
 
+def test_plan_gated_http_bodies_are_not_classified_as_auth_failures():
+    module = load_module()
+
+    eod_status, eod_error = module.classify_http_error(
+        "eodhd",
+        403,
+        "Only EOD data allowed for free users. Please, contact our support team.",
+    )
+    twelve_status, twelve_error = module.classify_http_error(
+        "twelve_data",
+        403,
+        '{"code":403,"message":"/profile is available exclusively with grow or pro plans. Consider upgrading now","status":"error"}',
+    )
+    twelve_payload_status, twelve_payload_error = module.classify_provider_payload(
+        "twelve_data",
+        {"code": 403, "message": "/profile is available exclusively with grow or pro plans.", "status": "error"},
+    )
+
+    assert eod_status == "plan_gated"
+    assert "Only EOD data allowed" in eod_error
+    assert twelve_status == "plan_gated"
+    assert "available exclusively" in twelve_error
+    assert twelve_payload_status == "plan_gated"
+    assert "available exclusively" in twelve_payload_error
+
+
+def test_fetch_preserves_provider_good_data_when_one_endpoint_is_unauthorized(tmp_path, monkeypatch):
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return [
+            module.write_raw(
+                cache_root,
+                symbol,
+                provider,
+                "prices",
+                {"symbol": symbol},
+                {"values": [{"datetime": "2026-06-16", "close": "10", "volume": "1000"}]},
+                source_url="https://example.test/prices",
+                status="ok",
+            ),
+            module.write_raw(
+                cache_root,
+                symbol,
+                provider,
+                "profile",
+                {"symbol": symbol},
+                {},
+                source_url="https://example.test/profile",
+                status="unauthorized",
+                error="HTTP 403",
+            ),
+        ]
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-16",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "twelve_data",
+            "provider_endpoints": ["twelve_data=prices,profile"],
+            "max_provider_calls": ["twelve_data=2"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    manifest = json.loads((tmp_path / "data" / "AAPL" / "2026-06-16" / "manifest.json").read_text(encoding="utf-8"))
+    prices = json.loads((tmp_path / "data" / "AAPL" / "2026-06-16" / "normalized" / "prices_daily.json").read_text(encoding="utf-8"))
+    assert prices["prices"][0]["adjusted_close"] == 10
+    assert manifest["provider_status"][0]["ok_files"] == 1
+    assert manifest["provider_status"][0]["errors"] == 1
+    assert any("usable endpoint data was preserved" in warning for warning in manifest["warnings"])
+
+
 def test_fetch_logs_rate_limit_status_in_manifest(tmp_path, monkeypatch):
     module = load_module()
 
@@ -1428,7 +1512,7 @@ def test_provider_status_reports_cached_errors(tmp_path):
 
     statuses = module.collect_provider_status(cache, "AAPL", ["eodhd"])
 
-    assert statuses == [{"provider": "eodhd", "raw_files": 1, "status": "unauthorized", "errors": 1}]
+    assert statuses == [{"provider": "eodhd", "raw_files": 1, "ok_files": 0, "status": "unauthorized", "errors": 1}]
 
 
 def test_provider_status_counts_global_sec_cache(tmp_path):
@@ -1438,7 +1522,7 @@ def test_provider_status_counts_global_sec_cache(tmp_path):
 
     statuses = module.collect_provider_status(cache, "VTI", ["sec"])
 
-    assert statuses == [{"provider": "sec", "raw_files": 1, "status": "ok"}]
+    assert statuses == [{"provider": "sec", "raw_files": 1, "ok_files": 1, "status": "ok"}]
 
 
 def test_provider_status_reclassifies_cached_semantic_errors(tmp_path):
@@ -1448,7 +1532,7 @@ def test_provider_status_reclassifies_cached_semantic_errors(tmp_path):
 
     statuses = module.collect_provider_status(cache, "AAPL", ["alphavantage"])
 
-    assert statuses == [{"provider": "alphavantage", "raw_files": 1, "status": "rate_limited", "errors": 1}]
+    assert statuses == [{"provider": "alphavantage", "raw_files": 1, "ok_files": 0, "status": "rate_limited", "errors": 1}]
 
 
 def test_http_json_retries_rate_limit_with_exponential_backoff(monkeypatch):
