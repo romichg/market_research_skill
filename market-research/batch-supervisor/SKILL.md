@@ -5,7 +5,7 @@ description: Use when running supervised market research batches that need fresh
 
 # Market Research Batch Supervisor
 
-Use this skill from a supervised Codex session to orchestrate `market-research researcher` and `market-research verifier` child sessions. The loop owns subprocess execution, pass/fail gating, remediation retries, logs, summaries, and skill-improvement feedback collection.
+Use this skill from a supervised Codex session to orchestrate `market-research researcher` and `market-research verifier` child sessions. The batch supervisor owns subprocess execution, pass/fail gating, remediation retries, logs, summaries, and skill-improvement feedback collection.
 
 ## Core Rule
 
@@ -21,7 +21,7 @@ Keep research, validation, remediation, and skill improvement separate.
 From the repo root:
 
 ```bash
-python3 market-research/loop-runner/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-loop-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
+python3 market-research/batch-supervisor/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-batch-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
 ```
 
 If `--as-of` is omitted, the harness uses today's date. Runtime prompts, logs, skill issue files, and loop summaries stay under `runtime/SYMBOL/AS_OF/` or the configured runtime `RUN_ROOT/SYMBOL/AS_OF/`; deterministic data bundles belong under `data/SYMBOL/AS_OF/`; polished research and validation artifacts belong under `reports/SYMBOL/AS_OF/`.
@@ -42,7 +42,7 @@ While running, periodically inspect:
 
 ```bash
 find RUN_ROOT -name '*.log' -print
-python3 market-research/loop-runner/scripts/research_loop.py summarize RUN_ROOT
+python3 market-research/batch-supervisor/scripts/research_loop.py summarize RUN_ROOT
 ```
 
 Final pass gate: no open `critical` or `moderate` validation issues. Open `minor` findings are allowed but must be reported.
@@ -67,7 +67,7 @@ Use `operator-notes.md` for future user-requested changes that should not be imp
 After enough qualified feedback has accumulated:
 
 ```bash
-python3 market-research/loop-runner/scripts/research_loop.py collect-feedback RUN_ROOT
+python3 market-research/batch-supervisor/scripts/research_loop.py collect-feedback RUN_ROOT
 ```
 
 This writes `skill-improvement-feedback.md` and `.json`. Review those manually, then start a separate explicit skill-improvement task. Do not silently rewrite skills at the end of a normal research run.

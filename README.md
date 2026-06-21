@@ -9,7 +9,7 @@ This is research support, not personalized financial advice.
 - `market-research/`: the installable skill directory.
 - `market-research/researcher/`: producer workflow for single-symbol research.
 - `market-research/verifier/`: validation workflow for saved research artifacts.
-- `market-research/loop-runner/`: batch-supervisor orchestration helper.
+- `market-research/batch-supervisor/`: batch-supervisor orchestration helper.
 - `market-research/shared/`: reusable scripts, schemas, and helper assets.
 - `tests/`: pytest coverage for helper behavior and loop contracts.
 
@@ -110,8 +110,8 @@ The batch supervisor launches fresh researcher and verifier child contexts, appl
 The underlying helper can also be run directly from the repository root for debugging, dry runs, or custom command templates:
 
 ```bash
-python3 market-research/loop-runner/scripts/research_loop.py run-batch AAPL MSFT \
-  --run-root runtime/market-research-loop-YYYYMMDD \
+python3 market-research/batch-supervisor/scripts/research_loop.py run-batch AAPL MSFT \
+  --run-root runtime/market-research-batch-YYYYMMDD \
   --as-of YYYY-MM-DD \
   --max-remediation-loops 3
 ```
@@ -119,7 +119,7 @@ python3 market-research/loop-runner/scripts/research_loop.py run-batch AAPL MSFT
 Summarize an existing loop run:
 
 ```bash
-python3 market-research/loop-runner/scripts/research_loop.py summarize runtime/market-research-loop-YYYYMMDD
+python3 market-research/batch-supervisor/scripts/research_loop.py summarize runtime/market-research-batch-YYYYMMDD
 ```
 
 ## Useful Helper Commands

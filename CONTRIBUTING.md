@@ -34,7 +34,7 @@ Check helper CLIs:
 python3 market-research/shared/scripts/deterministic_research_collector.py --help
 python3 market-research/shared/scripts/procedural_source_helper.py --help
 python3 market-research/shared/scripts/validate_market_research.py --help
-python3 market-research/loop-runner/scripts/research_loop.py --help
+python3 market-research/batch-supervisor/scripts/research_loop.py --help
 bash market-research/shared/scripts/md-to-pdf.sh --help
 ```
 

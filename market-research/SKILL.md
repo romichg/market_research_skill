@@ -11,7 +11,7 @@ Use this single, portable Agent Skills-format skill for all market research work
 
 - Researcher: follow `researcher/SKILL.md`.
 - Verifier: follow `verifier/SKILL.md`.
-- Batch supervisor: follow `loop-runner/SKILL.md`.
+- Batch supervisor: follow `batch-supervisor/SKILL.md`.
 
 ## Canonical Layout
 

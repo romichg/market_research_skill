@@ -6,7 +6,7 @@ This repository contains portable Agent Skills-format market research workflows.
 
 - `market-research/researcher/`: producer skill and research references.
 - `market-research/verifier/`: validation skill and validation references.
-- `market-research/loop-runner/`: supervised batch loop skill and orchestration helper.
+- `market-research/batch-supervisor/`: supervised batch supervisor skill and orchestration helper.
 - `market-research/shared/`: shared scripts, schemas, and agent config.
 - `tests/`: pytest coverage for helper scripts and loop behavior.
 - `docs/`: design notes, plans, and AI-human brief material.
@@ -22,7 +22,7 @@ There is no package build step. Run helpers directly with Python:
 python3 market-research/shared/scripts/deterministic_research_collector.py --help
 python3 market-research/shared/scripts/procedural_source_helper.py --help
 python3 market-research/shared/scripts/validate_market_research.py --help
-python3 market-research/loop-runner/scripts/research_loop.py --help
+python3 market-research/batch-supervisor/scripts/research_loop.py --help
 bash market-research/shared/scripts/md-to-pdf.sh --help
 ```
 

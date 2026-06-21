@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-HARNESS = Path(__file__).resolve().parents[1] / "market-research" / "loop-runner" / "scripts" / "research_loop.py"
+HARNESS = Path(__file__).resolve().parents[1] / "market-research" / "batch-supervisor" / "scripts" / "research_loop.py"
 
 
 def run_harness(*args):

@@ -1481,7 +1481,7 @@ def test_active_market_research_docs_use_new_script_names():
         ROOT / "market-research" / "researcher" / "references" / "etf-research.md",
         ROOT / "market-research" / "researcher" / "references" / "report-template.md",
         ROOT / "market-research" / "shared" / "schemas" / "research-output.schema.json",
-        ROOT / "market-research" / "loop-runner" / "scripts" / "research_loop.py",
+        ROOT / "market-research" / "batch-supervisor" / "scripts" / "research_loop.py",
         ROOT / "market-research" / "verifier" / "SKILL.md",
         ROOT / "AGENTS.md",
     ]

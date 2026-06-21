@@ -7,6 +7,8 @@ OLD_ACTIVE_DIRS = ["market-research-full", "validate-market-research", "market-r
 
 def test_only_market_research_is_active_skill_tree():
     assert (ROOT / "market-research" / "SKILL.md").exists()
+    assert (ROOT / "market-research" / "batch-supervisor" / "SKILL.md").exists()
+    assert not (ROOT / "market-research" / "loop-runner").exists()
     for name in OLD_ACTIVE_DIRS:
         assert not (ROOT / name).exists(), f"{name} must be moved into market-research"
 
