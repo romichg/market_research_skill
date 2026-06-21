@@ -1539,6 +1539,21 @@ def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: l
     return entries, path_map
 
 
+def endpoint_status_from_raw_entries(raw_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    statuses = []
+    for entry in raw_entries:
+        item = {
+            "provider": entry.get("provider"),
+            "endpoint": entry.get("endpoint"),
+            "status": entry.get("status") or "missing",
+            "raw_path": entry.get("raw_path"),
+        }
+        if entry.get("error"):
+            item["error"] = entry.get("error")
+        statuses.append(item)
+    return statuses
+
+
 def rewrite_raw_paths(payload: Any, path_map: dict[str, str]) -> Any:
     if isinstance(payload, dict):
         rewritten = {}
@@ -1667,6 +1682,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         "created_at_utc": utc_now(),
         "offline": offline,
         "provider_status": collect_provider_status(cache_root, symbol, providers, endpoint_plan),
+        "endpoint_status": endpoint_status_from_raw_entries(raw_entries),
         "endpoint_plan": {provider: sorted(endpoints) for provider, endpoints in endpoint_plan.items()},
         "cache": {"raw_entries": len(raw_entries)},
         "api_limits": config.limits if config else {},

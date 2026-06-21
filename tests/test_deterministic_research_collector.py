@@ -1308,6 +1308,11 @@ def test_fetch_preserves_provider_good_data_when_one_endpoint_is_unauthorized(tm
     assert prices["prices"][0]["adjusted_close"] == 10
     assert manifest["provider_status"][0]["ok_files"] == 1
     assert manifest["provider_status"][0]["errors"] == 1
+    endpoint_status = {(item["provider"], item["endpoint"]): item for item in manifest["endpoint_status"]}
+    assert endpoint_status[("twelve_data", "prices")]["status"] == "ok"
+    assert endpoint_status[("twelve_data", "prices")]["raw_path"].endswith(".json")
+    assert endpoint_status[("twelve_data", "profile")]["status"] == "unauthorized"
+    assert endpoint_status[("twelve_data", "profile")]["error"] == "HTTP 403"
     assert any("usable endpoint data was preserved" in warning for warning in manifest["warnings"])
 
 
