@@ -45,6 +45,8 @@ def test_validator_discovers_research_bundle(tmp_path):
     assert "Deterministic Validation Scaffold" in markdown
     validation = json.loads((run_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["scaffold"] is True
+    assert validation["validation_level"] == "deterministic_lint"
+    assert validation["requires_fresh_verifier"] is True
     assert validation["sources_inspected"] == []
 
 

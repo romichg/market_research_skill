@@ -48,7 +48,9 @@ python3 {baseDir}/../shared/scripts/deterministic_research_collector.py doctor
 python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SYMBOL --asset-type auto --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports
 ```
 
-Use `--providers sec,tiingo,eodhd` to restrict calls, `--provider-endpoints PROVIDER=ENDPOINT[,ENDPOINT]` to avoid duplicate endpoint families, and `--max-provider-calls PROVIDER=N` to stay within free-tier budgets. Provider and endpoint filters apply to both live fetches and cached raw data used during bundle construction, preventing stale cached providers or duplicate cached endpoints from slipping into a quota-preserving run. The collector estimates provider endpoint cost before network calls and skips providers whose estimated cost exceeds the provided or conservative default budget. Successful raw endpoint responses are reused across later `as_of` dates unless `--refresh` is passed, so do not use `--refresh` unless the user specifically needs a fresh provider pull.
+Do not restrict providers by default. Let the collector use every configured provider unless the user requests a narrower run, a provider budget/access issue requires narrowing, or a focused remediation pass is being run after a broader attempt. If you use `--providers`, `--provider-endpoints`, or `--max-provider-calls`, state in the report which deterministic providers or endpoint families were skipped and why.
+
+Use `--providers sec,tiingo,eodhd` only for targeted or quota-preserving reruns, `--provider-endpoints PROVIDER=ENDPOINT[,ENDPOINT]` to restrict endpoint families, and `--max-provider-calls PROVIDER=N` to stay within free-tier budgets. Provider and endpoint filters apply to both live fetches and cached raw data used during bundle construction, preventing stale cached providers or duplicate cached endpoints from slipping into a quota-preserving run. The collector estimates provider endpoint cost before network calls and skips providers whose estimated cost exceeds the provided or conservative default budget. Successful raw endpoint responses are reused across later `as_of` dates unless `--refresh` is passed, so do not use `--refresh` unless the user specifically needs a fresh provider pull.
 
 Recommended quota-safe starting points:
 
@@ -56,7 +58,7 @@ Recommended quota-safe starting points:
 # Rebuild from saved raw data only.
 python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SYMBOL --offline --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports
 
-# Live refresh using only polite SEC access and one price provider.
+# Targeted rerun using only polite SEC access and one price provider.
 python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SYMBOL --providers sec,tiingo --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports
 
 # Opt into EODHD fundamentals without duplicating Tiingo price history.

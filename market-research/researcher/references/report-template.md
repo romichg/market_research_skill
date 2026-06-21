@@ -58,7 +58,7 @@ List the most material sourced facts. Keep this short enough that it supports th
 
 ## Source Base And Data Quality
 
-Describe saved source copies, deterministic bundle files, primary versus secondary sources, source dates, access dates, confidence, and material limitations. Do not expose internal evidence-freezing jargon in the human-facing report.
+Describe saved source copies, deterministic bundle files, primary versus secondary sources, source dates, access dates, confidence, and material limitations. Do not expose internal validation jargon in the human-facing report.
 
 ## Business Or Fund Profile
 

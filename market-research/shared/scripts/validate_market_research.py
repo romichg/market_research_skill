@@ -62,7 +62,7 @@ REQUIRED_RESEARCH_FIELDS = [
     "source_coverage",
     "calculation_audit",
 ]
-FRESH_CONTEXT_INSTRUCTION = "Use this helper output as deterministic lint only; validate cited sources, procedural calculations, markdown/JSON agreement, and conclusions from frozen artifacts without creating a parallel research thesis."
+FRESH_CONTEXT_INSTRUCTION = "Use this helper output as deterministic lint only; validate cited sources, procedural calculations, markdown/JSON agreement, and conclusions from saved artifacts without creating a parallel research thesis."
 
 
 def is_date_component(value: str) -> bool:
@@ -294,6 +294,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "symbol": symbol,
         "created_at": utc_now(),
         "scaffold": True,
+        "validation_level": "deterministic_lint",
+        "requires_fresh_verifier": True,
         "bundle_type": bundle["bundle_type"],
         "report_markdown": str(md_path),
         "report_json": str(json_path) if isinstance(json_path, Path) else None,
@@ -311,7 +313,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     lines = [
         f"# {symbol} Deterministic Validation Scaffold",
         "",
-        "This file is deterministic lint output only. It is not a completed judgment validation.",
+        "This file is deterministic lint output only. It is not a completed judgment validation and still requires a fresh verifier pass.",
         "",
         f"Blocking issues: {blocking}",
         "",
@@ -319,7 +321,15 @@ def cmd_validate(args: argparse.Namespace) -> None:
     for issue in issues:
         lines.append(f"- {issue['id']} [{issue['severity']} / {issue['status']}]: {issue['description']}")
     out_prefix.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(json.dumps({"symbol": symbol, "validation_json": str(out_prefix.with_suffix(".json")), "validation_markdown": str(out_prefix.with_suffix(".md")), "blocking_issue_count": blocking, "scaffold": True}, indent=2))
+    print(json.dumps({
+        "symbol": symbol,
+        "validation_json": str(out_prefix.with_suffix(".json")),
+        "validation_markdown": str(out_prefix.with_suffix(".md")),
+        "blocking_issue_count": blocking,
+        "scaffold": True,
+        "validation_level": "deterministic_lint",
+        "requires_fresh_verifier": True,
+    }, indent=2))
 
 
 def build_parser() -> argparse.ArgumentParser:

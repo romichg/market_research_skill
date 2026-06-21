@@ -792,9 +792,9 @@ def endpoints_for_provider(provider: str, endpoints: set[str] | None = None) -> 
 
 def default_endpoint_plan(providers: list[str]) -> dict[str, set[str]]:
     plan = {provider: set(UNIQUE_DEFAULT_ENDPOINTS.get(provider, set(PROVIDER_ENDPOINT_COSTS.get(provider, {})))) for provider in providers}
-    price_provider = next((provider for provider in PRICE_PROVIDER_PRIORITY if provider in providers), None)
-    if price_provider:
-        plan.setdefault(price_provider, set()).add("prices")
+    for provider in PRICE_PROVIDER_PRIORITY:
+        if provider in providers:
+            plan.setdefault(provider, set()).add("prices")
     return plan
 
 
@@ -1064,6 +1064,73 @@ def max_drawdown(closes: list[float]) -> float | None:
     return worst
 
 
+def rsi(closes: list[float], period: int = 14) -> float | None:
+    if len(closes) <= period:
+        return None
+    changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    window = changes[-period:]
+    gains = [max(change, 0.0) for change in window]
+    losses = [abs(min(change, 0.0)) for change in window]
+    avg_gain = average(gains) or 0.0
+    avg_loss = average(losses) or 0.0
+    if avg_loss == 0:
+        return 100.0 if avg_gain > 0 else 50.0
+    relative_strength = avg_gain / avg_loss
+    return 100 - (100 / (1 + relative_strength))
+
+
+def ema_series(values: list[float], period: int) -> list[float]:
+    if not values:
+        return []
+    multiplier = 2 / (period + 1)
+    ema_values = [values[0]]
+    for value in values[1:]:
+        ema_values.append((value - ema_values[-1]) * multiplier + ema_values[-1])
+    return ema_values
+
+
+def macd(closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, float] | None:
+    if len(closes) < slow + signal:
+        return None
+    fast_ema = ema_series(closes, fast)
+    slow_ema = ema_series(closes, slow)
+    macd_line = [fast_value - slow_value for fast_value, slow_value in zip(fast_ema, slow_ema)]
+    signal_line = ema_series(macd_line, signal)
+    if not macd_line or not signal_line:
+        return None
+    return {
+        "macd": round(macd_line[-1], 6),
+        "signal": round(signal_line[-1], 6),
+        "histogram": round(macd_line[-1] - signal_line[-1], 6),
+    }
+
+
+def realized_volatility(closes: list[float], period: int = 30) -> float | None:
+    if len(closes) <= period:
+        return None
+    returns = [pct_return(closes[i - 1], closes[i]) for i in range(len(closes) - period, len(closes))]
+    usable = [float(value) for value in returns if value is not None]
+    if len(usable) < 2:
+        return None
+    mean = average(usable) or 0.0
+    variance = sum((value - mean) ** 2 for value in usable) / (len(usable) - 1)
+    return math.sqrt(variance) * math.sqrt(252)
+
+
+def trend_classification(latest_close: float, sma_20: float | None, sma_50: float | None, sma_200: float | None) -> str:
+    if sma_20 is None or sma_50 is None or sma_200 is None:
+        return "insufficient_data"
+    if latest_close > sma_20 > sma_50 > sma_200:
+        return "strong_uptrend"
+    if latest_close > sma_50 and sma_50 > sma_200:
+        return "uptrend"
+    if latest_close < sma_20 < sma_50 < sma_200:
+        return "strong_downtrend"
+    if latest_close < sma_50 and sma_50 < sma_200:
+        return "downtrend"
+    return "mixed"
+
+
 def technicals_from_prices(rows: list[dict[str, Any]], provider: str, raw_path_value: Path | None, source_url: str) -> dict[str, Any]:
     raw = raw_path_value or Path("")
     closes = [float(row["adjusted_close"]) for row in rows if row.get("adjusted_close") is not None]
@@ -1074,19 +1141,38 @@ def technicals_from_prices(rows: list[dict[str, Any]], provider: str, raw_path_v
         return provenance(value, provider or "unavailable", source_url, "prices", raw, as_of=latest_date, status=status)
 
     result: dict[str, Any] = {}
+    sma_values: dict[int, float | None] = {}
     for window in [20, 50, 100, 200]:
         if len(closes) >= window:
-            result[f"sma_{window}"] = point(f"sma_{window}", round(average(closes[-window:]) or 0, 6))
+            sma_value = round(average(closes[-window:]) or 0, 6)
+            sma_values[window] = sma_value
+            result[f"sma_{window}"] = point(f"sma_{window}", sma_value)
         else:
+            sma_values[window] = None
             result[f"sma_{window}"] = point(None, None, "insufficient_data")
     if closes:
         result["latest_close"] = point("latest_close", closes[-1])
         result["fifty_two_week_high"] = point("fifty_two_week_high", max(closes[-252:]))
         result["fifty_two_week_low"] = point("fifty_two_week_low", min(closes[-252:]))
         result["max_drawdown_available"] = point("max_drawdown_available", round(max_drawdown(closes) or 0, 6))
+        rsi_value = rsi(closes, 14)
+        result["rsi_14"] = point("rsi_14", round(rsi_value, 6) if rsi_value is not None else None, "ok" if rsi_value is not None else "insufficient_data")
+        macd_value = macd(closes, 12, 26, 9)
+        result["macd_12_26_9"] = point("macd_12_26_9", macd_value, "ok" if macd_value is not None else "insufficient_data")
+        volatility_value = realized_volatility(closes, 30)
+        result["realized_volatility_30"] = point("realized_volatility_30", round(volatility_value, 6) if volatility_value is not None else None, "ok" if volatility_value is not None else "insufficient_data")
+        trend_value = trend_classification(closes[-1], sma_values.get(20), sma_values.get(50), sma_values.get(200))
+        result["trend_classification"] = point("trend_classification", trend_value, "ok" if trend_value != "insufficient_data" else "insufficient_data")
     if volumes:
         result["average_volume_30"] = point("average_volume_30", round(average(volumes[-30:]) or 0, 6))
         result["average_volume_90"] = point("average_volume_90", round(average(volumes[-90:]) or 0, 6))
+        if len(volumes) >= 90:
+            avg_30 = average(volumes[-30:]) or 0
+            avg_90 = average(volumes[-90:]) or 0
+            relative_volume = avg_30 / avg_90 if avg_90 else None
+            result["relative_volume_30_vs_90"] = point("relative_volume_30_vs_90", round(relative_volume, 6) if relative_volume is not None else None, "ok" if relative_volume is not None else "insufficient_data")
+        else:
+            result["relative_volume_30_vs_90"] = point(None, None, "insufficient_data")
     for name, periods in {"return_1m": 21, "return_3m": 63, "return_6m": 126, "return_1y": 252}.items():
         if len(closes) > periods:
             result[name] = point(name, round(pct_return(closes[-periods - 1], closes[-1]) or 0, 6))
@@ -1368,6 +1454,7 @@ def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], attempted_p
 def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: list[str], endpoint_plan: dict[str, set[str]] | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
     entries = []
     path_map: dict[str, str] = {}
+    referenced_global_targets: dict[tuple[str, str], str] = {}
     roots = []
     if provider_enabled(providers, "sec"):
         roots.append(cache_root / "_global" / "sec")
@@ -1382,6 +1469,24 @@ def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: l
         provider = payload.get("provider_result", {}).get("provider", path.parent.name)
         endpoint = payload.get("provider_result", {}).get("endpoint")
         if endpoint and not provider_endpoint_enabled(endpoint_plan, provider, endpoint):
+            continue
+        if provider == "sec" and endpoint == "company_tickers":
+            key = (provider, endpoint)
+            if key in referenced_global_targets:
+                path_map[str(path)] = referenced_global_targets[key]
+                continue
+            referenced_global_targets[key] = str(path)
+            path_map[str(path)] = str(path)
+            entries.append({
+                "provider": provider,
+                "endpoint": endpoint,
+                "url": payload.get("provider_result", {}).get("url"),
+                "raw_path": str(path),
+                "cache_raw_path": str(path),
+                "status": payload.get("provider_result", {}).get("status"),
+                "error": payload.get("provider_result", {}).get("error"),
+                "sha256": sha256_file(path),
+            })
             continue
         target = bundle_dir / "raw" / provider / path.name
         if target in seen_targets:
@@ -1492,6 +1597,8 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     bundle_dir = output_root / symbol / as_of
     normalized = bundle_dir / "normalized"
     normalized.mkdir(parents=True, exist_ok=True)
+    for stale_json in normalized.glob("*.json"):
+        stale_json.unlink()
     raw_entries, raw_path_map = copy_raw_files(cache_root, symbol, bundle_dir, providers, endpoint_plan)
     identity = normalize_identity(cache_root, symbol, providers, endpoint_plan)
     if asset_type != "auto":
@@ -1515,15 +1622,13 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     write_json(normalized / "prices_daily.json", {"prices": prices, "provider": price_provider, "raw_path": price_raw_path})
     write_json(normalized / "technical_signals.json", technicals)
     write_json(normalized / "news.json", news)
-    write_json(normalized / "equity_fundamentals.json", fundamentals if fundamentals else {"status": "unavailable", "gaps_recorded": True})
-    write_json(normalized / "equity_events.json", equity_events)
-    write_json(normalized / "equity_insiders.json", equity_insiders)
-    if identity.get("asset_type", {}).get("value") == "etf":
+    asset_type_value = identity.get("asset_type", {}).get("value")
+    if asset_type_value in {"equity", "adr", "unknown"}:
+        write_json(normalized / "equity_fundamentals.json", fundamentals if fundamentals else {"status": "unavailable", "gaps_recorded": True})
+        write_json(normalized / "equity_events.json", equity_events)
+        write_json(normalized / "equity_insiders.json", equity_insiders)
+    if asset_type_value in {"etf", "fund"}:
         write_json(normalized / "etf_holdings.json", etf_holdings)
-    else:
-        write_json(normalized / "etf_holdings.json", {"status": "not_applicable", "gaps_recorded": False})
-    for filename in ["sec_filings_index", "sec_filing_sections", "etf_profile", "etf_distributions", "etf_performance"]:
-        write_json(normalized / f"{filename}.json", {"status": "not_implemented_in_core_pass", "gaps_recorded": True})
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})
     manifest = {
