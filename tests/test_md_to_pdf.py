@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PDF_HELPER = ROOT / "market-research-full" / "shared" / "scripts" / "md-to-pdf.sh"
+PDF_HELPER = ROOT / "market-research" / "shared" / "scripts" / "md-to-pdf.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
 

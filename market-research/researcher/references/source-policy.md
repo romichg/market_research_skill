@@ -17,7 +17,7 @@ Required metadata for material claims:
 - confidence: `high`, `medium`, `low`, or `unverified`
 - verification status: `verified`, `unverified`, or `data_not_available`
 
-For every cited source, record it in `sources.json`. When a public page, PDF, CSV, JSON payload, or other source artifact is saved locally, freeze it under `source_bundle/` through `record-source --artifact` so validation can reproduce the cited source base. If a downloaded artifact's extension and content disagree, inspect it before citing it.
+For every cited source, record it in `sources.json`. When a public page, PDF, CSV, JSON payload, or other source artifact is saved locally, save it under `source_bundle/` through `record-source --artifact` so validation can reproduce the cited source base. If a downloaded artifact's extension and content disagree, inspect it before citing it.
 
 Use stable, exact source IDs. Before finalizing, compare every markdown bracket/source reference and every JSON `source_id` against `sources.json` and `run_manifest.json.source_gaps`. Do not add suffixes such as " gap" to source IDs in citations; explain gap status in prose instead.
 
@@ -36,4 +36,19 @@ Helper failure handling:
 - Disclose remaining gaps in markdown, JSON, and `run_manifest.json`.
 - Do not invent precision to cover missing data.
 - If public data is visible but the workflow did not capture it, call it a workflow extraction gap rather than unavailable public data and record it with `record-source-gap` when using the helper.
-- Do not cite unfrozen volatile live-page fields as current facts unless the exact page, payload, screenshot-equivalent text, or extracted artifact was frozen. Update the frozen artifact, label the field stale, or remove the volatile number from investment framing.
+- Do not cite volatile live-page fields as current facts unless the exact page, payload, screenshot-equivalent text, or extracted artifact was saved. Update the saved artifact, label the field stale, or remove the volatile number from investment framing.
+
+## Protected Source Access
+
+Protected-source handling applies to any source, not only SEC.
+
+If a material source is blocked by bot protection, CAPTCHA, WAF, JavaScript challenge, suspicious automated-access response, or similar access control:
+
+1. Classify it as a protected-source access issue.
+2. Decide whether the source is material to report quality.
+3. If material, move promptly to headed-browser human assistance unless an alternative source is clearly equivalent or better quality, current, and authoritative enough for the claim.
+4. Ask the human to solve the challenge in the headed browser when required.
+5. Continue capture after access is restored and save the source artifact through the normal source registry path.
+6. If access cannot be completed, record a workflow extraction/access gap and explain the analytical limitation.
+
+Lower-quality or stale substitutes must not be used merely to avoid headed-browser escalation. Alternatives are acceptable only when they preserve or improve evidence quality.

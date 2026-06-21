@@ -1,6 +1,6 @@
 ---
-name: market-research-full-verifier
-description: Validate frozen market research bundles for equities, ADRs, and ETFs in a fresh Codex context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report.
+name: market-research-verifier
+description: Validate market research evidence bundles for equities, ADRs, and ETFs in a fresh Codex context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report.
 ---
 
 # Validate Market Research

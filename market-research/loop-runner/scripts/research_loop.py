@@ -157,16 +157,16 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
     runtime_dir = runtime_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
-            f"$market-research-full researcher {symbol}",
+            f"$market-research researcher {symbol}",
             "",
-            "Run the market-research-full researcher workflow in this fresh Codex context.",
-            f"Use deterministic evidence first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
+            "Run the market-research researcher workflow in this fresh Codex context.",
+            f"Use deterministic evidence first: `python3 market-research/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
             f"Use the deterministic bundle under `data/{symbol}/YYYY-MM-DD/` as evidence.",
             f"Write final research markdown and JSON under `{report_dir}`.",
-            f"Attempt best-effort PDF generation for the final markdown with `bash market-research-full/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
+            f"Attempt best-effort PDF generation for the final markdown with `bash market-research/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
             f"Use `{runtime_dir}` for transient runtime notes, prompts, logs, and issue files.",
             "As you run the skill, identify any market-research skill issues separately.",
-            f"Write producer skill issues to `{runtime_dir}/{symbol}-market-research-full-issues.md`.",
+            f"Write producer skill issues to `{runtime_dir}/{symbol}-market-research-issues.md`.",
             f"Report the exact generated `{report_dir}` artifact path.",
             "Use public/free APIs, cache raw responses, preserve provenance, and disclose data gaps.",
             "",
@@ -187,9 +187,9 @@ def validator_prompt(symbol: str, run_dir: str, validation_output_dir: str | Non
     output_dir = validation_output_dir or default_validation_output_dir(symbol, run_dir)
     return "\n".join(
         [
-            f"$market-research-full verifier {run_dir}",
+            f"$market-research verifier {run_dir}",
             "",
-            "Run the market-research-full verifier workflow in this fresh Codex context.",
+            "Run the market-research verifier workflow in this fresh Codex context.",
             f"Validate the input artifacts in `{run_dir}`.",
             "Record validator skill issues separately.",
             f"Write validator skill issues to `{output_dir}/{symbol}-validator-skill-issues.md`.",
@@ -698,7 +698,7 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Orchestrate market-research-full researcher and verifier artifacts.")
+    parser = argparse.ArgumentParser(description="Orchestrate market-research researcher and verifier artifacts.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     inspect = sub.add_parser("inspect-validation", help="Report whether validation JSON passes the no critical/moderate gate.")

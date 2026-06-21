@@ -2,12 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository contains portable Agent Skills-format market research workflows. The active skill tree is consolidated under `market-research-full/`:
+This repository contains portable Agent Skills-format market research workflows. The active skill tree is consolidated under `market-research/`:
 
-- `market-research-full/researcher/`: producer skill and research references.
-- `market-research-full/verifier/`: validation skill and validation references.
-- `market-research-full/loop-runner/`: supervised batch loop skill and orchestration helper.
-- `market-research-full/shared/`: shared scripts, schemas, and agent config.
+- `market-research/researcher/`: producer skill and research references.
+- `market-research/verifier/`: validation skill and validation references.
+- `market-research/loop-runner/`: supervised batch loop skill and orchestration helper.
+- `market-research/shared/`: shared scripts, schemas, and agent config.
 - `tests/`: pytest coverage for helper scripts and loop behavior.
 - `docs/`: design notes, plans, and AI-human brief material.
 - `OLD/`: archived prompts and handoff notes; do not extend unless restoring legacy context.
@@ -19,11 +19,11 @@ Skill instructions live in each `SKILL.md`. Reference documents belong under `re
 There is no package build step. Run helpers directly with Python:
 
 ```bash
-python3 market-research-full/shared/scripts/deterministic_research_collector.py --help
-python3 market-research-full/shared/scripts/procedural_source_helper.py --help
-python3 market-research-full/shared/scripts/validate_market_research.py --help
-python3 market-research-full/loop-runner/scripts/research_loop.py --help
-bash market-research-full/shared/scripts/md-to-pdf.sh --help
+python3 market-research/shared/scripts/deterministic_research_collector.py --help
+python3 market-research/shared/scripts/procedural_source_helper.py --help
+python3 market-research/shared/scripts/validate_market_research.py --help
+python3 market-research/loop-runner/scripts/research_loop.py --help
+bash market-research/shared/scripts/md-to-pdf.sh --help
 ```
 
 Run the test suite from the repository root:

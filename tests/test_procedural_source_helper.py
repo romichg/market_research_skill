@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "market-research-full" / "shared" / "scripts" / "procedural_source_helper.py"
+HELPER = ROOT / "market-research" / "shared" / "scripts" / "procedural_source_helper.py"
 
 
 def run_helper(*args, cwd=None):

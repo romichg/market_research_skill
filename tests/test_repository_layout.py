@@ -2,13 +2,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OLD_ACTIVE_DIRS = ["market-research", "validate-market-research", "market-research-loop"]
+OLD_ACTIVE_DIRS = ["market-research-full", "validate-market-research", "market-research-loop"]
 
 
-def test_only_market_research_full_is_active_skill_tree():
-    assert (ROOT / "market-research-full" / "SKILL.md").exists()
+def test_only_market_research_is_active_skill_tree():
+    assert (ROOT / "market-research" / "SKILL.md").exists()
     for name in OLD_ACTIVE_DIRS:
-        assert not (ROOT / name).exists(), f"{name} must be moved into market-research-full"
+        assert not (ROOT / name).exists(), f"{name} must be moved into market-research"
 
 
 def test_generated_artifact_roots_are_ignored():
@@ -20,16 +20,20 @@ def test_generated_artifact_roots_are_ignored():
 
 def test_active_files_do_not_reference_old_skill_paths():
     forbidden = [
-        "market-research" + "/scripts/",
+        "market-research-full" + "/",
         "validate-market-research" + "/scripts/",
         "market-research-loop" + "/scripts/",
-        "$" + "market-research ",
+        "$" + "market-research-full ",
         "$" + "validate-market-research ",
         "$" + "market-research-loop ",
         "market-research" + "-runs",
     ]
     allowed_prefixes = {"OLD", ".git", ".worktrees"}
-    allowed_files = {Path("docs/plans/20260619_rework_plan.md")}
+    allowed_files = {
+        Path("docs/plans/20260619_rework_plan.md"),
+        Path("docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
+        Path("docs/superpowers/plans/2026-06-21-market-research-skill-rename-and-quality.md"),
+    }
     offenders = []
     for path in ROOT.rglob("*"):
         rel = path.relative_to(ROOT)

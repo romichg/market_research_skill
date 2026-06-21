@@ -4,7 +4,7 @@ from pathlib import Path
 
 SCHEMA = (
     Path(__file__).resolve().parents[1]
-    / "market-research-full"
+    / "market-research"
     / "shared"
     / "schemas"
     / "research-output.schema.json"

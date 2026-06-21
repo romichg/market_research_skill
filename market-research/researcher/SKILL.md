@@ -1,5 +1,5 @@
 ---
-name: market-research-full-researcher
+name: market-research-researcher
 description: Research US-listed equities, ADRs, and ETFs from a ticker symbol using public/free sources; create cited markdown and JSON artifacts; use deterministic helper scripts when useful but gracefully fall back to procedural research when helpers fail or are sparse. Use when Codex is asked for investment, equity, stock, ADR, ETF, fund, issuer, holdings, valuation, risk, or market research on a symbol.
 ---
 
@@ -53,7 +53,7 @@ Use `--providers sec,tiingo,eodhd` to restrict calls, `--provider-endpoints PROV
 Recommended quota-safe starting points:
 
 ```bash
-# Rebuild from frozen raw data only.
+# Rebuild from saved raw data only.
 python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SYMBOL --offline --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports
 
 # Live refresh using only polite SEC access and one price provider.
@@ -121,6 +121,8 @@ When a public/free source capture fails or returns unusable content, record the 
 python3 {baseDir}/../shared/scripts/procedural_source_helper.py record-source-gap SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --source-id holdings_csv --attempted-url "https://example.com/holdings.csv" --reason "CSV endpoint returned HTML." --replacement-source-id issuer_fact_sheet --severity medium
 ```
 
+If a material source is blocked by protected-source technology such as CAPTCHA, WAF, bot challenge, suspicious automated-access response, or JavaScript challenge, follow `references/source-policy.md` protected-source access guidance. Treat headed-browser human assistance as a first-class path when it preserves source quality.
+
 5. Prepare compact context:
 
 ```bash
@@ -169,15 +171,21 @@ reports/SYMBOL/YYYY-MM-DD/
 
 The final Markdown report must include these sections:
 
+- `## Bottom Line`
+- `## Key Facts`
 - `## Source Base And Data Quality`
 - `## Business Or Fund Profile`
-- `## Market And Technical Snapshot`
-- `## Financials Or Holdings And Exposures`
+- `## Business Model, Demand Drivers, Or Fund Methodology`
+- `## Market Snapshot Or Lifecycle Context`
+- `## Financials, Holdings, And Balance Sheet`
 - `## Valuation Or Performance Context`
+- `## What Looks Attractive`
+- `## What Worries Me`
 - `## Catalysts And Monitoring Triggers`
 - `## Bull/Base/Bear Decision Variables`
 - `## Risks And Invalidation Points`
 - `## Explicit Data Gaps`
+- `## My Take`
 
 The JSON sidecar must satisfy `../shared/schemas/research-output.schema.json`, including `technical_analysis`, `valuation_or_performance`, `decision_factors`, `risks`, `catalysts`, `source_coverage`, and `calculation_audit`.
 
@@ -191,7 +199,7 @@ bash {baseDir}/../shared/scripts/md-to-pdf.sh ./reports/SYMBOL/YYYY-MM-DD/SYMBOL
 
 If `pandoc` or `xelatex` is unavailable, report the helper message and continue with the Markdown and JSON artifacts. Do not treat missing PDF tooling as a research failure.
 
-11. Tell the user the artifact paths, including the PDF path if generated, and recommend running `market-research-full verifier` in a fresh agent context against the run directory.
+11. Tell the user the artifact paths, including the PDF path if generated, and recommend running `market-research verifier` in a fresh agent context against the run directory.
 
 ## Source Discipline
 
@@ -199,7 +207,7 @@ Every material quantitative claim must be cited or marked `Data not available` /
 
 For deterministic bundles, cite the normalized file and raw source path, for example `data/AAPL/2026-06-01/normalized/market_snapshot.json` and the corresponding `raw/` JSON from `source_manifest.json`.
 
-Every cited `source_id` should appear in `sources.json`; every cited public page or document should have a frozen `local_artifact` in `source_bundle/` when the source can be saved. If a dynamic page cannot be captured cleanly, describe the limitation as a workflow extraction gap rather than public-data unavailability.
+Every cited `source_id` should appear in `sources.json`; every cited public page or document should have a saved `local_artifact` in `source_bundle/` when the source can be saved. If a dynamic page cannot be captured cleanly, describe the limitation as a workflow extraction gap rather than public-data unavailability.
 
 Keep facts separate from interpretation in major sections. Do not let procedural gap filling become open-ended browsing; search for named missing fields only.
 

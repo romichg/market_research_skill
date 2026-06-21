@@ -1,18 +1,18 @@
 ---
-name: market-research-full-loop-runner
+name: market-research-batch-supervisor
 description: Use when running supervised market research batches that need fresh Codex contexts for research, validation, remediation, or later skill-improvement feedback collection.
 ---
 
-# Market Research Loop
+# Market Research Batch Supervisor
 
-Use this skill from a supervised Codex session to orchestrate `market-research-full researcher` and `market-research-full verifier` child sessions. The loop owns subprocess execution, pass/fail gating, remediation retries, logs, summaries, and skill-improvement feedback collection.
+Use this skill from a supervised Codex session to orchestrate `market-research researcher` and `market-research verifier` child sessions. The loop owns subprocess execution, pass/fail gating, remediation retries, logs, summaries, and skill-improvement feedback collection.
 
 ## Core Rule
 
 Keep research, validation, remediation, and skill improvement separate.
 
-- Research child: runs `$market-research-full researcher SYMBOL`, including best-effort PDF generation after final Markdown.
-- Validation child: runs `$market-research-full verifier RUN_DIR`.
+- Research child: runs `$market-research researcher SYMBOL`, including best-effort PDF generation after final Markdown.
+- Validation child: runs `$market-research verifier RUN_DIR`.
 - Remediation child: fixes only open critical/moderate validation issues in the research bundle.
 - Supervisor: watches the run, inspects failures, decides whether skill-improvement feedback is ready for a separate manual pass.
 
@@ -21,7 +21,7 @@ Keep research, validation, remediation, and skill improvement separate.
 From the repo root:
 
 ```bash
-python3 market-research-full/loop-runner/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-loop-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
+python3 market-research/loop-runner/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-loop-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
 ```
 
 If `--as-of` is omitted, the harness uses today's date. Runtime prompts, logs, skill issue files, and loop summaries stay under `runtime/SYMBOL/AS_OF/` or the configured runtime `RUN_ROOT/SYMBOL/AS_OF/`; deterministic data bundles belong under `data/SYMBOL/AS_OF/`; polished research and validation artifacts belong under `reports/SYMBOL/AS_OF/`.
@@ -42,7 +42,7 @@ While running, periodically inspect:
 
 ```bash
 find RUN_ROOT -name '*.log' -print
-python3 market-research-full/loop-runner/scripts/research_loop.py summarize RUN_ROOT
+python3 market-research/loop-runner/scripts/research_loop.py summarize RUN_ROOT
 ```
 
 Final pass gate: no open `critical` or `moderate` validation issues. Open `minor` findings are allowed but must be reported.
@@ -67,7 +67,7 @@ Use `operator-notes.md` for future user-requested changes that should not be imp
 After enough qualified feedback has accumulated:
 
 ```bash
-python3 market-research-full/loop-runner/scripts/research_loop.py collect-feedback RUN_ROOT
+python3 market-research/loop-runner/scripts/research_loop.py collect-feedback RUN_ROOT
 ```
 
 This writes `skill-improvement-feedback.md` and `.json`. Review those manually, then start a separate explicit skill-improvement task. Do not silently rewrite skills at the end of a normal research run.

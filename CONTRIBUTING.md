@@ -4,7 +4,7 @@ This repo is an Agent Skills-format project. Preserve portability first: keep th
 
 ## Development Rules
 
-- Keep active work under `market-research-full/`, `tests/`, and root documentation.
+- Keep active work under `market-research/`, `tests/`, and root documentation.
 - Do not extend `OLD/` unless restoring historical context.
 - Do not commit credentials, `.env`, private research bundles, or generated `data/`, `reports/`, or `runtime/` outputs.
 - Use `.env.example` as the active configuration template.
@@ -31,11 +31,11 @@ python3 -m pytest tests/test_validate_market_research.py
 Check helper CLIs:
 
 ```bash
-python3 market-research-full/shared/scripts/deterministic_research_collector.py --help
-python3 market-research-full/shared/scripts/procedural_source_helper.py --help
-python3 market-research-full/shared/scripts/validate_market_research.py --help
-python3 market-research-full/loop-runner/scripts/research_loop.py --help
-bash market-research-full/shared/scripts/md-to-pdf.sh --help
+python3 market-research/shared/scripts/deterministic_research_collector.py --help
+python3 market-research/shared/scripts/procedural_source_helper.py --help
+python3 market-research/shared/scripts/validate_market_research.py --help
+python3 market-research/loop-runner/scripts/research_loop.py --help
+bash market-research/shared/scripts/md-to-pdf.sh --help
 ```
 
 ## How To Update The Skill
@@ -56,7 +56,7 @@ When editing skill instructions, keep frontmatter descriptions short and trigger
 - For deterministic data issues, check `data/SYMBOL/AS_OF/source_manifest.json`, `manifest.json`, `gaps.json`, and raw provider payloads.
 - For procedural source issues, check `runtime/SYMBOL/AS_OF/sources.json` and `source_bundle/`.
 - For loop issues, check `research-loop-summary.json`, child prompt files, and `iteration-*/*.log`.
-- For PDF issues, run `bash market-research-full/shared/scripts/md-to-pdf.sh REPORT.md` directly and inspect stderr.
+- For PDF issues, run `bash market-research/shared/scripts/md-to-pdf.sh REPORT.md` directly and inspect stderr.
 
 ## Artifact Contracts
 

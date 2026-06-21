@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COLLECTOR = ROOT / "market-research-full" / "shared" / "scripts" / "deterministic_research_collector.py"
-VALIDATOR = ROOT / "market-research-full" / "shared" / "scripts" / "validate_market_research.py"
+COLLECTOR = ROOT / "market-research" / "shared" / "scripts" / "deterministic_research_collector.py"
+VALIDATOR = ROOT / "market-research" / "shared" / "scripts" / "validate_market_research.py"
 AS_OF = "2026-06-16"
 
 
@@ -93,8 +93,9 @@ def write_research_report(report_dir: Path, symbol: str, security_type: str) -> 
     )
 
 
-def test_market_research_full_offline_acceptance_for_equity_and_etf(tmp_path):
+def test_market_research_offline_acceptance_for_equity_and_etf(tmp_path):
     data_dir = tmp_path / "data"
+    cache_dir = tmp_path / "cache"
     reports_dir = tmp_path / "reports"
 
     for symbol, security_type in [("AAPL", "equity"), ("SPY", "etf")]:
@@ -109,6 +110,8 @@ def test_market_research_full_offline_acceptance_for_equity_and_etf(tmp_path):
             AS_OF,
             "--data-dir",
             data_dir,
+            "--cache-dir",
+            cache_dir,
             "--reports-dir",
             reports_dir,
         )

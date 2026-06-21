@@ -10,9 +10,9 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "market-research-full" / "shared" / "scripts" / "deterministic_research_collector.py"
-DETERMINISTIC_SCHEMA = ROOT / "market-research-full" / "shared" / "schemas" / "deterministic-bundle.schema.json"
-PROVIDER_MAP = ROOT / "market-research-full" / "researcher" / "references" / "provider-data-map.md"
+SCRIPT = ROOT / "market-research" / "shared" / "scripts" / "deterministic_research_collector.py"
+DETERMINISTIC_SCHEMA = ROOT / "market-research" / "shared" / "schemas" / "deterministic-bundle.schema.json"
+PROVIDER_MAP = ROOT / "market-research" / "researcher" / "references" / "provider-data-map.md"
 
 
 def load_module():
@@ -1475,14 +1475,14 @@ def test_provider_map_schema_and_docs_are_in_sync():
 
 def test_active_market_research_docs_use_new_script_names():
     active_files = [
-        ROOT / "market-research-full" / "SKILL.md",
-        ROOT / "market-research-full" / "researcher" / "SKILL.md",
-        ROOT / "market-research-full" / "researcher" / "references" / "equity-research.md",
-        ROOT / "market-research-full" / "researcher" / "references" / "etf-research.md",
-        ROOT / "market-research-full" / "researcher" / "references" / "report-template.md",
-        ROOT / "market-research-full" / "shared" / "schemas" / "research-output.schema.json",
-        ROOT / "market-research-full" / "loop-runner" / "scripts" / "research_loop.py",
-        ROOT / "market-research-full" / "verifier" / "SKILL.md",
+        ROOT / "market-research" / "SKILL.md",
+        ROOT / "market-research" / "researcher" / "SKILL.md",
+        ROOT / "market-research" / "researcher" / "references" / "equity-research.md",
+        ROOT / "market-research" / "researcher" / "references" / "etf-research.md",
+        ROOT / "market-research" / "researcher" / "references" / "report-template.md",
+        ROOT / "market-research" / "shared" / "schemas" / "research-output.schema.json",
+        ROOT / "market-research" / "loop-runner" / "scripts" / "research_loop.py",
+        ROOT / "market-research" / "verifier" / "SKILL.md",
         ROOT / "AGENTS.md",
     ]
 
@@ -1490,7 +1490,7 @@ def test_active_market_research_docs_use_new_script_names():
         text = path.read_text(encoding="utf-8")
         assert "research_data.py" not in text
         assert "market_research_helper.py" not in text
-    researcher_skill = (ROOT / "market-research-full" / "researcher" / "SKILL.md").read_text(encoding="utf-8")
+    researcher_skill = (ROOT / "market-research" / "researcher" / "SKILL.md").read_text(encoding="utf-8")
     assert "deterministic_research_collector.py" in researcher_skill
     assert "procedural_source_helper.py" in researcher_skill
 

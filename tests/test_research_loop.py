@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-HARNESS = Path(__file__).resolve().parents[1] / "market-research-full" / "loop-runner" / "scripts" / "research_loop.py"
+HARNESS = Path(__file__).resolve().parents[1] / "market-research" / "loop-runner" / "scripts" / "research_loop.py"
 
 
 def run_harness(*args):
@@ -74,7 +74,7 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "deterministic_research_collector.py fetch EWW" in producer
     assert "reports/" in producer
     assert "fresh Codex context" in validator
-    assert "$market-research-full verifier reports/EWW/2026-06-01" in validator
+    assert "$market-research verifier reports/EWW/2026-06-01" in validator
     assert "EWW-validator-skill-issues.md" in validator
     assert "Fix only open critical/moderate issues" in remediation
     assert "EWW-market-research-skill-issues.md" in remediation
@@ -94,14 +94,14 @@ def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
     assert "--data-dir ./data" in producer
     assert "--reports-dir ./reports" in producer
     assert (
-        "Use deterministic evidence first: `python3 market-research-full/shared/scripts/deterministic_research_collector.py fetch "
+        "Use deterministic evidence first: `python3 market-research/shared/scripts/deterministic_research_collector.py fetch "
         "AAPL --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`."
     ) in producer
     assert "Use the deterministic bundle under `data/AAPL/YYYY-MM-DD/` as evidence." in producer
     assert "Write final research markdown and JSON under `reports/AAPL/2026-06-16`." in producer
     assert "Attempt best-effort PDF generation for the final markdown" in producer
-    assert "Write producer skill issues to `runtime/AAPL/2026-06-16/AAPL-market-research-full-issues.md`." in producer
-    assert "$market-research-full verifier reports/AAPL/2026-06-16" in validator
+    assert "Write producer skill issues to `runtime/AAPL/2026-06-16/AAPL-market-research-issues.md`." in producer
+    assert "$market-research verifier reports/AAPL/2026-06-16" in validator
 
 
 def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):
@@ -114,7 +114,7 @@ def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_p
     payload = json.loads(result.stdout)
     producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
     assert f"Use `{run_dir}` for transient runtime notes, prompts, logs, and issue files." in producer
-    assert f"Write producer skill issues to `{run_dir}/AAPL-market-research-full-issues.md`." in producer
+    assert f"Write producer skill issues to `{run_dir}/AAPL-market-research-issues.md`." in producer
 
 
 def test_loop_prompt_maps_absolute_reports_dir_to_sibling_runtime_dir(tmp_path):
@@ -129,7 +129,7 @@ def test_loop_prompt_maps_absolute_reports_dir_to_sibling_runtime_dir(tmp_path):
     producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
     assert f"Write final research markdown and JSON under `{absolute_run_dir}`." in producer
     assert f"Use `{expected_runtime_dir}` for transient runtime notes, prompts, logs, and issue files." in producer
-    assert f"Write producer skill issues to `{expected_runtime_dir / 'AAPL-market-research-full-issues.md'}`." in producer
+    assert f"Write producer skill issues to `{expected_runtime_dir / 'AAPL-market-research-issues.md'}`." in producer
 
 
 def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_path):
@@ -140,7 +140,7 @@ def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_pat
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
-    assert "$market-research-full verifier runtime/EWW" in validator
+    assert "$market-research verifier runtime/EWW" in validator
     assert "Write validation markdown and JSON artifacts under `reports/EWW/YYYY-MM-DD`." in validator
     assert "Write validation markdown and JSON artifacts under `runtime/EWW`." not in validator
 
@@ -153,7 +153,7 @@ def test_init_batch_validator_prompts_use_reports_as_of_output(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     validator = (Path(payload["prompt_dirs"]["EWW"]) / "EWW-validator.md").read_text(encoding="utf-8")
-    assert f"$market-research-full verifier {root / 'EWW' / '2026-06-16'}" in validator
+    assert f"$market-research verifier {root / 'EWW' / '2026-06-16'}" in validator
     assert "Write validation markdown and JSON artifacts under `reports/EWW/2026-06-16`." in validator
     assert f"Write validation markdown and JSON artifacts under `{root / 'EWW' / '2026-06-16'}`." not in validator
 
