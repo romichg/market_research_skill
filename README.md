@@ -24,8 +24,43 @@ The skill follows the Agent Skills convention: a directory containing `SKILL.md`
   - `pandoc`
   - `xelatex`
   - Noto Sans or another compatible system font
+- Optional headed-browser tools for protected-source access:
+  - Chromium
+  - Playwright for Python
 
 PDF generation is best-effort. If `pandoc` or `xelatex` is missing, the skill reports that and keeps the Markdown/JSON report valid.
+
+### Optional PDF Tooling
+
+Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y pandoc texlive-xetex fonts-noto
+```
+
+Fedora:
+
+```bash
+sudo dnf install -y pandoc texlive-xetex google-noto-sans-fonts
+```
+
+macOS with Homebrew:
+
+```bash
+brew install pandoc --cask mactex-no-gui
+```
+
+### Optional Headed Browser Tooling
+
+Use this when protected-source handling needs a browser session for CAPTCHA, JavaScript challenges, or manual source capture.
+
+```bash
+python3 -m pip install playwright
+python3 -m playwright install chromium
+```
+
+If the system already has Chromium installed, Playwright can still be useful for reproducible headed capture and screenshots.
 
 ## Install
 
@@ -47,10 +82,6 @@ ln -s "$(pwd)/market-research" ~/.claude/skills/market-research
 
 Other agents such as OpenClaw should work if they support the same `SKILL.md` directory contract. Use the agent's configured skills directory and point it at `market-research/`.
 
-## Migration From `market-research-full`
-
-The previous active skill directory and invocation name was `market-research-full`. Use `market-research` instead. If you installed the old skill through a symlink, remove the old symlink and create a new one pointing to `market-research/`.
-
 ## Configure
 
 Start from the active template:
@@ -59,7 +90,14 @@ Start from the active template:
 cp .env.example .env
 ```
 
-Add only the provider keys you want to use. Deterministic HTTP calls default to a browser-like user agent; set `HTTP_USER_AGENT` only if you want a custom override. `SEC_USER_AGENT` is still tolerated as a legacy override, but new installs should use `HTTP_USER_AGENT`.
+Add only the provider keys you want to use. SEC fair-access systems may block unclassified automated tools, so keep `SEC_USER_AGENT` descriptive and include a project name plus contact email:
+
+```dotenv
+SEC_USER_AGENT=market-research-skill/1.0 your-email@example.com
+HTTP_USER_AGENT=
+```
+
+Avoid browser-like values such as `Mozilla/5.0 ... Chrome/...` for SEC API calls. If `SEC_USER_AGENT` is empty or browser-like, SEC calls use the built-in descriptive `DEFAULT_SEC_USER_AGENT`. `HTTP_USER_AGENT` is separate: it is used for generic HTTP provider calls such as MarketAux and defaults to a browser-like value when unset.
 
 Generated `data/`, `reports/`, `runtime/`, `.env`, and private research bundles should stay out of commits.
 
@@ -136,5 +174,5 @@ bash market-research/shared/scripts/md-to-pdf.sh reports/AAPL/YYYY-MM-DD/AAPL-re
 - Missing provider data: run `doctor`, check `.env`, then use cached/offline rebuilds where possible.
 - PDF missing: install `pandoc` and a TeX distribution containing `xelatex`; rerun `md-to-pdf.sh`.
 - Validation failures: inspect the validation Markdown/JSON first, then fix only cited blocking issues.
-- Rate limits or provider errors: use provider filters, endpoint filters, and call budgets before refreshing live data.
+- Rate limits or provider errors: use provider filters, endpoint filters, and call budgets before refreshing live data. For SEC `HTTP 403`, check whether the saved raw artifact body says `Request Rate Threshold Exceeded`; if the selected SEC user-agent is browser-like or lacks contact information, fix `SEC_USER_AGENT` before retrying.
 - Protected source access: if a material source is blocked by bot protection, CAPTCHA, WAF, or a JavaScript challenge, use headed-browser human assistance instead of accepting a stale or lower-quality substitute.

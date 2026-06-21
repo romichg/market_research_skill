@@ -9,6 +9,7 @@ Check these areas:
 - Dates: source date, accessed date, and stale-data caveats are present for fast-changing facts.
 - Source quality: primary sources are preferred; secondary sources are labeled.
 - Source reproducibility: cited `source_id` values should be present in `sources.json`; cited public documents/pages should be frozen in `source_bundle/` when saveable.
+- Entity alignment: cited sources must refer to the same issuer, fund, share class, listing, and ticker context as the report. Scrutinize ticker collisions, similarly named companies, ADR/local-listing differences, pending IPO symbols, renamed issuers, and news-provider results that mention a different company. If a source is about the wrong entity, mark the supported claim as unsupported even if the ticker text matches.
 - Internal consistency: markdown and JSON do not contradict each other.
 - Facts versus interpretation: major sections keep sourced facts distinct from judgment.
 - Data gaps: missing or low-confidence data is disclosed rather than hidden.
@@ -30,6 +31,7 @@ ETF-specific checks:
 Equity/ADR-specific checks:
 
 - Company identity and security type are supported.
+- For pending IPOs and newly listed securities, confirm SEC filing entity, issuer legal name, expected exchange/ticker, and any secondary news item all point to the same company before accepting IPO terms, listing timing, or recent-event claims.
 - Latest annual and interim filings are used or unavailable filings are disclosed.
 - Revenue, earnings, cash flow, balance sheet, and share data are sourced.
 - Valuation claims are supported by current or clearly dated inputs.

@@ -48,6 +48,7 @@ python3 {baseDir}/../shared/scripts/validate_market_research.py data/SYMBOL/AS_O
 - Check whether facts and interpretation are separated.
 - Check for unsupported valuation, performance, peer, or portfolio-fit claims.
 - Check for omitted risks.
+- Check ticker/name/source-entity alignment. News and secondary data providers can return similarly named but unrelated issuers for the same ticker text, ADR/local-listing collisions, predecessor entities, or pending IPO symbols. Treat any claim supported only by a mismatched issuer/source entity as unsupported.
 - When `sources.json` includes `artifact_sha256` and `artifact_size_bytes`, treat them as frozen-artifact integrity metadata and verify that referenced local artifacts still exist.
 - Check ETF fee, holdings, exposure, and index methodology support.
 - Check equity/ADR filing, financial, valuation, and risk support.

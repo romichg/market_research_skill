@@ -117,6 +117,29 @@ def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
     assert validation["issues"][0]["severity"] == "moderate"
 
 
+def test_validator_uses_sources_file_pointer_from_report_json(tmp_path):
+    report_dir = tmp_path / "reports" / "DPC" / "2026-06-21"
+    runtime_dir = tmp_path / "runtime" / "DPC" / "2026-06-21"
+    report_dir.mkdir(parents=True)
+    runtime_dir.mkdir(parents=True)
+    (report_dir / "DPC-research.md").write_text("# DPC Research\n", encoding="utf-8")
+    sources_path = runtime_dir / "sources.json"
+    sources_path.write_text(json.dumps({"sources": [{"id": "sec_s1a", "title": "S-1/A"}]}), encoding="utf-8")
+    payload = {
+        **complete_research_payload("DPC", "equity"),
+        "material_claims": [{"claim": "DPC filed an S-1/A.", "source_id": "sec_s1a", "confidence": "high"}],
+        "sources_file": str(sources_path),
+    }
+    (report_dir / "DPC-research.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "DPC-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["blocking_issue_count"] == 0
+    assert validation["issues"] == []
+
+
 def test_validator_flags_missing_expanded_research_json_sections(tmp_path):
     run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)

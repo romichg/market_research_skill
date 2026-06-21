@@ -157,15 +157,21 @@ def issue_counts(issues: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def load_sources(run_dir: Path) -> dict[str, dict[str, Any]]:
-    path = run_dir / "sources.json"
-    if not path.exists():
-        return {}
-    payload = read_json(path)
-    sources = payload.get("sources", [])
-    if not isinstance(sources, list):
-        return {}
-    return {str(source.get("id")): source for source in sources if isinstance(source, dict) and source.get("id")}
+def load_sources(run_dir: Path, report: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    candidates = [run_dir / "sources.json"]
+    if isinstance(report, dict):
+        sources_file = report.get("sources_file")
+        if isinstance(sources_file, str) and sources_file:
+            candidates.append(Path(sources_file))
+    for path in candidates:
+        if not path.exists():
+            continue
+        payload = read_json(path)
+        sources = payload.get("sources", [])
+        if not isinstance(sources, list):
+            return {}
+        return {str(source.get("id")): source for source in sources if isinstance(source, dict) and source.get("id")}
+    return {}
 
 
 def deterministic_issues(report: Any, sources_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -278,7 +284,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     md_path = bundle["report_markdown"]
     json_path = bundle.get("report_json")
     report = read_json(json_path) if isinstance(json_path, Path) else {}
-    sources_by_id = load_sources(run_dir)
+    sources_by_id = load_sources(run_dir, report if isinstance(report, dict) else None)
     issues = deterministic_bundle_issues(bundle) if bundle["bundle_type"] == "deterministic_data_bundle" else deterministic_issues(report, sources_by_id)
     counts = issue_counts(issues)
     blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")

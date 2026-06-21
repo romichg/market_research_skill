@@ -73,6 +73,15 @@ python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SY
 python3 {baseDir}/../shared/scripts/deterministic_research_collector.py list-cache SYMBOL
 ```
 
+If a deterministic fetch aborts because one provider is `unauthorized`, `rate_limited`, or `plan_gated`, do not stop deterministic work immediately. Rerun a restricted/offline bundle with only providers and endpoints that have usable cache or a low-risk live path. Examples:
+
+```bash
+python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SYMBOL --offline --providers tiingo,alphavantage,marketaux,fmp --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports
+python3 {baseDir}/../shared/scripts/deterministic_research_collector.py fetch SYMBOL --offline --providers eodhd,marketaux --provider-endpoints eodhd=news --provider-endpoints marketaux=news --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports
+```
+
+For pending IPOs or symbols with no trading history, always attempt a targeted news/events pass when any configured news provider is available. Use the resulting `normalized/news.json` as evidence only after checking relevance, because ticker collisions can return unrelated issuers.
+
 The deterministic collector writes:
 
 ```text

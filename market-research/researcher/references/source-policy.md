@@ -38,6 +38,15 @@ Helper failure handling:
 - If public data is visible but the workflow did not capture it, call it a workflow extraction gap rather than unavailable public data and record it with `record-source-gap` when using the helper.
 - Do not cite volatile live-page fields as current facts unless the exact page, payload, screenshot-equivalent text, or extracted artifact was saved. Update the saved artifact, label the field stale, or remove the volatile number from investment framing.
 
+## SEC Fair-Access Failures
+
+When SEC returns `HTTP 403`, inspect the raw provider artifact before calling it authentication failure.
+
+- If the saved body title or snippet says `Request Rate Threshold Exceeded`, classify it as an SEC fair-access/rate-threshold issue.
+- If `SEC_USER_AGENT` is browser-like or lacks a project/contact hint, treat the first remediation as user-agent correction, not blind retry.
+- If the SEC user-agent is descriptive and the body still says rate threshold, use conservative backoff/retry or switch to saved SEC filing URLs discovered through search.
+- If equivalent SEC filing URLs are available and can be saved directly, headed-browser escalation is not required. If a material SEC page remains inaccessible and no equivalent primary source is available, ask for headed-browser human assistance.
+
 ## Protected Source Access
 
 Protected-source handling applies to any source, not only SEC.

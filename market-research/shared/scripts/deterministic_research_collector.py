@@ -32,7 +32,7 @@ SECRET_NAMES = {
     "FMP_API_KEY",
 }
 PROVIDER_ENV = {
-    "sec": ["HTTP_USER_AGENT", "SEC_USER_AGENT"],
+    "sec": ["SEC_USER_AGENT"],
     "twelve_data": ["TWELVE_DATA_API_KEY"],
     "marketaux": ["MARKETAUX_API_TOKEN"],
     "alphavantage": ["ALPHAVANTAGE_API_KEY"],
@@ -41,12 +41,13 @@ PROVIDER_ENV = {
     "fmp": ["FMP_API_KEY"],
 }
 DEFAULT_PROVIDERS = ["sec", "tiingo", "eodhd", "alphavantage", "marketaux", "fmp", "twelve_data"]
-DEFAULT_BROWSER_USER_AGENT = (
+DEFAULT_SEC_USER_AGENT = "market-research-skill/1.0 research@example.com"
+DEFAULT_HTTP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0.0.0 Safari/537.36"
 )
-PROJECT_USER_AGENT_TOKENS = ("market-research-skill", "market_research_skill")
+BROWSER_USER_AGENT_TOKENS = ("mozilla/", "chrome/", "safari/", "applewebkit", "firefox/")
 SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PROVIDER_ENDPOINT_COSTS = {
@@ -310,20 +311,36 @@ def configured_providers(config: ProviderConfig) -> list[str]:
     return found
 
 
-def default_user_agent(config: ProviderConfig | None = None) -> str:
+def is_descriptive_sec_user_agent(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized:
+        return False
+    if any(token in normalized for token in BROWSER_USER_AGENT_TOKENS):
+        return False
+    return "@" in normalized or "http://" in normalized or "https://" in normalized
+
+
+def sec_user_agent(config: ProviderConfig | None = None) -> str:
     if config:
-        for key in ("HTTP_USER_AGENT", "SEC_USER_AGENT"):
-            value = config.values.get(key, "").strip()
-            if value and not any(token in value.lower() for token in PROJECT_USER_AGENT_TOKENS):
-                return value
-    return DEFAULT_BROWSER_USER_AGENT
+        sec_value = config.values.get("SEC_USER_AGENT", "").strip()
+        if is_descriptive_sec_user_agent(sec_value):
+            return sec_value
+    return DEFAULT_SEC_USER_AGENT
+
+
+def http_user_agent(config: ProviderConfig | None = None) -> str:
+    if config:
+        http_value = config.values.get("HTTP_USER_AGENT", "").strip()
+        if http_value:
+            return http_value
+    return DEFAULT_HTTP_USER_AGENT
 
 
 def write_env_example(repo_root: Path | str, config: ProviderConfig | None = None) -> Path:
     path = Path(repo_root) / ".env.example"
     keys = [
-        "HTTP_USER_AGENT",
         "SEC_USER_AGENT",
+        "HTTP_USER_AGENT",
         "TWELVE_DATA_API_KEY",
         "MARKETAUX_API_TOKEN",
         "ALPHAVANTAGE_API_KEY",
@@ -339,10 +356,11 @@ def write_env_example(repo_root: Path | str, config: ProviderConfig | None = Non
     lines = []
     for key in keys:
         defaults = {
+            "SEC_USER_AGENT": "market-research-skill/1.0 your-email@example.com",
             "RESEARCH_DATA_DIR": "./data",
             "RESEARCH_REPORTS_DIR": "./reports",
             "RESEARCH_RUNTIME_DIR": "./runtime",
-            "RESEARCH_CACHE_DIR": "./data/_cache",
+            "RESEARCH_CACHE_DIR": "./data/cache",
         }
         default = defaults.get(key, "")
         lines.append(f"{key}={default}")
@@ -362,7 +380,7 @@ def resolve_storage_paths(
     resolved_data = Path(data_dir or config.values.get("RESEARCH_DATA_DIR", root / "data"))
     resolved_reports = Path(reports_dir or config.values.get("RESEARCH_REPORTS_DIR", root / "reports"))
     resolved_runtime = Path(runtime_dir or config.values.get("RESEARCH_RUNTIME_DIR", root / "runtime"))
-    resolved_cache = Path(cache_dir or config.values.get("RESEARCH_CACHE_DIR", resolved_data / "_cache"))
+    resolved_cache = Path(cache_dir or config.values.get("RESEARCH_CACHE_DIR", resolved_data / "cache"))
     return {
         "data_dir": resolved_data,
         "reports_dir": resolved_reports,
@@ -419,22 +437,33 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def write_raw(cache_root: Path, symbol: str, provider: str, endpoint: str, params: dict[str, Any], data: Any, source_url: str, status: str = "ok", error: str | None = None) -> Path:
+def write_raw(
+    cache_root: Path,
+    symbol: str,
+    provider: str,
+    endpoint: str,
+    params: dict[str, Any],
+    data: Any,
+    source_url: str,
+    status: str = "ok",
+    error: str | None = None,
+    error_metadata: dict[str, Any] | None = None,
+) -> Path:
     path = raw_path(cache_root, symbol, provider, endpoint, params)
-    payload = {
-        "provider_result": {
-            "provider": provider,
-            "endpoint": endpoint,
-            "url": source_url,
-            "params_hash": cache_key(provider, endpoint, params).split("_")[-1],
-            "fetched_at_utc": utc_now(),
-            "source_as_of": None,
-            "raw_path": str(path),
-            "status": status,
-            "error": error,
-        },
-        "data": data,
+    provider_result = {
+        "provider": provider,
+        "endpoint": endpoint,
+        "url": source_url,
+        "params_hash": cache_key(provider, endpoint, params).split("_")[-1],
+        "fetched_at_utc": utc_now(),
+        "source_as_of": None,
+        "raw_path": str(path),
+        "status": status,
+        "error": error,
     }
+    if error_metadata:
+        provider_result.update(error_metadata)
+    payload = {"provider_result": provider_result, "data": data}
     write_json(path, payload)
     return path
 
@@ -461,6 +490,26 @@ def classify_provider_payload(provider: str, data: Any) -> tuple[str, str | None
                 return "rate_limited", message_text
             return "error", message_text
     return "ok", None
+
+
+def extract_html_title(body: str) -> str | None:
+    match = re.search(r"<title>(.*?)</title>", body, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def classify_http_error(provider: str, code: int, body: str) -> tuple[str, str]:
+    title = extract_html_title(body)
+    if provider == "sec" and code == 403 and title and "Request Rate Threshold Exceeded" in title:
+        return "rate_limited", f"HTTP 403: {title}"
+    if code == 429:
+        return "rate_limited", f"HTTP {code}"
+    if code in {401, 403}:
+        return "unauthorized", f"HTTP {code}" if not title else f"HTTP {code}: {title}"
+    if code == 402:
+        return "plan_gated", f"HTTP {code}"
+    return "error", f"HTTP {code}" if not title else f"HTTP {code}: {title}"
 
 
 def read_raw_latest(cache_root: Path, symbol: str, provider: str, endpoint: str) -> tuple[Path, dict[str, Any]] | None:
@@ -543,15 +592,20 @@ def retry_policy_for_provider(provider: str) -> RetryPolicy:
     return RetryPolicy(max_attempts=3, initial_backoff_seconds=0.5)
 
 
-def should_retry(exc: BaseException, policy: RetryPolicy) -> bool:
+def should_retry(exc: BaseException, policy: RetryPolicy, provider: str | None = None, headers: dict[str, str] | None = None) -> bool:
     if isinstance(exc, HTTPError):
+        if provider == "sec" and exc.code == 403:
+            body = exc.read(4096).decode("utf-8", "replace")
+            status, _error = classify_http_error("sec", exc.code, body)
+            user_agent = (headers or {}).get("User-Agent", "")
+            return status == "rate_limited" and is_descriptive_sec_user_agent(user_agent)
         return exc.code in policy.retry_http_statuses
     if isinstance(exc, (URLError, TimeoutError)):
         return policy.retry_url_errors
     return False
 
 
-def http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20, retry_policy: RetryPolicy | None = None) -> Any:
+def http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20, retry_policy: RetryPolicy | None = None, provider: str | None = None) -> Any:
     policy = retry_policy or RetryPolicy(max_attempts=1)
     request = Request(url, headers=headers or {})
     backoff = policy.initial_backoff_seconds
@@ -561,7 +615,7 @@ def http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 20
                 body = response.read()
             return json.loads(body.decode("utf-8"))
         except (HTTPError, URLError, TimeoutError) as exc:
-            if attempt >= policy.max_attempts or not should_retry(exc, policy):
+            if attempt >= policy.max_attempts or not should_retry(exc, policy, provider=provider, headers=headers):
                 raise
             time.sleep(backoff)
             backoff *= policy.backoff_multiplier
@@ -576,12 +630,19 @@ def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str
         if cached:
             return cached
     try:
-        data = http_json(url, headers=headers, retry_policy=retry_policy_for_provider(provider))
+        data = http_json(url, headers=headers, retry_policy=retry_policy_for_provider(provider), provider=provider)
         status, semantic_error = classify_provider_payload(provider, data)
         return write_raw(cache_root, symbol, provider, endpoint, params, data, source_url=source_url, status=status, error=semantic_error)
     except HTTPError as exc:
-        status = "rate_limited" if exc.code == 429 else "unauthorized" if exc.code in {401, 403} else "plan_gated" if exc.code == 402 else "error"
-        return write_raw(cache_root, symbol, provider, endpoint, params, {}, source_url=redact(source_url, config), status=status, error=f"HTTP {exc.code}")
+        body_bytes = exc.read(4096)
+        body_text = body_bytes.decode("utf-8", "replace")
+        status, error = classify_http_error(provider, exc.code, body_text)
+        metadata = {
+            "http_status": exc.code,
+            "response_headers": {str(k).lower(): str(v) for k, v in dict(exc.headers or {}).items()},
+            "error_body_snippet": body_text[:2000],
+        }
+        return write_raw(cache_root, symbol, provider, endpoint, params, {}, source_url=redact(source_url, config), status=status, error=error, error_metadata=metadata)
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
         return write_raw(cache_root, symbol, provider, endpoint, params, {}, source_url=redact(source_url, config), status="error", error=str(exc))
 
@@ -591,7 +652,7 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
     paths: list[Path] = []
     selected_endpoints = {"prices"} if provider == "tiingo" and endpoints is None else endpoints_for_provider(provider, endpoints)
     if provider == "sec":
-        headers = {"User-Agent": default_user_agent(config)}
+        headers = {"User-Agent": sec_user_agent(config)}
         tickers_url = "https://www.sec.gov/files/company_tickers.json"
         if "company_tickers" in selected_endpoints:
             paths.append(fetch_with_cache(cache_root, symbol, "sec", "company_tickers", {}, tickers_url, tickers_url, config, headers, refresh, reuse_endpoint_cache=True))
@@ -671,7 +732,7 @@ def fetch_provider(symbol: str, provider: str, as_of: str, cache_root: Path, con
         params = {"symbols": symbol, "language": "en", "limit": config.values.get("MARKETAUX_NEWS_LIMIT", "3")}
         url = f"https://api.marketaux.com/v1/news/all?{urlencode({**params, 'api_token': token})}"
         source = f"https://api.marketaux.com/v1/news/all?{urlencode(params)}"
-        headers = {"User-Agent": default_user_agent(config), "Accept": "application/json"}
+        headers = {"User-Agent": http_user_agent(config), "Accept": "application/json"}
         paths.append(fetch_with_cache(cache_root, symbol, "marketaux", "news", params, url, source, config, headers=headers, refresh=refresh, reuse_endpoint_cache=True))
     elif provider == "fmp" and config.values.get("FMP_API_KEY"):
         token = config.values["FMP_API_KEY"]

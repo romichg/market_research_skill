@@ -298,7 +298,7 @@ def test_storage_paths_default_to_data_reports_runtime(tmp_path):
     assert paths["data_dir"] == tmp_path / "data"
     assert paths["reports_dir"] == tmp_path / "reports"
     assert paths["runtime_dir"] == tmp_path / "runtime"
-    assert paths["cache_dir"] == tmp_path / "data" / "_cache"
+    assert paths["cache_dir"] == tmp_path / "data" / "cache"
 
 
 def test_fetch_writes_deterministic_bundle_under_data_not_reports(tmp_path, monkeypatch):
@@ -520,7 +520,7 @@ def test_endpoint_plan_avoids_duplicate_price_fetches(tmp_path, monkeypatch):
     module = load_module()
     calls = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         calls.append(url)
         return {} if "fundamentals" in url or "OVERVIEW" in url else []
 
@@ -729,34 +729,42 @@ def test_twelve_data_profile_normalizes_identity_fields(tmp_path):
     assert identity["currency"]["value"] == "USD"
 
 
-def test_marketaux_fetch_sends_provider_friendly_headers(tmp_path, monkeypatch):
+def test_marketaux_fetch_sends_general_http_user_agent_header(tmp_path, monkeypatch):
     module = load_module()
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         seen.append({"url": url, "headers": headers or {}})
         return {"data": []}
 
     monkeypatch.setattr(module, "http_json", fake_http_json)
-    config = module.ProviderConfig(values={"MARKETAUX_API_TOKEN": "marketaux-secret"}, docs={}, limits={}, loaded_files=[])
+    config = module.ProviderConfig(
+        values={
+            "MARKETAUX_API_TOKEN": "marketaux-secret",
+            "HTTP_USER_AGENT": "general-agent/1.0",
+            "SEC_USER_AGENT": "sec-agent/1.0 sec@example.com",
+        },
+        docs={},
+        limits={},
+        loaded_files=[],
+    )
 
     paths = module.fetch_provider("AAPL", "marketaux", "2026-06-19", tmp_path, config, refresh=True, endpoints={"news"})
 
     assert len(paths) == 1
     assert seen[0]["headers"]["Accept"] == "application/json"
-    assert "Mozilla/5.0" in seen[0]["headers"]["User-Agent"]
-    assert "Chrome/" in seen[0]["headers"]["User-Agent"]
-    assert "market-research-skill" not in seen[0]["headers"]["User-Agent"]
+    assert seen[0]["headers"]["User-Agent"] == "general-agent/1.0"
+    assert "sec-agent" not in seen[0]["headers"]["User-Agent"]
     payload = json.loads(paths[0].read_text(encoding="utf-8"))
     assert "marketaux-secret" in seen[0]["url"]
     assert "marketaux-secret" not in payload["provider_result"]["url"]
 
 
-def test_sec_fetch_uses_browser_user_agent_without_custom_config(tmp_path, monkeypatch):
+def test_sec_fetch_uses_descriptive_user_agent_without_custom_config(tmp_path, monkeypatch):
     module = load_module()
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         seen.append({"url": url, "headers": headers or {}})
         return {"0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."}}
 
@@ -767,16 +775,58 @@ def test_sec_fetch_uses_browser_user_agent_without_custom_config(tmp_path, monke
 
     assert len(paths) == 1
     assert seen[0]["url"].endswith("company_tickers.json")
-    assert "Mozilla/5.0" in seen[0]["headers"]["User-Agent"]
-    assert "Chrome/" in seen[0]["headers"]["User-Agent"]
-    assert "market-research-skill" not in seen[0]["headers"]["User-Agent"]
+    assert seen[0]["headers"]["User-Agent"] == module.DEFAULT_SEC_USER_AGENT
+    assert "@" in seen[0]["headers"]["User-Agent"]
+    assert "Mozilla/5.0" not in seen[0]["headers"]["User-Agent"]
 
 
-def test_legacy_project_user_agent_is_not_sent(tmp_path, monkeypatch):
+def test_marketaux_fetch_uses_browser_like_default_without_general_http_user_agent(tmp_path, monkeypatch):
     module = load_module()
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
+        seen.append(headers or {})
+        return {"data": []}
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={"MARKETAUX_API_TOKEN": "marketaux-secret"}, docs={}, limits={}, loaded_files=[])
+
+    module.fetch_provider("AAPL", "marketaux", "2026-06-19", tmp_path, config, refresh=True, endpoints={"news"})
+
+    assert seen[0]["User-Agent"] == module.DEFAULT_HTTP_USER_AGENT
+    assert "Mozilla/5.0" in seen[0]["User-Agent"]
+
+
+def test_sec_fetch_ignores_general_http_user_agent(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
+        seen.append(headers or {})
+        return {"0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."}}
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(
+        values={
+            "HTTP_USER_AGENT": "general-agent/1.0",
+            "SEC_USER_AGENT": "sec-agent/1.0 sec@example.com",
+        },
+        docs={},
+        limits={},
+        loaded_files=[],
+    )
+
+    module.fetch_provider("AAPL", "sec", "2026-06-19", tmp_path, config, refresh=True, endpoints={"company_tickers"})
+
+    assert seen[0]["User-Agent"] == "sec-agent/1.0 sec@example.com"
+    assert "general-agent" not in seen[0]["User-Agent"]
+
+
+def test_browser_like_legacy_project_user_agent_is_not_sent(tmp_path, monkeypatch):
+    module = load_module()
+    seen = []
+
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         seen.append(headers or {})
         return {"0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple Inc."}}
 
@@ -790,15 +840,53 @@ def test_legacy_project_user_agent_is_not_sent(tmp_path, monkeypatch):
 
     module.fetch_provider("AAPL", "sec", "2026-06-19", tmp_path, config, refresh=True, endpoints={"company_tickers"})
 
-    assert "Chrome/" in seen[0]["User-Agent"]
-    assert "market-research-skill" not in seen[0]["User-Agent"]
+    assert seen[0]["User-Agent"] == module.DEFAULT_SEC_USER_AGENT
+    assert "Chrome/" not in seen[0]["User-Agent"]
+
+
+def test_sec_user_agent_uses_sec_env_not_http_env(tmp_path, monkeypatch):
+    module = load_module()
+    monkeypatch.delenv("HTTP_USER_AGENT", raising=False)
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    (tmp_path / ".env").write_text(
+        "HTTP_USER_AGENT=general-agent/1.0\n"
+        "SEC_USER_AGENT=market-research-skill/1.0 research@example.com\n",
+        encoding="utf-8",
+    )
+    config = module.load_env_files(tmp_path)
+
+    assert module.sec_user_agent(config) == "market-research-skill/1.0 research@example.com"
+
+
+def test_sec_user_agent_rejects_browser_like_legacy_override(tmp_path, monkeypatch):
+    module = load_module()
+    monkeypatch.delenv("HTTP_USER_AGENT", raising=False)
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    (tmp_path / ".env").write_text(
+        "SEC_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0 Safari/537.36\n",
+        encoding="utf-8",
+    )
+    config = module.load_env_files(tmp_path)
+
+    assert module.sec_user_agent(config) == module.DEFAULT_SEC_USER_AGENT
+    assert "@" in module.sec_user_agent(config)
+
+
+def test_general_http_user_agent_defaults_to_browser_like(tmp_path, monkeypatch):
+    module = load_module()
+    monkeypatch.delenv("HTTP_USER_AGENT", raising=False)
+    (tmp_path / ".env").write_text("SEC_USER_AGENT=market-research-skill/1.0 research@example.com\n", encoding="utf-8")
+    config = module.load_env_files(tmp_path)
+
+    assert module.http_user_agent(config) == module.DEFAULT_HTTP_USER_AGENT
+    assert "Mozilla/5.0" in module.http_user_agent(config)
 
 
 def test_eodhd_news_uses_country_qualified_symbol(tmp_path, monkeypatch):
     module = load_module()
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         seen.append(url)
         return []
 
@@ -816,7 +904,7 @@ def test_fmp_fetches_and_normalizes_unique_equity_data(tmp_path, monkeypatch):
     cache = tmp_path / "cache"
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         seen.append(url)
         if "/stable/profile" in url:
             return [{"companyName": "D-Wave Quantum Inc.", "exchangeShortName": "NYSE", "industry": "Computer Hardware", "mktCap": 1230000000, "beta": 1.4}]
@@ -1035,7 +1123,7 @@ def test_fetch_provider_reuses_cached_price_endpoint_when_as_of_changes(tmp_path
     )
     calls = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         calls.append(url)
         return [{"date": "2026-06-15", "adjClose": 133}]
 
@@ -1052,7 +1140,7 @@ def test_live_fetch_urls_do_not_store_tokens_in_source_url(tmp_path, monkeypatch
     module = load_module()
     seen = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         seen.append(url)
         return []
 
@@ -1071,7 +1159,7 @@ def test_sec_company_tickers_cache_is_shared_across_symbols(tmp_path, monkeypatc
     module = load_module()
     calls = []
 
-    def fake_http_json(url, headers=None, timeout=20, retry_policy=None):
+    def fake_http_json(url, headers=None, timeout=20, retry_policy=None, provider=None):
         calls.append(url)
         if url.endswith("company_tickers.json"):
             return {
@@ -1412,6 +1500,107 @@ def test_http_json_does_not_retry_unauthorized(monkeypatch):
     assert len(calls) == 1
 
 
+def test_fetch_with_cache_preserves_http_error_body_and_headers(tmp_path, monkeypatch):
+    module = load_module()
+
+    class FakeHeaders(dict):
+        def get(self, key, default=None):
+            return super().get(key, default)
+
+    class FakeHTTPError(HTTPError):
+        def __init__(self):
+            super().__init__(
+                url="https://www.sec.gov/files/company_tickers.json",
+                code=403,
+                msg="Forbidden",
+                hdrs=FakeHeaders({"content-type": "text/html", "server": "AkamaiGHost"}),
+                fp=None,
+            )
+
+        def read(self, amt=None):
+            body = b"<html><title>SEC.gov | Request Rate Threshold Exceeded</title></html>"
+            return body if amt is None else body[:amt]
+
+    def fake_http_json(*args, **kwargs):
+        raise FakeHTTPError()
+
+    monkeypatch.setattr(module, "http_json", fake_http_json)
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    raw = module.fetch_with_cache(
+        tmp_path,
+        "DPC",
+        "sec",
+        "company_tickers",
+        {},
+        "https://www.sec.gov/files/company_tickers.json",
+        "https://www.sec.gov/files/company_tickers.json",
+        config,
+        headers={"User-Agent": "market-research-skill/1.0 research@example.com"},
+        refresh=True,
+    )
+    payload = json.loads(raw.read_text(encoding="utf-8"))
+    result = payload["provider_result"]
+
+    assert result["status"] == "rate_limited"
+    assert result["error"] == "HTTP 403: SEC.gov | Request Rate Threshold Exceeded"
+    assert result["http_status"] == 403
+    assert result["response_headers"]["content-type"] == "text/html"
+    assert "Request Rate Threshold Exceeded" in result["error_body_snippet"]
+
+
+def test_sec_rate_threshold_http_403_retries_when_user_agent_is_descriptive(monkeypatch):
+    module = load_module()
+    calls = {"count": 0}
+
+    class FakeHeaders(dict):
+        def get(self, key, default=None):
+            return super().get(key, default)
+
+    class RateThresholdHTTPError(HTTPError):
+        def __init__(self):
+            super().__init__(
+                url="https://www.sec.gov/files/company_tickers.json",
+                code=403,
+                msg="Forbidden",
+                hdrs=FakeHeaders({"content-type": "text/html"}),
+                fp=None,
+            )
+
+        def read(self, amt=None):
+            body = b"<html><title>SEC.gov | Request Rate Threshold Exceeded</title></html>"
+            return body if amt is None else body[:amt]
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"0":{"ticker":"DPC","cik_str":2107018,"title":"DPC Holdings Ltd"}}'
+
+    def fake_urlopen(request, timeout=20):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RateThresholdHTTPError()
+        return Response()
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+
+    payload = module.http_json(
+        "https://www.sec.gov/files/company_tickers.json",
+        headers={"User-Agent": "market-research-skill/1.0 research@example.com"},
+        retry_policy=module.retry_policy_for_provider("sec"),
+        provider="sec",
+    )
+
+    assert calls["count"] == 2
+    assert payload["0"]["ticker"] == "DPC"
+
+
 def test_default_paths_separate_data_reports_runtime_and_cache(tmp_path):
     module = load_module()
     config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
@@ -1421,7 +1610,7 @@ def test_default_paths_separate_data_reports_runtime_and_cache(tmp_path):
     assert paths["data_dir"] == tmp_path / "data"
     assert paths["reports_dir"] == tmp_path / "reports"
     assert paths["runtime_dir"] == tmp_path / "runtime"
-    assert paths["cache_dir"] == tmp_path / "data" / "_cache"
+    assert paths["cache_dir"] == tmp_path / "data" / "cache"
 
 
 def test_deterministic_schema_covers_normalized_outputs():

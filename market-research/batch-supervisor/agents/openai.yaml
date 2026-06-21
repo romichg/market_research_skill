@@ -1,4 +1,4 @@
 interface:
-  display_name: "Market Research Loop"
+  display_name: "Market Research Batch Supervisor"
   short_description: "Run supervised research, validation, and remediation batches."
-  default_prompt: "Run a supervised market research loop for the provided symbols, validate the results in fresh Codex contexts, remediate blocking issues, and collect skill-improvement notes."
+  default_prompt: "Run supervised market research batches for the provided symbols, validate the results in fresh Codex contexts, remediate blocking issues, and collect skill-improvement notes."
