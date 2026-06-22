@@ -23,6 +23,24 @@ For duplicate values, use the selected normalized `DataPoint` and review `altern
 
 If provider technical analysis is missing, compute the technical snapshot locally from `normalized/technical_signals.json` and `normalized/prices_daily.json`; cite both files, describe the formula/date window, and record the work in `technical_analysis` and `calculation_audit`.
 
+## Required Pre-Draft Checks
+
+Before writing the final report, create a short internal checklist from the deterministic bundle, latest SEC filings, and saved procedural sources. Use it to decide what must appear in the Markdown report, JSON sidecar, or explicit gaps.
+
+For every equity or ADR, check these disclosure areas when filings or deterministic data are available:
+
+- Internal controls, material weaknesses, restatements, late filings, or auditor concerns.
+- Litigation, regulatory proceedings, cybersecurity incidents, export controls, and other legal constraints.
+- Dilution from warrants, options, convertible securities, shelves, ATM programs, recent offerings, lock-ups, resale registrations, and acquisition consideration.
+- Liquidity and runway, including management's going-concern or minimum-liquidity language, debt maturities, covenants, and financing needs.
+- Capital allocation, dividends, buybacks, related-party transactions, and use of proceeds.
+- Customer, supplier, partner, geography, commodity, tariff, FX, or platform concentration.
+- Recent 8-Ks, proxy/governance matters, executive changes, insider/Form 3/4/5 activity, and annual-meeting items.
+
+Material items from this checklist must not be compressed into a generic risk sentence. Put the most investor-relevant items in `What Worries Me`, `Risks And Invalidation Points`, `Bull/Base/Bear Decision Variables`, or `Catalysts And Monitoring Triggers`, with source support.
+
+Also audit usable deterministic data before drafting. For each normalized file, inspect `ok` datapoints and record in the JSON sidecar, notes, or calculation audit whether each material datapoint was used, intentionally omitted as non-material, or excluded because quality/entity alignment was insufficient. Do not mark a field unavailable when raw or normalized provider data exists; instead cite it with caveats, demote it as low-confidence, or explain why it was rejected.
+
 ## Report Sections
 
 1. **Executive summary facts**: company name, ticker, exchange, CIK, SIC/industry, headquarters when available, fiscal year end, latest annual/interim filing, latest completed close, market cap, revenue, net income, cash/debt, share count, dividends/buybacks, and next earnings date when deterministically available.
@@ -35,7 +53,7 @@ If provider technical analysis is missing, compute the technical snapshot locall
 8. **Sector, industry, and moat inputs**: use SIC/industry, provider sectors, peer data if free and deterministic, and filing/business facts. Keep management claims separate from analyst interpretation.
 9. **Tariff, regulatory, and macro exposure**: geography revenue, COGS/gross margin trend, FX/rate/commodity risks, policy/regulatory excerpts, and ADR issuer-country risks. Quantify only with source support.
 10. **Valuation or performance context**: market cap, enterprise value, P/E, P/S, P/B, EV/EBITDA, dividend yield, buyback yield, FCF yield, and peer multiples only when deterministic or procedurally sourced. Do not invent price targets.
-11. **Catalysts and monitoring triggers**: next earnings date, dividend dates, recent material filings, technical levels, support/resistance approximations from local price extrema, product/regulatory/company events, and key monitor list.
+11. **Catalysts and monitoring triggers**: next earnings date, dividend dates, recent material filings, technical levels, support/resistance approximations from local price extrema, product/regulatory/company events, lock-up or resale-registration dates, governance votes, and key monitor list.
 12. **Bull/base/bear decision variables**: list the variables that would support, weaken, or invalidate each scenario without turning them into a competing recommendation.
 13. **Risks and invalidation points**: business, financial, regulatory, cyclicality, customer/supplier concentration, competition, valuation, FX, geopolitical, litigation, cybersecurity, governance, strategic-partner/platform dependency, and ADR-specific risks. For AI-heavy companies, search filings deterministically for AI/cloud/GPU/model/capex/platform/regulation keywords and surface excerpts.
 14. **Explicit data gaps**: copy unresolved deterministic gaps and add procedural-source gaps. Distinguish unavailable free data from collection failures and stale data.

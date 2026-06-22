@@ -142,6 +142,101 @@ def test_validator_uses_sources_file_pointer_from_report_json(tmp_path):
     assert validation["issues"] == []
 
 
+def test_validator_collects_deterministic_data_usage_for_report_dir(tmp_path):
+    report_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (report_dir / "AAPL-research.md").write_text(
+        "# AAPL Research\n\nLatest close was 123.45.\n",
+        encoding="utf-8",
+    )
+    payload = {
+        **complete_research_payload("AAPL", "equity"),
+        "deterministic_bundle": {
+            "bundle_dir": str(data_dir),
+            "manifest": str(data_dir / "manifest.json"),
+            "source_manifest": str(data_dir / "source_manifest.json"),
+            "gaps": str(data_dir / "gaps.json"),
+            "research_input_pack": str(data_dir / "research_input_pack.md"),
+        },
+    }
+    (report_dir / "AAPL-research.json").write_text(json.dumps(payload), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "market_snapshot.json").write_text(
+        json.dumps(
+            {
+                "latest_close": {
+                    "value": 123.45,
+                    "status": "ok",
+                    "provider": "tiingo",
+                    "source_url": "https://example.test/prices",
+                    "raw_path": "data/AAPL/2026-06-01/raw/tiingo/prices.json",
+                },
+                "beta": {
+                    "value": 1.23,
+                    "status": "ok",
+                    "provider": "alphavantage",
+                    "source_url": "https://example.test/overview",
+                    "raw_path": "data/AAPL/2026-06-01/raw/alphavantage/overview.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    usage = validation["deterministic_data_usage"]
+    assert usage["summary"]["total_ok_datapoints"] == 2
+    assert usage["summary"]["referenced"] == 1
+    assert usage["summary"]["not_referenced"] == 1
+    not_referenced = [item["field_path"] for item in usage["datapoints"] if item["usage_status"] == "not_referenced"]
+    assert not_referenced == ["market_snapshot.beta"]
+    markdown = (report_dir / "AAPL-validation-scaffold.md").read_text(encoding="utf-8")
+    assert "Deterministic data usage: 1 referenced, 1 not referenced" in markdown
+
+
+def test_validator_collects_deterministic_data_usage_for_data_bundle(tmp_path):
+    data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = data_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (data_dir / "research_input_pack.md").write_text(
+        "# AAPL Deterministic Research Input Pack\n\nlatest_close\n",
+        encoding="utf-8",
+    )
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "market_snapshot.json").write_text(
+        json.dumps(
+            {
+                "latest_close": {
+                    "value": 123.45,
+                    "status": "ok",
+                    "provider": "tiingo",
+                    "source_url": "https://example.test/prices",
+                    "raw_path": "data/AAPL/2026-06-01/raw/tiingo/prices.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(data_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((tmp_path / "reports" / "AAPL" / "2026-06-01" / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["deterministic_data_usage"]["summary"]["total_ok_datapoints"] == 1
+    assert validation["deterministic_data_usage"]["datapoints"][0]["usage_status"] == "referenced"
+
+
 def test_validator_flags_missing_expanded_research_json_sections(tmp_path):
     run_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     run_dir.mkdir(parents=True)
@@ -278,6 +373,25 @@ def test_validator_accepts_explicit_reports_output_prefix_for_deterministic_bund
     assert payload["validation_json"] == str(reports_prefix.with_suffix(".json"))
     assert reports_prefix.with_suffix(".json").exists()
     assert reports_prefix.with_suffix(".md").exists()
+
+
+def test_validator_rejects_final_validation_output_prefix_for_scaffold(tmp_path):
+    run_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text(json.dumps({"asset_type": {"value": "equity", "provider": "cli", "raw_path": "", "source_url": ""}}), encoding="utf-8")
+    final_prefix = tmp_path / "reports" / "AAPL" / "2026-06-01" / "AAPL-validation"
+
+    result = run_validator(str(run_dir), "--output-prefix", str(final_prefix))
+
+    assert result.returncode != 0
+    assert "Deterministic lint output must use a -validation-scaffold output prefix" in result.stderr
+    assert not final_prefix.with_suffix(".json").exists()
+    assert not final_prefix.with_suffix(".md").exists()
 
 
 def test_validator_discovers_latest_nested_deterministic_bundle(tmp_path):

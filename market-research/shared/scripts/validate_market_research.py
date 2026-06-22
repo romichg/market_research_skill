@@ -63,6 +63,7 @@ REQUIRED_RESEARCH_FIELDS = [
     "calculation_audit",
 ]
 FRESH_CONTEXT_INSTRUCTION = "Use this helper output as deterministic lint only; validate cited sources, procedural calculations, markdown/JSON agreement, and conclusions from saved artifacts without creating a parallel research thesis."
+IGNORED_USAGE_PROVIDERS = {"input", "cli", "deterministic_classifier", "unavailable"}
 
 
 def is_date_component(value: str) -> bool:
@@ -141,12 +142,32 @@ def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> d
     symbol_value = payload.get("symbol") if isinstance(payload, dict) else None
     symbol = str(symbol_value or md_path.name.split("-")[0]).upper()
     ensure_canonical_report_dir_path(run_dir, symbol)
-    return {
+    result = {
         "bundle_type": "legacy_research_report",
         "symbol": symbol,
         "report_markdown": md_path,
         "report_json": json_path,
     }
+    data_bundle = deterministic_bundle_for_report_dir(run_dir, payload if isinstance(payload, dict) else None, symbol)
+    if data_bundle:
+        result["deterministic_bundle_dir"] = data_bundle
+        result["normalized"] = data_bundle / "normalized"
+    return result
+
+
+def deterministic_bundle_for_report_dir(report_dir: Path, report: dict[str, Any] | None, symbol: str) -> Path | None:
+    candidates: list[Path] = []
+    if isinstance(report, dict):
+        bundle = report.get("deterministic_bundle")
+        if isinstance(bundle, dict) and isinstance(bundle.get("bundle_dir"), str):
+            candidates.append(Path(bundle["bundle_dir"]))
+    if is_canonical_report_dir_path(report_dir, symbol):
+        repo_root = report_dir.parent.parent.parent
+        candidates.append(repo_root / "data" / symbol / report_dir.name)
+    for candidate in candidates:
+        if candidate.exists() and is_deterministic_bundle(candidate):
+            return candidate
+    return None
 
 
 def issue_counts(issues: list[dict[str, Any]]) -> dict[str, int]:
@@ -220,6 +241,99 @@ def deterministic_bundle_issues(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
+def collect_normalized_datapoints(normalized_dir: Path | None) -> list[dict[str, Any]]:
+    if not isinstance(normalized_dir, Path) or not normalized_dir.exists():
+        return []
+    datapoints: list[dict[str, Any]] = []
+    for path in sorted(normalized_dir.glob("*.json")):
+        payload = read_json(path)
+        collect_normalized_datapoints_from_payload(path.stem, path, payload, "", datapoints)
+    return datapoints
+
+
+def collect_normalized_datapoints_from_payload(namespace: str, artifact: Path, payload: Any, prefix: str, datapoints: list[dict[str, Any]]) -> None:
+    if isinstance(payload, dict):
+        if "value" in payload:
+            status = payload.get("status", "ok")
+            provider = payload.get("provider")
+            if status == "ok" and provider not in IGNORED_USAGE_PROVIDERS:
+                field_path = f"{namespace}.{prefix.rstrip('.')}"
+                datapoints.append({
+                    "artifact": str(artifact),
+                    "namespace": namespace,
+                    "field_path": field_path,
+                    "field_name": prefix.rstrip(".").split(".")[-1] if prefix else namespace,
+                    "value": payload.get("value"),
+                    "provider": provider,
+                    "source_url": payload.get("source_url"),
+                    "raw_path": payload.get("raw_path"),
+                    "status": status,
+                })
+            return
+        for key, value in payload.items():
+            collect_normalized_datapoints_from_payload(namespace, artifact, value, f"{prefix}{key}.", datapoints)
+    elif isinstance(payload, list):
+        for index, value in enumerate(payload):
+            collect_normalized_datapoints_from_payload(namespace, artifact, value, f"{prefix}{index}.", datapoints)
+
+
+def report_reference_corpus(md_path: Path | None, json_path: Path | None, report: Any) -> str:
+    parts: list[str] = []
+    if isinstance(md_path, Path) and md_path.exists():
+        parts.append(md_path.read_text(encoding="utf-8", errors="ignore"))
+    if isinstance(json_path, Path) and json_path.exists():
+        parts.append(json_path.read_text(encoding="utf-8", errors="ignore"))
+    elif report:
+        parts.append(json.dumps(report, sort_keys=True))
+    return "\n".join(parts).lower()
+
+
+def value_tokens(value: Any) -> list[str]:
+    if value is None:
+        return []
+    tokens = [str(value)]
+    if isinstance(value, float):
+        tokens.append(f"{value:g}")
+        tokens.append(f"{value:.2f}")
+    return [token.lower() for token in tokens if token]
+
+
+def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[str]:
+    checks = [
+        ("field_path", datapoint.get("field_path")),
+        ("field_name", datapoint.get("field_name")),
+        ("raw_path", datapoint.get("raw_path")),
+        ("source_url", datapoint.get("source_url")),
+    ]
+    reasons = [reason for reason, value in checks if isinstance(value, str) and value and value.lower() in corpus]
+    if any(token in corpus for token in value_tokens(datapoint.get("value"))):
+        reasons.append("value")
+    return sorted(set(reasons))
+
+
+def deterministic_data_usage_audit(bundle: dict[str, Any], report: Any) -> dict[str, Any]:
+    datapoints = collect_normalized_datapoints(bundle.get("normalized"))
+    corpus = report_reference_corpus(bundle.get("report_markdown"), bundle.get("report_json"), report)
+    audited = []
+    for datapoint in datapoints:
+        reasons = datapoint_reference_reasons(datapoint, corpus)
+        audited.append({
+            **datapoint,
+            "usage_status": "referenced" if reasons else "not_referenced",
+            "reference_reasons": reasons,
+        })
+    referenced = sum(1 for item in audited if item["usage_status"] == "referenced")
+    not_referenced = sum(1 for item in audited if item["usage_status"] == "not_referenced")
+    return {
+        "summary": {
+            "total_ok_datapoints": len(audited),
+            "referenced": referenced,
+            "not_referenced": not_referenced,
+        },
+        "datapoints": audited,
+    }
+
+
 def normalized_value_issues(namespace: str, payload: Any, prefix: str = "") -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     if isinstance(payload, dict):
@@ -276,6 +390,11 @@ def ensure_validation_output_prefix(out_prefix: Path, bundle: dict[str, Any], ar
         die(VALIDATION_OUTPUT_LOCATION_MESSAGE)
 
 
+def ensure_scaffold_output_prefix(out_prefix: Path) -> None:
+    if not out_prefix.name.endswith("-validation-scaffold"):
+        die("Deterministic lint output must use a -validation-scaffold output prefix; reserve -validation for completed fresh verifier judgments.")
+
+
 def cmd_validate(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir)
     bundle = discover(run_dir, args.report_md, args.report_json)
@@ -290,6 +409,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")
     gaps_path = bundle.get("gaps")
     gaps_payload = read_json(gaps_path) if isinstance(gaps_path, Path) and gaps_path.exists() else {}
+    usage_audit = deterministic_data_usage_audit(bundle, report)
     validation = {
         "symbol": symbol,
         "created_at": utc_now(),
@@ -303,12 +423,14 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "issue_counts": counts,
         "blocking_issue_count": blocking,
         "data_gaps": gaps_payload.get("gaps", report.get("data_gaps", []) if isinstance(report, dict) else []),
+        "deterministic_data_usage": usage_audit,
         "sources_inspected": [],
         "fresh_context_instruction": FRESH_CONTEXT_INSTRUCTION,
     }
     out_prefix = Path(args.output_prefix) if args.output_prefix else default_output_prefix(bundle, artifact_run_dir, symbol)
     ensure_validation_output_prefix(out_prefix, bundle, artifact_run_dir, symbol)
     prevent_accidental_overwrite(out_prefix, args.force)
+    ensure_scaffold_output_prefix(out_prefix)
     write_json(out_prefix.with_suffix(".json"), validation)
     lines = [
         f"# {symbol} Deterministic Validation Scaffold",
@@ -316,6 +438,11 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "This file is deterministic lint output only. It is not a completed judgment validation and still requires a fresh verifier pass.",
         "",
         f"Blocking issues: {blocking}",
+        "",
+        "Deterministic data usage: "
+        f"{usage_audit['summary']['referenced']} referenced, "
+        f"{usage_audit['summary']['not_referenced']} not referenced "
+        f"out of {usage_audit['summary']['total_ok_datapoints']} normalized ok datapoints.",
         "",
     ]
     for issue in issues:

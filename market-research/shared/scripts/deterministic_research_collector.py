@@ -1329,6 +1329,12 @@ def normalize_equity_fundamentals(cache_root: Path, symbol: str, providers: list
             "return_on_equity_ttm": ("ReturnOnEquityTTM", None),
             "quarterly_revenue_growth_yoy": ("QuarterlyRevenueGrowthYOY", None),
             "quarterly_earnings_growth_yoy": ("QuarterlyEarningsGrowthYOY", None),
+            "analyst_target_price": ("AnalystTargetPrice", None),
+            "analyst_rating_strong_buy": ("AnalystRatingStrongBuy", None),
+            "analyst_rating_buy": ("AnalystRatingBuy", None),
+            "analyst_rating_hold": ("AnalystRatingHold", None),
+            "analyst_rating_sell": ("AnalystRatingSell", None),
+            "analyst_rating_strong_sell": ("AnalystRatingStrongSell", None),
         }
         for out_key, (provider_key, unit) in fields.items():
             value = number(data.get(provider_key))
@@ -1458,7 +1464,7 @@ def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str])
     }
 
 
-def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], attempted_providers: list[str]) -> list[dict[str, Any]]:
+def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], fundamentals: dict[str, Any], attempted_providers: list[str]) -> list[dict[str, Any]]:
     requested = {
         "short_interest": "No configured free provider returned reproducible short-interest data.",
         "forward_estimates": "Forward estimates are unavailable from cached configured providers.",
@@ -1471,7 +1477,18 @@ def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], attempted_p
         })
     gaps = []
     for field, notes in requested.items():
-        if field not in snapshot and field not in identity:
+        if field == "analyst_context":
+            analyst_keys = {
+                "analyst_target_price",
+                "analyst_rating_strong_buy",
+                "analyst_rating_buy",
+                "analyst_rating_hold",
+                "analyst_rating_sell",
+                "analyst_rating_strong_sell",
+            }
+            if analyst_keys & fundamentals.keys():
+                continue
+        if field not in snapshot and field not in identity and field not in fundamentals:
             gaps.append({"field": field, "status": "unavailable_free_source", "attempted_sources": attempted_providers, "notes": notes})
     return gaps
 
@@ -1656,7 +1673,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     equity_insiders = rewrite_raw_paths(normalize_equity_insiders(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     etf_holdings = rewrite_raw_paths(normalize_etf_holdings(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     price_raw_path = raw_path_map.get(str(price_raw), str(price_raw) if price_raw else None)
-    gaps = default_gaps(identity, snapshot, providers)
+    gaps = default_gaps(identity, snapshot, fundamentals, providers)
     write_json(normalized / "identity.json", identity)
     write_json(normalized / "market_snapshot.json", snapshot)
     write_json(normalized / "prices_daily.json", {"prices": prices, "provider": price_provider, "raw_path": price_raw_path})

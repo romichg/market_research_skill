@@ -1834,6 +1834,12 @@ def test_alpha_vantage_overview_promotes_equity_fundamentals(tmp_path):
             "EBITDA": "-467509504",
             "EPS": "-0.56",
             "Beta": "0.975",
+            "AnalystTargetPrice": "18.33",
+            "AnalystRatingStrongBuy": "0",
+            "AnalystRatingBuy": "4",
+            "AnalystRatingHold": "2",
+            "AnalystRatingSell": "0",
+            "AnalystRatingStrongSell": "0",
         },
         source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=NIO",
     )
@@ -1843,3 +1849,38 @@ def test_alpha_vantage_overview_promotes_equity_fundamentals(tmp_path):
     assert fundamentals["revenue_ttm"]["value"] == 65173150000
     assert fundamentals["gross_profit_ttm"]["provider"] == "alphavantage"
     assert fundamentals["eps"]["value"] == -0.56
+    assert fundamentals["analyst_target_price"]["value"] == 18.33
+    assert fundamentals["analyst_rating_buy"]["value"] == 4
+    assert fundamentals["analyst_rating_hold"]["provider"] == "alphavantage"
+
+
+def test_analyst_context_gap_not_recorded_when_overview_has_analyst_fields(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "NIO",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "NIO"},
+        {
+            "Name": "Nio Inc Class A ADR",
+            "AnalystTargetPrice": "18.33",
+            "AnalystRatingBuy": "4",
+            "AnalystRatingHold": "2",
+        },
+        source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=NIO",
+    )
+
+    result = module.build_bundle(
+        "NIO",
+        "2026-06-21",
+        cache,
+        tmp_path / "data",
+        providers=["alphavantage"],
+        endpoint_plan={"alphavantage": {"overview"}},
+        asset_type="equity",
+    )
+
+    gaps = json.loads((Path(result["bundle_dir"]) / "gaps.json").read_text(encoding="utf-8"))["gaps"]
+    assert "analyst_context" not in {gap["field"] for gap in gaps}

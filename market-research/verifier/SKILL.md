@@ -34,6 +34,8 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 python3 {baseDir}/../shared/scripts/validate_market_research.py data/SYMBOL/AS_OF --output-prefix reports/SYMBOL/AS_OF/SYMBOL-validation-scaffold
 ```
 
+The scaffold includes `deterministic_data_usage`, a heuristic audit of normalized `status: ok` datapoints and whether the report text/JSON appears to reference each field, value, raw path, or source URL. Treat `not_referenced` datapoints as review leads, not automatic failures: the verifier should decide whether the datapoint was material, stale, wrong-entity, duplicated by a better source, or genuinely omitted.
+
 2. If the helper reports missing artifacts, stop and tell the user what the producer must regenerate.
 
 3. Read the report markdown, report JSON, `research_context.json`, `sources.json`, and `run_manifest.json` if present.
@@ -44,6 +46,7 @@ python3 {baseDir}/../shared/scripts/validate_market_research.py data/SYMBOL/AS_O
 - For deterministic bundles, verify normalized values have provider, source URL, raw path, and status provenance.
 - Confirm deterministic bundle files align with `../shared/schemas/deterministic-bundle.schema.json`.
 - Treat successful deterministic provider outputs as frozen evidence. Validate non-deterministic interpretation, generated prose, missing-data handling, stale-data caveats, and cited-source support.
+- Review the scaffold `deterministic_data_usage` section and inspect material `not_referenced` datapoints before deciding whether the producer missed usable deterministic data.
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.
 - Check for unsupported valuation, performance, peer, or portfolio-fit claims.

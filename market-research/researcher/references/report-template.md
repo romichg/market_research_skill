@@ -60,6 +60,8 @@ List the most material sourced facts. Keep this short enough that it supports th
 
 Describe saved source copies, deterministic bundle files, primary versus secondary sources, source dates, access dates, confidence, and material limitations. Do not expose internal validation jargon in the human-facing report.
 
+State whether usable deterministic data was fully reviewed. If material normalized datapoints were omitted, briefly say why: stale, low-confidence, wrong entity/listing, duplicate of a better source, or not material to the decision.
+
 ## Business Or Fund Profile
 
 Explain what the company, ADR, or fund is and what economic exposure it provides.
@@ -88,7 +90,7 @@ Explain the strongest evidence-backed positives.
 
 ## What Worries Me
 
-Explain the most important risks, weak points, missing data, or quality concerns.
+Explain the most important risks, weak points, missing data, or quality concerns. For equities and ADRs, explicitly consider material weaknesses, litigation, dilution or warrant overhang, financing needs, lock-ups/resale pressure, governance, customer concentration, and liquidity/runway when filings discuss them.
 
 ## Catalysts And Monitoring Triggers
 
@@ -100,7 +102,7 @@ Frame the decision around variables that can be monitored, not unsupported price
 
 ## Risks And Invalidation Points
 
-List risks and what evidence would invalidate the current interpretation.
+List risks and what evidence would invalidate the current interpretation. Do not collapse filing-specific material disclosures into a generic risk list when they are central to the investment case.
 
 ## Explicit Data Gaps
 
@@ -153,6 +155,13 @@ This report is research support and is not personalized financial advice.
       "calculation": "Example return or moving-average calculation.",
       "input_artifacts": ["data/AAPL/2026-05-29/normalized/prices_daily.json"],
       "method": "Describe formula and date window."
+    }
+  ],
+  "deterministic_data_usage": [
+    {
+      "artifact": "data/AAPL/2026-05-29/normalized/technical_signals.json",
+      "status": "used",
+      "notes": "Material price, return, volatility, and trend fields were used or explicitly rejected."
     }
   ]
 }
