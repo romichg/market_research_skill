@@ -91,12 +91,15 @@ data/SYMBOL/AS_OF/
   manifest.json
   source_manifest.json
   gaps.json
+  deterministic_data_usage.json
   raw/
   normalized/
   research_input_pack.md
 ```
 
 Use this output as the primary factual input. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap with only the attempted providers listed. Do not invent or infer unsupported values. Live API calls use conservative retries/backoff for transient 429/503/network failures and do not retry unauthorized or not-found responses aggressively. Provider authentication failures exit with a clear error; provider rate-limit or endpoint errors are promoted into `manifest.json` warnings and preserved in `source_manifest.json` plus raw `provider_result.error`.
+
+Before drafting the final report, inspect `data/SYMBOL/AS_OF/deterministic_data_usage.json`. For every datapoint marked `materiality: required`, use it in the report or add a field-level `deterministic_data_usage` JSON disposition explaining why it was not used. For every datapoint marked `materiality: review`, use it when it affects the investor thesis, risk profile, valuation/performance context, lifecycle context, or source-quality discussion; otherwise add a disposition explaining why it was not material, duplicated by a better source, stale/wrong-entity, or unusable. Do not let required or review deterministic fields disappear silently.
 
 When provider technical output is absent or incomplete, compute technical analysis locally from `data/SYMBOL/AS_OF/normalized/technical_signals.json` and `data/SYMBOL/AS_OF/normalized/prices_daily.json`. Use adjusted-close language for returns, moving averages, drawdowns, volatility, and support/resistance approximations, and record the calculation inputs in the report JSON `technical_analysis` and `calculation_audit` fields.
 
@@ -199,6 +202,8 @@ The final Markdown report must include these sections:
 - `## My Take`
 
 The JSON sidecar must satisfy `../shared/schemas/research-output.schema.json`, including `technical_analysis`, `valuation_or_performance`, `decision_factors`, `risks`, `catalysts`, `source_coverage`, and `calculation_audit`.
+
+When a deterministic bundle exists, the JSON sidecar should also include `deterministic_bundle` and field-level `deterministic_data_usage` entries for all required/review datapoints that were used or intentionally omitted.
 
 9. Same-session self-check the artifacts for missing citations, stale dates, unsupported claims, and gaps. Label this as a self-check, not independent validation.
 

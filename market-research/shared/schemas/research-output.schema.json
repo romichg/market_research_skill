@@ -110,6 +110,23 @@
         "research_input_pack": {"type": "string"}
       },
       "additionalProperties": true
+    },
+    "deterministic_data_usage": {
+      "type": "array",
+      "description": "Field-level disposition for deterministic_data_usage.json datapoints marked required or review.",
+      "items": {
+        "type": "object",
+        "required": ["field_path", "disposition", "rationale"],
+        "properties": {
+          "field_path": {"type": "string"},
+          "materiality": {"enum": ["required", "review", "context"]},
+          "disposition": {"enum": ["used", "intentionally_omitted_not_material", "duplicated_by_better_source", "stale_or_wrong_entity", "unusable"]},
+          "rationale": {"type": "string"},
+          "report_section": {"type": "string"},
+          "source_artifact": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
     }
   },
   "$defs": {

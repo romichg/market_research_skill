@@ -47,6 +47,33 @@
       },
       "additionalProperties": true
     },
+    "deterministic_data_usage": {
+      "type": "object",
+      "required": ["version", "summary", "datapoints"],
+      "properties": {
+        "version": {"type": "string"},
+        "asset_type": {"type": ["string", "null"]},
+        "summary": {"type": "object", "additionalProperties": true},
+        "datapoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field_path", "materiality"],
+            "properties": {
+              "field_path": {"type": "string"},
+              "field_name": {"type": "string"},
+              "materiality": {"enum": ["required", "review", "context"]},
+              "required_disposition": {"type": "boolean"},
+              "provider": {"type": ["string", "null"]},
+              "raw_path": {"type": ["string", "null"]},
+              "source_url": {"type": ["string", "null"]}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
     "normalized": {
       "type": "object",
       "required": ["identity", "market_snapshot", "prices_daily", "technical_signals", "news"],

@@ -9,6 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deterministic_data_usage as usage_contract
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -115,6 +118,7 @@ def deterministic_bundle_result(run_dir: Path) -> dict[str, Any]:
         "source_manifest": run_dir / "source_manifest.json",
         "gaps": run_dir / "gaps.json",
         "normalized": run_dir / "normalized",
+        "deterministic_data_usage_requirements": run_dir / "deterministic_data_usage.json",
     }
 
 
@@ -152,6 +156,7 @@ def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> d
     if data_bundle:
         result["deterministic_bundle_dir"] = data_bundle
         result["normalized"] = data_bundle / "normalized"
+        result["deterministic_data_usage_requirements"] = data_bundle / "deterministic_data_usage.json"
     return result
 
 
@@ -334,6 +339,40 @@ def deterministic_data_usage_audit(bundle: dict[str, Any], report: Any) -> dict[
     }
 
 
+def load_usage_requirements(bundle: dict[str, Any]) -> dict[str, Any]:
+    requirements_path = bundle.get("deterministic_data_usage_requirements")
+    if isinstance(requirements_path, Path) and requirements_path.exists():
+        payload = read_json(requirements_path)
+        if isinstance(payload, dict):
+            return payload
+    normalized = bundle.get("normalized")
+    if isinstance(normalized, Path) and normalized.exists():
+        manifest_path = bundle.get("manifest")
+        asset_type = None
+        if isinstance(manifest_path, Path) and manifest_path.exists():
+            manifest = read_json(manifest_path)
+            if isinstance(manifest, dict):
+                asset_type = manifest.get("asset_type")
+        return usage_contract.build_usage_requirements(normalized, asset_type)
+    return {"version": "deterministic-data-usage-v1", "summary": {}, "datapoints": []}
+
+
+def usage_disposition_issues(comparison: dict[str, Any]) -> list[dict[str, Any]]:
+    issues = []
+    for item in comparison.get("missing_required", []):
+        field_path = item.get("field_path", "unknown")
+        safe_field_path = str(field_path).replace(".", "-").replace("_", "_")
+        issues.append(
+            {
+                "id": f"deterministic-usage-missing-required-{safe_field_path}",
+                "severity": "moderate",
+                "status": "open",
+                "description": f"Report JSON does not disposition required deterministic datapoint: {field_path}.",
+            }
+        )
+    return issues
+
+
 def normalized_value_issues(namespace: str, payload: Any, prefix: str = "") -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     if isinstance(payload, dict):
@@ -405,11 +444,14 @@ def cmd_validate(args: argparse.Namespace) -> None:
     report = read_json(json_path) if isinstance(json_path, Path) else {}
     sources_by_id = load_sources(run_dir, report if isinstance(report, dict) else None)
     issues = deterministic_bundle_issues(bundle) if bundle["bundle_type"] == "deterministic_data_bundle" else deterministic_issues(report, sources_by_id)
-    counts = issue_counts(issues)
-    blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")
     gaps_path = bundle.get("gaps")
     gaps_payload = read_json(gaps_path) if isinstance(gaps_path, Path) and gaps_path.exists() else {}
     usage_audit = deterministic_data_usage_audit(bundle, report)
+    usage_requirements = load_usage_requirements(bundle)
+    usage_dispositions = usage_contract.compare_usage_dispositions(usage_requirements, report)
+    issues.extend(usage_disposition_issues(usage_dispositions))
+    counts = issue_counts(issues)
+    blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")
     validation = {
         "symbol": symbol,
         "created_at": utc_now(),
@@ -424,6 +466,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         "blocking_issue_count": blocking,
         "data_gaps": gaps_payload.get("gaps", report.get("data_gaps", []) if isinstance(report, dict) else []),
         "deterministic_data_usage": usage_audit,
+        "deterministic_data_usage_dispositions": usage_dispositions,
         "sources_inspected": [],
         "fresh_context_instruction": FRESH_CONTEXT_INSTRUCTION,
     }
@@ -443,6 +486,10 @@ def cmd_validate(args: argparse.Namespace) -> None:
         f"{usage_audit['summary']['referenced']} referenced, "
         f"{usage_audit['summary']['not_referenced']} not referenced "
         f"out of {usage_audit['summary']['total_ok_datapoints']} normalized ok datapoints.",
+        "",
+        "Deterministic data disposition gaps: "
+        f"{usage_dispositions['summary']['missing_required']} missing required, "
+        f"{usage_dispositions['summary']['missing_review']} missing review.",
         "",
     ]
     for issue in issues:

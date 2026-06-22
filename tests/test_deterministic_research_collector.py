@@ -1884,3 +1884,43 @@ def test_analyst_context_gap_not_recorded_when_overview_has_analyst_fields(tmp_p
 
     gaps = json.loads((Path(result["bundle_dir"]) / "gaps.json").read_text(encoding="utf-8"))["gaps"]
     assert "analyst_context" not in {gap["field"] for gap in gaps}
+
+
+def test_build_bundle_emits_deterministic_data_usage_requirements(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "NIO",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "NIO"},
+        {
+            "Name": "Nio Inc Class A ADR",
+            "MarketCapitalization": "15184593000",
+            "RevenueTTM": "65173150000",
+            "AnalystTargetPrice": "18.33",
+        },
+        source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=NIO",
+    )
+
+    result = module.build_bundle(
+        "NIO",
+        "2026-06-21",
+        cache,
+        tmp_path / "data",
+        providers=["alphavantage"],
+        endpoint_plan={"alphavantage": {"overview"}},
+        asset_type="equity",
+    )
+
+    bundle_dir = Path(result["bundle_dir"])
+    usage_path = bundle_dir / "deterministic_data_usage.json"
+    assert usage_path.exists()
+    usage = json.loads(usage_path.read_text(encoding="utf-8"))
+    by_path = {item["field_path"]: item for item in usage["datapoints"]}
+    assert by_path["market_snapshot.market_capitalization"]["materiality"] == "required"
+    assert by_path["equity_fundamentals.revenue_ttm"]["materiality"] == "required"
+    assert by_path["equity_fundamentals.analyst_target_price"]["materiality"] == "review"
+    pack = (bundle_dir / "research_input_pack.md").read_text(encoding="utf-8")
+    assert "## Deterministic Data Usage Requirements" in pack

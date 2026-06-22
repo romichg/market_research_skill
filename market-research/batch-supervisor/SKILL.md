@@ -14,7 +14,8 @@ Keep research, validation, remediation, and skill improvement separate.
 - Research child: runs `$market-research researcher SYMBOL`, including best-effort PDF generation after final Markdown.
 - Validation child: runs `$market-research verifier RUN_DIR`.
 - Remediation child: fixes only open critical/moderate validation issues in the research bundle.
-- Supervisor: watches the run, inspects failures, decides whether skill-improvement feedback is ready for a separate manual pass.
+- Self-improvement: an explicit prompt-only review over one or more completed batch roots. Run it inside Codex when enough artifacts exist to justify an improvement pass.
+- Supervisor: watches the run, inspects failures, and preserves improvement feedback for later consolidation.
 
 ## Run A Batch
 
@@ -35,6 +36,14 @@ codex exec -C {cwd} --dangerously-bypass-approvals-and-sandbox - < {prompt_file}
 Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing the expected artifacts, the harness logs the timeout and continues to the next phase. When a producer writes a canonical deterministic bundle under `data/SYMBOL/YYYY-MM-DD/`, the harness passes that bundle as validator input and routes validation markdown/JSON to `reports/SYMBOL/YYYY-MM-DD/`. The input path is recorded as `artifact_run_dir` in `research-loop-summary.json`.
 
 Custom validator command templates can use `{run_dir}` for the input artifact path and `{validation_output_dir}` for the reports output path.
+
+Self-improvement is not automatic. To create a central prompt over one or more completed batch roots:
+
+```bash
+python3 market-research/batch-supervisor/scripts/research_loop.py self-improve RUN_ROOT [RUN_ROOT ...]
+```
+
+This writes `runtime/self-improvement/TIMESTAMP/self-improvement.md` by default. Open that prompt in Codex and run the review in the current session. The prompt asks for `self-improvement-ideas.md`, `self-improvement-plan.md`, and `self-improvement.json` under the same central output directory. Use `--output-root` to choose a different central location.
 
 ## Supervision
 

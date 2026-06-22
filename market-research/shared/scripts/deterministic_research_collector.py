@@ -22,6 +22,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from deterministic_data_usage import build_usage_requirements
+
 
 SECRET_NAMES = {
     "TWELVE_DATA_API_KEY",
@@ -1601,7 +1604,7 @@ def git_commit(repo_root: Path | None = None) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], snapshot: dict[str, Any], technicals: dict[str, Any], fundamentals: dict[str, Any], gaps: list[dict[str, Any]]) -> str:
+def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], snapshot: dict[str, Any], technicals: dict[str, Any], fundamentals: dict[str, Any], gaps: list[dict[str, Any]], usage_requirements: dict[str, Any] | None = None) -> str:
     lines = [f"# {symbol} Deterministic Research Input Pack", "", f"As of: {as_of}", "", "This is a deterministic data package, not investment advice.", "", "## Executive Summary Facts"]
     for key in ["company_name", "asset_type", "exchange", "sic"]:
         point = identity.get(key)
@@ -1630,6 +1633,26 @@ def build_research_markdown(symbol: str, as_of: str, identity: dict[str, Any], s
     lines.extend(["", "## Data Gaps and Cautions"])
     for gap in gaps:
         lines.append(f"- {gap['field']}: {gap['notes']}")
+    if usage_requirements:
+        summary = usage_requirements.get("summary", {})
+        lines.extend(
+            [
+                "",
+                "## Deterministic Data Usage Requirements",
+                f"- Total usable deterministic datapoints: {summary.get('total_ok_datapoints', 0)}.",
+                f"- Required datapoints needing report use or disposition: {summary.get('required', 0)}.",
+                f"- Review datapoints needing report use or disposition when material: {summary.get('review', 0)}.",
+            ]
+        )
+        required_or_review = [
+            item
+            for item in usage_requirements.get("datapoints", [])
+            if item.get("materiality") in {"required", "review"}
+        ]
+        for item in required_or_review[:40]:
+            lines.append(
+                f"- {item.get('field_path')}: {item.get('materiality')}; source {item.get('provider')}, `{item.get('raw_path')}`."
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -1686,6 +1709,8 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         write_json(normalized / "equity_insiders.json", equity_insiders)
     if asset_type_value in {"etf", "fund"}:
         write_json(normalized / "etf_holdings.json", etf_holdings)
+    usage_requirements = build_usage_requirements(normalized, asset_type_value)
+    write_json(bundle_dir / "deterministic_data_usage.json", usage_requirements)
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})
     manifest = {
@@ -1709,7 +1734,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     if config:
         manifest = json.loads(redact(json.dumps(manifest), config))
     write_json(bundle_dir / "manifest.json", manifest)
-    (bundle_dir / "research_input_pack.md").write_text(build_research_markdown(symbol, as_of, identity, snapshot, technicals, fundamentals, gaps), encoding="utf-8")
+    (bundle_dir / "research_input_pack.md").write_text(build_research_markdown(symbol, as_of, identity, snapshot, technicals, fundamentals, gaps, usage_requirements), encoding="utf-8")
     assert_no_secrets_in_tree(bundle_dir, config)
     return {"symbol": symbol, "bundle_dir": str(bundle_dir), "manifest": str(bundle_dir / "manifest.json")}
 

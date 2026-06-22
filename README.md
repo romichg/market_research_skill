@@ -160,6 +160,16 @@ Summarize an existing loop run:
 python3 market-research/batch-supervisor/scripts/research_loop.py summarize runtime/market-research-batch-YYYYMMDD
 ```
 
+Create a prompt-only self-improvement review over one or more completed batch roots:
+
+```bash
+python3 market-research/batch-supervisor/scripts/research_loop.py self-improve \
+  runtime/market-research-batch-20260620 \
+  runtime/market-research-batch-20260621
+```
+
+The command writes a central prompt under `runtime/self-improvement/TIMESTAMP/`. Run that prompt inside Codex when you want to consolidate lessons and plan skill improvements.
+
 ## Useful Helper Commands
 
 ```bash
@@ -168,6 +178,8 @@ python3 market-research/shared/scripts/deterministic_research_collector.py fetch
 python3 market-research/shared/scripts/validate_market_research.py --help
 bash market-research/shared/scripts/md-to-pdf.sh reports/AAPL/YYYY-MM-DD/AAPL-research.md
 ```
+
+Deterministic bundles include `deterministic_data_usage.json`. Research reports should use or explicitly disposition required/review datapoints in the report JSON `deterministic_data_usage` array.
 
 ## Troubleshooting
 

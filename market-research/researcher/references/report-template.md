@@ -159,9 +159,18 @@ This report is research support and is not personalized financial advice.
   ],
   "deterministic_data_usage": [
     {
-      "artifact": "data/AAPL/2026-05-29/normalized/technical_signals.json",
-      "status": "used",
-      "notes": "Material price, return, volatility, and trend fields were used or explicitly rejected."
+      "field_path": "market_snapshot.latest_close",
+      "materiality": "required",
+      "disposition": "used",
+      "rationale": "Latest close anchors market snapshot and valuation context.",
+      "report_section": "Market Snapshot Or Lifecycle Context",
+      "source_artifact": "data/AAPL/2026-05-29/normalized/market_snapshot.json"
+    },
+    {
+      "field_path": "market_snapshot.beta",
+      "materiality": "review",
+      "disposition": "intentionally_omitted_not_material",
+      "rationale": "Beta was not used because the report's thesis centered on issuer fundamentals and recent price action."
     }
   ]
 }

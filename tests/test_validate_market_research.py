@@ -203,6 +203,57 @@ def test_validator_collects_deterministic_data_usage_for_report_dir(tmp_path):
     assert "Deterministic data usage: 1 referenced, 1 not referenced" in markdown
 
 
+def test_validator_flags_missing_required_deterministic_usage_dispositions(tmp_path):
+    report_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (report_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    payload = {
+        **complete_research_payload("AAPL", "equity"),
+        "deterministic_bundle": {"bundle_dir": str(data_dir)},
+        "deterministic_data_usage": [
+            {"field_path": "market_snapshot.beta", "disposition": "used", "rationale": "Risk context."}
+        ],
+    }
+    (report_dir / "AAPL-research.json").write_text(json.dumps(payload), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (data_dir / "deterministic_data_usage.json").write_text(
+        json.dumps(
+            {
+                "version": "deterministic-data-usage-v1",
+                "datapoints": [
+                    {"field_path": "market_snapshot.latest_close", "materiality": "required"},
+                    {"field_path": "market_snapshot.beta", "materiality": "review"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (normalized / "market_snapshot.json").write_text(
+        json.dumps(
+            {
+                "latest_close": {"value": 123.45, "status": "ok", "provider": "tiingo"},
+                "beta": {"value": 1.2, "status": "ok", "provider": "alphavantage"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["deterministic_data_usage_dispositions"]["summary"]["missing_required"] == 1
+    issue_ids = {issue["id"] for issue in validation["issues"]}
+    assert "deterministic-usage-missing-required-market_snapshot-latest_close" in issue_ids
+    assert validation["blocking_issue_count"] == 1
+
+
 def test_validator_collects_deterministic_data_usage_for_data_bundle(tmp_path):
     data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
     normalized = data_dir / "normalized"

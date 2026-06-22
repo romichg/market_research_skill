@@ -304,6 +304,74 @@ def cmd_collect_feedback(args: argparse.Namespace) -> None:
     print(json.dumps(feedback, indent=2, sort_keys=True))
 
 
+def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path) -> str:
+    run_lines = []
+    for root in run_roots:
+        run_lines.extend(
+            [
+                f"- Run root: `{root}`",
+                f"  - Summary: `{root / 'research-loop-summary.json'}`",
+                f"  - Loop notes: `{root / 'loop-skill-issues.md'}`",
+                f"  - Operator notes: `{root / 'operator-notes.md'}`",
+            ]
+        )
+    return "\n".join(
+        [
+            "$superpowers",
+            "",
+            "Run a self-improvement review for completed market-research batches in this Codex session.",
+            "",
+            "Goal: analyze the listed runs, their reports, validation artifacts, skill issue notes, prior plans/specs, and recent code changes. Write improvement ideas and an implementation plan. Do not edit production skill files in this pass.",
+            "",
+            "Inputs to inspect:",
+            *run_lines,
+            "- Existing plans/specs: `docs/superpowers/plans`, `docs/`, `AGENTS.md`, and `README.md`",
+            "- Recent repository changes: `git status --short` and relevant `git diff`/`git log` output",
+            "",
+            "Review questions:",
+            "- Did the researcher use all useful deterministic data, especially fields marked required or review in `deterministic_data_usage.json`?",
+            "- Did reports omit material investor-relevant facts, risks, source limits, or data gaps?",
+            "- Did validator/remediation behavior surface the right problems with enough specificity?",
+            "- Which recurring failures should become deterministic checks, prompt requirements, helper scripts, or tests?",
+            "",
+            "Write outputs under:",
+            f"- `{output_dir / 'self-improvement-ideas.md'}`",
+            f"- `{output_dir / 'self-improvement-plan.md'}`",
+            f"- `{output_dir / 'self-improvement.json'}`",
+            "",
+            "The plan should use superpowers planning style: concrete phases, files to change, tests to add, verification commands, and explicit risks. Keep recommendations evidence-based and cite local artifact paths.",
+            "",
+        ]
+    )
+
+
+def timestamp_slug() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+
+def cmd_self_improve(args: argparse.Namespace) -> None:
+    run_roots = [Path(path) for path in args.run_roots]
+    for root in run_roots:
+        if not root.exists() or not root.is_dir():
+            die(f"Run root not found: {root}")
+    output_root = Path(args.output_root) if args.output_root else Path("runtime") / "self-improvement"
+    output_dir = output_root / timestamp_slug()
+    output_dir.mkdir(parents=True, exist_ok=False)
+    prompt_path = output_dir / "self-improvement.md"
+    prompt_path.write_text(self_improvement_runs_prompt(run_roots, output_dir), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "prompt": str(prompt_path),
+                "output_dir": str(output_dir),
+                "run_roots": [str(root) for root in run_roots],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def summarize_root(root: Path) -> dict[str, Any]:
     if not root.exists():
         die(f"Run root not found: {root}")
@@ -693,7 +761,8 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
         "symbols": results,
         "improvement_notes": improvement_notes,
     }
-    write_json(root / "research-loop-summary.json", summary)
+    summary_json = root / "research-loop-summary.json"
+    write_json(summary_json, summary)
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 
@@ -718,6 +787,11 @@ def build_parser() -> argparse.ArgumentParser:
     feedback = sub.add_parser("collect-feedback", help="Collect run skill issue notes for a manual improvement pass.")
     feedback.add_argument("run_root")
     feedback.set_defaults(func=cmd_collect_feedback)
+
+    self_improve = sub.add_parser("self-improve", help="Write a central prompt-only self-improvement review for one or more batch run roots.")
+    self_improve.add_argument("run_roots", nargs="+")
+    self_improve.add_argument("--output-root", help="Directory for self-improvement prompt runs. Defaults to runtime/self-improvement.")
+    self_improve.set_defaults(func=cmd_self_improve)
 
     init_batch = sub.add_parser("init-batch", help="Create batch config and prompt files for symbols.")
     init_batch.add_argument("symbols", nargs="+")

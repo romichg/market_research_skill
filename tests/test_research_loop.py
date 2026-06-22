@@ -158,6 +158,41 @@ def test_init_batch_validator_prompts_use_reports_as_of_output(tmp_path):
     assert f"Write validation markdown and JSON artifacts under `{root / 'EWW' / '2026-06-16'}`." not in validator
 
 
+def test_init_batch_does_not_write_self_improvement_prompt(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+
+    result = run_harness("init-batch", "DPC", "QBIT", "--run-root", str(root), "--as-of", "2026-06-16")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "self_improvement_prompt" not in payload
+    assert not (root / "prompts" / "self-improvement.md").exists()
+
+
+def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
+    run_a = tmp_path / "runtime" / "batch-a"
+    run_b = tmp_path / "runtime" / "batch-b"
+    output_root = tmp_path / "runtime" / "self-improvement"
+    for root in [run_a, run_b]:
+        root.mkdir(parents=True)
+        (root / "research-loop-summary.json").write_text(json.dumps({"run_root": str(root)}), encoding="utf-8")
+
+    result = run_harness("self-improve", str(run_a), str(run_b), "--output-root", str(output_root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    prompt_path = Path(payload["prompt"])
+    assert prompt_path.parent.parent == output_root
+    assert prompt_path.name == "self-improvement.md"
+    assert payload["run_roots"] == [str(run_a), str(run_b)]
+    assert "command" not in payload
+    prompt = prompt_path.read_text(encoding="utf-8")
+    assert "$superpowers" in prompt
+    assert str(run_a / "research-loop-summary.json") in prompt
+    assert str(run_b / "research-loop-summary.json") in prompt
+    assert str(prompt_path.parent / "self-improvement-plan.md") in prompt
+
+
 def test_invalid_shell_symbol_rejected_by_loop(tmp_path):
     result = run_harness("run-batch", "AAPL;touch", "--run-root", str(tmp_path), "--dry-run")
 
@@ -322,6 +357,46 @@ def test_run_batch_dry_run_writes_iteration_plan_without_executing(tmp_path):
     assert commands["validator"] == f"validator {iteration / 'validator.prompt.md'}"
     assert (root / "loop-skill-issues.md").exists()
     assert (root / "operator-notes.md").exists()
+
+
+def test_run_batch_does_not_execute_or_plan_self_improvement(tmp_path):
+    root = tmp_path / "batch"
+    reports_bundle = tmp_path / "reports" / "EWW" / "2026-06-16"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{run_dir}'); "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        "2026-06-16",
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "self_improvement" not in payload
+    assert not (root / "prompts" / "self-improvement.md").exists()
+    assert not (root / "self-improvement").exists()
 
 
 def test_run_batch_dry_run_quotes_path_placeholders(tmp_path):
