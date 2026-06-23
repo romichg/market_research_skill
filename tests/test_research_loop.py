@@ -193,6 +193,9 @@ def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
     assert str(prompt_path.parent / "self-improvement-plan.md") in prompt
     assert "investor-grade reporting/memo quality" in prompt
     assert "Does the report read like an investor memo rather than a deterministic-data recital or citation-heavy audit trail?" in prompt
+    assert "Preserve `reports/` as final product and `runtime/` as intermediate work product" in prompt
+    assert "field-level freshness" in prompt
+    assert "Do not recommend main-body cache mechanics disclosure unless stale or unavailable data changes investor interpretation." in prompt
 
 
 def test_invalid_shell_symbol_rejected_by_loop(tmp_path):

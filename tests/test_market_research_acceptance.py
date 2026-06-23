@@ -136,6 +136,18 @@ def test_verifier_flags_unnecessary_provider_provenance_in_main_body():
     assert "appendix" in text
 
 
+def test_self_improvement_lessons_prioritize_investor_product_over_runtime_packaging():
+    investor_lessons = (ROOT / "docs" / "superpowers" / "lessons" / "2026-06-22-investor-grade-report-quality.md").read_text(encoding="utf-8").lower()
+    self_improvement_lessons = (ROOT / "docs" / "superpowers" / "lessons" / "2026-06-22-deterministic-usage-and-self-improvement.md").read_text(encoding="utf-8").lower()
+    supervisor = (ROOT / "market-research" / "batch-supervisor" / "SKILL.md").read_text(encoding="utf-8").lower()
+
+    assert "final report is the investor product" in investor_lessons
+    assert "field-specific, not cache-specific" in investor_lessons
+    assert "finished investor experience before artifact ergonomics" in self_improvement_lessons
+    assert "reports/` is for polished final deliverables" in self_improvement_lessons
+    assert "field-level freshness guidance over cache-mechanics disclosure" in supervisor
+
+
 def test_report_template_requires_potential_value_not_booked_revenue_framing():
     text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
     assert "potential value" in text
