@@ -1959,3 +1959,89 @@ def test_build_bundle_uses_lifecycle_hints_for_usage_requirements(tmp_path):
     by_path = {item["field_path"]: item for item in usage["datapoints"]}
     assert by_path["equity_fundamentals.book_value"]["materiality"] == "review"
     assert by_path["equity_fundamentals.operating_margin_ttm"]["materiality"] == "review"
+
+
+def test_emit_sec_filings_index_handles_wrapped_submissions(tmp_path):
+    module = load_module()
+    bundle_dir = tmp_path / "data" / "QUBT" / "2026-06-23"
+    raw_dir = bundle_dir / "raw" / "sec"
+    normalized = bundle_dir / "normalized"
+    raw_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    submissions_raw = raw_dir / "sec_submissions.json"
+    submissions_raw.write_text(
+        json.dumps(
+            {
+                "data": {
+                    "filings": {
+                        "recent": {
+                            "accessionNumber": ["0001758009-26-000001"],
+                            "form": ["10-Q"],
+                            "filingDate": ["2026-05-11"],
+                            "reportDate": ["2026-03-31"],
+                            "primaryDocument": ["qubt-20260331.htm"],
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    module.emit_sec_filings_index(bundle_dir, submissions_raw, "0001758009")
+
+    index = json.loads((normalized / "sec_filings_index.json").read_text(encoding="utf-8"))
+    filing = index["filings"][0]
+    assert filing["form"] == "10-Q"
+    assert filing["accession_number"] == "0001758009-26-000001"
+    assert filing["filing_date"] == "2026-05-11"
+    assert filing["report_date"] == "2026-03-31"
+    assert filing["primary_document_url"].endswith("/qubt-20260331.htm")
+    assert filing["raw_path"] == str(submissions_raw)
+
+
+def test_analysis_limitations_map_provider_status_to_investor_impact():
+    module = load_module()
+    endpoint_status = [
+        {"provider": "fmp", "endpoint": "insider_statistics", "status": "plan_gated", "raw_path": "raw/fmp/insiders.json"},
+        {"provider": "fmp", "endpoint": "key_metrics_ttm", "status": "plan_gated", "raw_path": "raw/fmp/key_metrics.json"},
+        {"provider": "tiingo", "endpoint": "prices", "status": "ok", "raw_path": "raw/tiingo/prices.json"},
+    ]
+
+    limitations = module.analysis_limitations_from_endpoint_status(endpoint_status)
+
+    by_area = {item["area"]: item for item in limitations}
+    assert by_area["insider_activity"]["impact"] == "dilution_and_governance_analysis_limited"
+    assert by_area["insider_activity"]["status"] == "unavailable"
+    assert by_area["forward_valuation"]["attempted_providers"] == ["fmp"]
+
+
+def test_market_cap_discrepancy_flags_material_alternate():
+    module = load_module()
+    snapshot = {
+        "market_capitalization": {
+            "value": 2_400_000_000,
+            "provider": "alphavantage",
+            "raw_path": "raw/alphavantage/overview.json",
+            "alternates": [
+                {"value": 1_400_000_000, "provider": "fmp", "raw_path": "raw/fmp/profile.json"}
+            ],
+        }
+    }
+
+    discrepancies = module.discrepancies_from_snapshot(snapshot)
+
+    assert discrepancies == [
+        {
+            "field_path": "market_snapshot.market_capitalization",
+            "severity": "material",
+            "primary_provider": "alphavantage",
+            "primary_value": 2_400_000_000,
+            "alternate_provider": "fmp",
+            "alternate_value": 1_400_000_000,
+            "relative_difference": 0.416667,
+            "impact": "valuation_multiples_require_range_or_caveat",
+            "primary_raw_path": "raw/alphavantage/overview.json",
+            "alternate_raw_path": "raw/fmp/profile.json",
+        }
+    ]

@@ -1597,6 +1597,138 @@ def endpoint_status_from_raw_entries(raw_entries: list[dict[str, Any]]) -> list[
     return statuses
 
 
+def unwrap_provider_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, dict) else payload
+
+
+def emit_sec_filings_index(bundle_dir: Path, submissions_raw: Path, cik: str) -> None:
+    payload = read_json(submissions_raw)
+    data = unwrap_provider_data(payload)
+    recent = data.get("filings", {}).get("recent", {}) if isinstance(data, dict) else {}
+    if not isinstance(recent, dict):
+        return
+    accession_numbers = recent.get("accessionNumber", [])
+    if not isinstance(accession_numbers, list):
+        return
+    normalized_dir = bundle_dir / "normalized"
+    normalized_dir.mkdir(parents=True, exist_ok=True)
+    cik_for_url = str(cik).lstrip("0") or str(cik)
+    filings = []
+    for index, accession in enumerate(accession_numbers):
+        if not accession:
+            continue
+        primary_document = list_value(recent.get("primaryDocument"), index)
+        accession_compact = str(accession).replace("-", "")
+        primary_document_url = None
+        if primary_document:
+            primary_document_url = f"https://www.sec.gov/Archives/edgar/data/{cik_for_url}/{accession_compact}/{primary_document}"
+        filings.append(
+            {
+                "accession_number": accession,
+                "form": list_value(recent.get("form"), index),
+                "filing_date": list_value(recent.get("filingDate"), index),
+                "report_date": list_value(recent.get("reportDate"), index),
+                "primary_document": primary_document,
+                "primary_document_url": primary_document_url,
+                "raw_path": str(submissions_raw),
+                "status": "ok",
+            }
+        )
+    write_json(normalized_dir / "sec_filings_index.json", {"filings": filings, "raw_path": str(submissions_raw), "status": "ok"})
+
+
+def list_value(values: Any, index: int) -> Any:
+    if isinstance(values, list) and index < len(values):
+        return values[index]
+    return None
+
+
+ANALYSIS_LIMITATION_MAP = {
+    ("fmp", "insider_statistics"): ("insider_activity", "dilution_and_governance_analysis_limited"),
+    ("fmp", "insider_trading"): ("insider_activity", "dilution_and_governance_analysis_limited"),
+    ("fmp", "key_metrics_ttm"): ("forward_valuation", "forward_valuation_analysis_limited"),
+    ("fmp", "ratios_ttm"): ("forward_valuation", "forward_valuation_analysis_limited"),
+    ("eodhd", "historical_market_cap"): ("market_cap_history", "historical_valuation_context_limited"),
+}
+
+
+def analysis_limitations_from_endpoint_status(endpoint_status: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in endpoint_status:
+        if item.get("status") == "ok":
+            continue
+        key = (str(item.get("provider")), str(item.get("endpoint")))
+        mapping = ANALYSIS_LIMITATION_MAP.get(key)
+        if not mapping:
+            continue
+        area, impact = mapping
+        group_key = (area, impact)
+        entry = grouped.setdefault(
+            group_key,
+            {
+                "area": area,
+                "impact": impact,
+                "status": "unavailable",
+                "attempted_providers": [],
+                "endpoints": [],
+                "raw_paths": [],
+            },
+        )
+        provider = item.get("provider")
+        endpoint = item.get("endpoint")
+        raw_path_value = item.get("raw_path")
+        if provider and provider not in entry["attempted_providers"]:
+            entry["attempted_providers"].append(provider)
+        if endpoint and endpoint not in entry["endpoints"]:
+            entry["endpoints"].append(endpoint)
+        if raw_path_value and raw_path_value not in entry["raw_paths"]:
+            entry["raw_paths"].append(raw_path_value)
+    for entry in grouped.values():
+        entry["attempted_providers"].sort()
+        entry["endpoints"].sort()
+        entry["raw_paths"].sort()
+    return [grouped[key] for key in sorted(grouped)]
+
+
+def discrepancies_from_snapshot(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    market_cap = snapshot.get("market_capitalization")
+    if not isinstance(market_cap, dict):
+        return []
+    return market_cap_discrepancies(market_cap)
+
+
+def market_cap_discrepancies(point: dict[str, Any], threshold: float = 0.2) -> list[dict[str, Any]]:
+    primary_value = number(point.get("value"))
+    if primary_value in (None, 0):
+        return []
+    discrepancies = []
+    for alternate in point.get("alternates", []):
+        if not isinstance(alternate, dict):
+            continue
+        alternate_value = number(alternate.get("value"))
+        if alternate_value is None:
+            continue
+        relative_difference = abs(primary_value - alternate_value) / abs(primary_value)
+        if relative_difference < threshold:
+            continue
+        discrepancies.append(
+            {
+                "field_path": "market_snapshot.market_capitalization",
+                "severity": "material",
+                "primary_provider": point.get("provider"),
+                "primary_value": primary_value,
+                "alternate_provider": alternate.get("provider"),
+                "alternate_value": alternate_value,
+                "relative_difference": round(relative_difference, 6),
+                "impact": "valuation_multiples_require_range_or_caveat",
+                "primary_raw_path": point.get("raw_path"),
+                "alternate_raw_path": alternate.get("raw_path"),
+            }
+        )
+    return discrepancies
+
+
 def rewrite_raw_paths(payload: Any, path_map: dict[str, str]) -> Any:
     if isinstance(payload, dict):
         rewritten = {}
@@ -1732,11 +1864,16 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         write_json(normalized / "equity_insiders.json", equity_insiders)
     if asset_type_value in {"etf", "fund"}:
         write_json(normalized / "etf_holdings.json", etf_holdings)
+    sec_submissions_entry = next((entry for entry in raw_entries if entry.get("provider") == "sec" and entry.get("endpoint") == "submissions" and entry.get("status") == "ok"), None)
+    cik_value = identity.get("cik", {}).get("value") if isinstance(identity.get("cik"), dict) else None
+    if sec_submissions_entry and cik_value:
+        emit_sec_filings_index(bundle_dir, Path(str(sec_submissions_entry["raw_path"])), str(cik_value))
     lifecycle_hints = infer_lifecycle_hints(asset_type_value, fundamentals, technicals)
     usage_requirements = build_usage_requirements(normalized, asset_type_value, lifecycle_hints)
     write_json(bundle_dir / "deterministic_data_usage.json", usage_requirements)
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})
+    endpoint_status = endpoint_status_from_raw_entries(raw_entries)
     manifest = {
         "command": command,
         "tool_version": "deterministic-core-1",
@@ -1748,7 +1885,9 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         "created_at_utc": utc_now(),
         "offline": offline,
         "provider_status": collect_provider_status(cache_root, symbol, providers, endpoint_plan),
-        "endpoint_status": endpoint_status_from_raw_entries(raw_entries),
+        "endpoint_status": endpoint_status,
+        "analysis_limitations": analysis_limitations_from_endpoint_status(endpoint_status),
+        "discrepancies": discrepancies_from_snapshot(snapshot),
         "endpoint_plan": {provider: sorted(endpoints) for provider, endpoints in endpoint_plan.items()},
         "cache": {"raw_entries": len(raw_entries)},
         "api_limits": config.limits if config else {},

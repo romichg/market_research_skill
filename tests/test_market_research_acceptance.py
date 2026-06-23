@@ -119,6 +119,23 @@ def test_report_template_includes_provider_limit_impact_example():
     assert "affected_analysis_area" in text
 
 
+def test_report_template_moves_provider_and_skill_internals_to_appendix():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "provider names" in text
+    assert "appendix" in text
+    assert "unless they affect investment interpretation" in text
+    assert "time-sensitive" in text
+    assert "latest available" in text
+    assert "cache mechanics" in text
+
+
+def test_verifier_flags_unnecessary_provider_provenance_in_main_body():
+    text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "provider names" in text
+    assert "main body" in text
+    assert "appendix" in text
+
+
 def test_report_template_requires_potential_value_not_booked_revenue_framing():
     text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
     assert "potential value" in text
@@ -137,6 +154,13 @@ def test_readme_presents_self_improve_as_batch_supervisor_mode():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "$market-research batch-supervisor self-improve runtime/market-research-batch-20260620" in text
     assert "underlying helper can also be run directly" in text.lower()
+
+
+def test_readme_mentions_environment_preflight():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "preflight_environment.py" in text
+    assert "jsonschema" in text
+    assert "lmodern" in text
 
 
 def test_market_research_offline_acceptance_for_equity_and_etf(tmp_path):

@@ -30,6 +30,14 @@ The skill follows the Agent Skills convention: a directory containing `SKILL.md`
 
 PDF generation is best-effort. If `pandoc` or `xelatex` is missing, the skill reports that and keeps the Markdown/JSON report valid.
 
+Optional environment preflight:
+
+```bash
+python3 market-research/shared/scripts/preflight_environment.py
+```
+
+This reports optional `jsonschema`, `pandoc`, `xelatex`, and LaTeX package availability such as `lmodern`. Missing PDF tooling is non-fatal.
+
 ### Optional PDF Tooling
 
 Debian/Ubuntu:

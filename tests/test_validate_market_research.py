@@ -142,6 +142,93 @@ def test_validator_uses_sources_file_pointer_from_report_json(tmp_path):
     assert validation["issues"] == []
 
 
+def test_validator_uses_procedural_runtime_sources_file(tmp_path):
+    report_dir = tmp_path / "reports" / "QUBT" / "2026-06-23"
+    runtime_dir = tmp_path / "runtime" / "market-research-batch-20260623" / "QUBT" / "2026-06-23"
+    report_dir.mkdir(parents=True)
+    runtime_dir.mkdir(parents=True)
+    (report_dir / "QUBT-research.md").write_text("# QUBT Research\n", encoding="utf-8")
+    sources_path = runtime_dir / "sources.json"
+    sources_path.write_text(json.dumps({"sources": [{"id": "planck_framework_pr", "title": "Planck PR"}]}), encoding="utf-8")
+    payload = {
+        **complete_research_payload("QUBT", "equity"),
+        "material_claims": [{"claim": "Planck issued an initial order.", "source_id": "planck_framework_pr", "confidence": "high"}],
+        "procedural_runtime": {"sources_file": str(sources_path)},
+    }
+    (report_dir / "QUBT-research.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "QUBT-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["blocking_issue_count"] == 0
+    assert validation["issues"] == []
+
+
+def test_validator_accepts_claim_source_id_from_deterministic_source_manifest(tmp_path):
+    report_dir = tmp_path / "reports" / "QUBT" / "2026-06-23"
+    data_dir = tmp_path / "data" / "QUBT" / "2026-06-23"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (report_dir / "QUBT-research.md").write_text("# QUBT Research\n", encoding="utf-8")
+    payload = {
+        **complete_research_payload("QUBT", "equity"),
+        "deterministic_bundle": {"bundle_dir": str(data_dir)},
+        "material_claims": [
+            {"claim": "SEC companyfacts support revenue.", "source_id": "deterministic_sec_companyfacts", "confidence": "high"}
+        ],
+    }
+    (report_dir / "QUBT-research.json").write_text(json.dumps(payload), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "QUBT", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source_id": "deterministic_sec_companyfacts",
+                        "provider": "sec",
+                        "raw_path": str(data_dir / "raw" / "sec" / "companyfacts.json"),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text("{}", encoding="utf-8")
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "QUBT-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["blocking_issue_count"] == 0
+    assert validation["issues"] == []
+
+
+def test_validator_accepts_material_claim_source_artifact(tmp_path):
+    report_dir = tmp_path / "reports" / "QUBT" / "2026-06-23"
+    artifact = report_dir / "evidence" / "source_bundle" / "latest_10q.htm"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("<html>10-Q</html>", encoding="utf-8")
+    (report_dir / "QUBT-research.md").write_text("# QUBT Research\n", encoding="utf-8")
+    payload = {
+        **complete_research_payload("QUBT", "equity"),
+        "material_claims": [
+            {"claim": "Q1 revenue increased.", "source_id": "latest_10q", "source_artifact": str(artifact), "confidence": "high"}
+        ],
+    }
+    (report_dir / "QUBT-research.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "QUBT-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["blocking_issue_count"] == 0
+    assert validation["issues"] == []
+
+
 def test_validator_collects_deterministic_data_usage_for_report_dir(tmp_path):
     report_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
     data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
@@ -306,7 +393,59 @@ def test_validator_flags_weak_required_deterministic_usage_rationale(tmp_path):
     validation = json.loads((report_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["deterministic_data_usage_dispositions"]["summary"]["weak_required"] == 1
     issue_ids = {issue["id"] for issue in validation["issues"]}
-    assert "deterministic-usage-weak-required-equity_fundamentals-ebitda" in issue_ids
+    assert "deterministic-usage-weak-required-summary" in issue_ids
+
+
+def test_validator_aggregates_weak_usage_rationale_issues(tmp_path):
+    report_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (report_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    payload = {
+        **complete_research_payload("AAPL", "equity"),
+        "deterministic_bundle": {"bundle_dir": str(data_dir)},
+        "deterministic_data_usage": [
+            {"field_path": "equity_fundamentals.ebitda", "disposition": "used", "rationale": "Used in key facts.", "report_section": "Financials"},
+            {"field_path": "equity_fundamentals.eps", "disposition": "used", "rationale": "Used in key facts.", "report_section": "Financials"},
+        ],
+    }
+    (report_dir / "AAPL-research.json").write_text(json.dumps(payload), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (data_dir / "deterministic_data_usage.json").write_text(
+        json.dumps(
+            {
+                "version": "deterministic-data-usage-v1",
+                "datapoints": [
+                    {"field_path": "equity_fundamentals.ebitda", "field_name": "ebitda", "materiality": "required"},
+                    {"field_path": "equity_fundamentals.eps", "field_name": "eps", "materiality": "required"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (normalized / "equity_fundamentals.json").write_text(
+        json.dumps(
+            {
+                "ebitda": {"value": -1000, "status": "ok", "provider": "alphavantage"},
+                "eps": {"value": -0.26, "status": "ok", "provider": "alphavantage"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    issue_ids = [issue["id"] for issue in validation["issues"]]
+    assert issue_ids == ["deterministic-usage-weak-required-summary"]
+    assert "2 required deterministic datapoints" in validation["issues"][0]["description"]
+    assert validation["issue_counts"]["minor"] == 1
 
 
 def test_validator_filing_section_gap_issue_includes_remediation_targets(tmp_path):

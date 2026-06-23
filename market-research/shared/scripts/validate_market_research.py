@@ -186,21 +186,63 @@ def issue_counts(issues: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def load_sources(run_dir: Path, report: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+def source_file_candidates(run_dir: Path, report: dict[str, Any] | None = None) -> list[Path]:
     candidates = [run_dir / "sources.json"]
     if isinstance(report, dict):
         sources_file = report.get("sources_file")
         if isinstance(sources_file, str) and sources_file:
             candidates.append(Path(sources_file))
-    for path in candidates:
+        procedural_runtime = report.get("procedural_runtime")
+        if isinstance(procedural_runtime, dict):
+            runtime_sources = procedural_runtime.get("sources_file")
+            if isinstance(runtime_sources, str) and runtime_sources:
+                candidates.append(Path(runtime_sources))
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def load_sources(run_dir: Path, report: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    resolved: dict[str, dict[str, Any]] = {}
+    for path in source_file_candidates(run_dir, report):
         if not path.exists():
             continue
         payload = read_json(path)
         sources = payload.get("sources", [])
         if not isinstance(sources, list):
-            return {}
-        return {str(source.get("id")): source for source in sources if isinstance(source, dict) and source.get("id")}
-    return {}
+            continue
+        for source in sources:
+            if isinstance(source, dict) and source.get("id"):
+                resolved[str(source["id"])] = source
+    return resolved
+
+
+def load_deterministic_sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    source_manifest = bundle.get("source_manifest")
+    if not isinstance(source_manifest, Path) or not source_manifest.exists():
+        return {}
+    payload = read_json(source_manifest)
+    sources = payload.get("sources", [])
+    if not isinstance(sources, list):
+        return {}
+    resolved: dict[str, dict[str, Any]] = {}
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        source_id = source.get("id") or source.get("source_id")
+        if source_id:
+            resolved[str(source_id)] = source
+    return resolved
+
+
+def claim_has_existing_source_artifact(claim: dict[str, Any]) -> bool:
+    artifact = claim.get("source_artifact")
+    return isinstance(artifact, str) and bool(artifact) and Path(artifact).exists()
 
 
 def deterministic_issues(report: Any, sources_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -215,7 +257,7 @@ def deterministic_issues(report: Any, sources_by_id: dict[str, dict[str, Any]]) 
         for index, claim in enumerate(claims):
             if isinstance(claim, dict) and not claim.get("source_id"):
                 issues.append({"id": f"claim-{index}-source", "severity": "moderate", "status": "open", "description": "Material claim is missing source_id."})
-            elif isinstance(claim, dict) and claim.get("source_id") not in sources_by_id:
+            elif isinstance(claim, dict) and claim.get("source_id") not in sources_by_id and not claim_has_existing_source_artifact(claim):
                 issues.append({"id": f"claim-{index}-source-missing", "severity": "moderate", "status": "open", "description": f"Material claim cites source_id {claim.get('source_id')!r}, but that source is missing from sources.json."})
     return issues
 
@@ -386,31 +428,29 @@ def usage_disposition_issues(comparison: dict[str, Any]) -> list[dict[str, Any]]
                 "description": f"Report JSON does not disposition required deterministic datapoint: {field_path}.",
             }
         )
-    for item in comparison.get("weak_required", []):
-        field_path = item.get("field_path", "unknown")
-        safe_field_path = str(field_path).replace(".", "-").replace("_", "_")
-        weak_reason = item.get("weak_reason", "weak_rationale")
-        issues.append(
-            {
-                "id": f"deterministic-usage-weak-required-{safe_field_path}",
-                "severity": "minor",
-                "status": "open",
-                "description": f"Report JSON disposition for required deterministic datapoint {field_path} is weak: {weak_reason}. Use a field-specific rationale and report section.",
-            }
-        )
-    for item in comparison.get("weak_review", []):
-        field_path = item.get("field_path", "unknown")
-        safe_field_path = str(field_path).replace(".", "-").replace("_", "_")
-        weak_reason = item.get("weak_reason", "weak_rationale")
-        issues.append(
-            {
-                "id": f"deterministic-usage-weak-review-{safe_field_path}",
-                "severity": "minor",
-                "status": "open",
-                "description": f"Report JSON disposition for review deterministic datapoint {field_path} is weak: {weak_reason}. Use a field-specific rationale.",
-            }
-        )
+    weak_required = summarize_weak_usage(comparison.get("weak_required", []), "required")
+    if weak_required:
+        issues.append(weak_required)
+    weak_review = summarize_weak_usage(comparison.get("weak_review", []), "review")
+    if weak_review:
+        issues.append(weak_review)
     return issues
+
+
+def summarize_weak_usage(items: list[dict[str, Any]], materiality: str) -> dict[str, Any] | None:
+    if not items:
+        return None
+    sample = ", ".join(str(item.get("field_path", "unknown")) for item in items[:8])
+    extra = "" if len(items) <= 8 else f", and {len(items) - 8} more"
+    return {
+        "id": f"deterministic-usage-weak-{materiality}-summary",
+        "severity": "minor",
+        "status": "open",
+        "description": (
+            f"{len(items)} {materiality} deterministic datapoints have weak report JSON usage rationales. "
+            f"Use field-specific rationales and report sections. Sample: {sample}{extra}."
+        ),
+    }
 
 
 def gap_issues(gaps_payload: dict[str, Any], report_corpus: str) -> list[dict[str, Any]]:
@@ -505,6 +545,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     json_path = bundle.get("report_json")
     report = read_json(json_path) if isinstance(json_path, Path) else {}
     sources_by_id = load_sources(run_dir, report if isinstance(report, dict) else None)
+    sources_by_id.update(load_deterministic_sources(bundle))
     issues = deterministic_bundle_issues(bundle) if bundle["bundle_type"] == "deterministic_data_bundle" else deterministic_issues(report, sources_by_id)
     gaps_path = bundle.get("gaps")
     gaps_payload = read_json(gaps_path) if isinstance(gaps_path, Path) and gaps_path.exists() else {}

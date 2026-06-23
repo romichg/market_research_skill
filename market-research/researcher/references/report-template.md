@@ -24,6 +24,10 @@ Use inline citations sparingly:
 - Avoid appending `Source:` to every paragraph when the paragraph is ordinary synthesis from already captured evidence.
 - Prefer one consolidated `Sources And Evidence` section that maps major claim groups to local artifacts.
 
+Provider names, source IDs, local paths, raw paths, hashes, deterministic bundle names, runtime directories, cache paths, and skill/tool internals belong in an appendix, validation artifact, runtime artifact, or JSON sidecar unless they affect investment interpretation. In the main investor narrative, name providers only when provider identity changes the conclusion, such as a material discrepancy, stale source, missing data category, or source-quality caveat. Use investor-readable phrases such as "latest available market data", "SEC filings", or "company press release" when provider identity is not material.
+
+Field-level freshness matters more than cache mechanics. Time-sensitive fields should be fresh or explicitly described as latest available: price, volume, market cap, short interest, forward estimates, recent news, insider transactions, and event-driven catalysts. Durable filed evidence may use cached artifacts when source dates are preserved: SEC filings, company releases, historical financial statements, company identity, and risk-factor text. Main report disclosure should focus on stale or unavailable material data, not cache mechanics; cache mechanics belong in references, validation artifacts, manifests, or JSON sidecars.
+
 ## News And Contract Value Framing
 
 For framework agreements, letters of intent, milestone-dependent values, or "up to" contract announcements, state whether the amount is booked revenue, backlog, a firm order, a non-binding framework, or potential value dependent on milestones. Do not let potential program value read like recognized revenue.
