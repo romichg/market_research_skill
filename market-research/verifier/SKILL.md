@@ -49,13 +49,17 @@ The scaffold includes `deterministic_data_usage`, a heuristic audit of normalize
 - Review the scaffold `deterministic_data_usage` and `deterministic_data_usage_dispositions` sections. Confirm required/review deterministic datapoints were used or field-level dispositions are defensible before deciding the producer passed data-usage validation.
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.
+- Check investor usefulness. Deterministic coverage is not sufficient if the report reads like a source inventory or compliance transcript. The report should have a clear thesis, prioritize material facts, explain variant view and risks, and keep citations from overwhelming the prose. Treat excessive path-level citation density as a minor quality issue; treat missing thesis or purely mechanical deterministic recitation as moderate.
 - Check for unsupported valuation, performance, peer, or portfolio-fit claims.
 - Check for omitted risks.
 - Check ticker/name/source-entity alignment. News and secondary data providers can return similarly named but unrelated issuers for the same ticker text, ADR/local-listing collisions, predecessor entities, or pending IPO symbols. Treat any claim supported only by a mismatched issuer/source entity as unsupported.
 - When `sources.json` includes `artifact_sha256` and `artifact_size_bytes`, treat them as frozen-artifact integrity metadata and verify that referenced local artifacts still exist.
 - Check ETF fee, holdings, exposure, and index methodology support.
 - Check equity/ADR filing, financial, valuation, and risk support.
+- If filing-section extracts are absent for an equity, check whether the report discloses that limitation. Treat disclosed absence as a minor evidence-depth issue; treat undisclosed absence as moderate when the report discusses filing-specific risks, MD&A, litigation, liquidity, or going-concern claims.
 - Confirm `gaps.json` marks unavailable free-source data clearly instead of letting missing fields become unsupported prose.
+- Confirm material provider limits are mapped to affected analysis areas, not only listed. Examples include short-interest gaps affecting crowding/squeeze analysis, forward-estimate gaps affecting valuation, insider-statistics gaps affecting dilution/governance analysis, and filing-section gaps affecting direct risk-factor or MD&A validation.
+- When reports cite news with "potential", "up to", "framework", or milestone language, verify that the report does not present it as booked revenue unless a filing or company source supports that treatment.
 
 5. Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`.
 

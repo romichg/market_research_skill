@@ -37,13 +37,19 @@ Use `--command-timeout-seconds` to tune the watchdog. If a child times out after
 
 Custom validator command templates can use `{run_dir}` for the input artifact path and `{validation_output_dir}` for the reports output path.
 
-Self-improvement is not automatic. To create a central prompt over one or more completed batch roots:
+Self-improvement is not automatic. To create a central prompt over one or more completed batch roots, prefer the procedural skill invocation:
+
+```text
+$market-research batch-supervisor self-improve RUN_ROOT [RUN_ROOT ...]
+```
+
+The underlying helper can also be run directly from the repository root for debugging or custom output roots:
 
 ```bash
 python3 market-research/batch-supervisor/scripts/research_loop.py self-improve RUN_ROOT [RUN_ROOT ...]
 ```
 
-This writes `runtime/self-improvement/TIMESTAMP/self-improvement.md` by default. Open that prompt in Codex and run the review in the current session. The prompt asks for `self-improvement-ideas.md`, `self-improvement-plan.md`, and `self-improvement.json` under the same central output directory. Use `--output-root` to choose a different central location.
+This writes `runtime/self-improvement/TIMESTAMP/self-improvement.md` by default. Open that prompt in Codex and run the review in the current session. The prompt asks for `self-improvement-ideas.md`, `self-improvement-plan.md`, and `self-improvement.json` under the same central output directory. The generated prompt should evaluate deterministic data usage, investor-grade reporting/memo quality, omitted risks or data gaps, validator specificity, and recurring failures that should become checks, prompt requirements, helper scripts, or tests. Use `--output-root` to choose a different central location.
 
 ## Supervision
 

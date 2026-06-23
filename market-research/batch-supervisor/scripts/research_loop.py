@@ -331,6 +331,8 @@ def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path) -> str
             "Review questions:",
             "- Did the researcher use all useful deterministic data, especially fields marked required or review in `deterministic_data_usage.json`?",
             "- Did reports omit material investor-relevant facts, risks, source limits, or data gaps?",
+            "- Evaluate investor-grade reporting/memo quality. Does the report read like an investor memo rather than a deterministic-data recital or citation-heavy audit trail?",
+            "- Did deterministic coverage support synthesis and judgment, or did it crowd out thesis, materiality, variant view, risks, and monitoring triggers?",
             "- Did validator/remediation behavior surface the right problems with enough specificity?",
             "- Which recurring failures should become deterministic checks, prompt requirements, helper scripts, or tests?",
             "",

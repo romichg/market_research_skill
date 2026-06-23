@@ -191,6 +191,8 @@ def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
     assert str(run_a / "research-loop-summary.json") in prompt
     assert str(run_b / "research-loop-summary.json") in prompt
     assert str(prompt_path.parent / "self-improvement-plan.md") in prompt
+    assert "investor-grade reporting/memo quality" in prompt
+    assert "Does the report read like an investor memo rather than a deterministic-data recital or citation-heavy audit trail?" in prompt
 
 
 def test_invalid_shell_symbol_rejected_by_loop(tmp_path):

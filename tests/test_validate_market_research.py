@@ -196,11 +196,13 @@ def test_validator_collects_deterministic_data_usage_for_report_dir(tmp_path):
     usage = validation["deterministic_data_usage"]
     assert usage["summary"]["total_ok_datapoints"] == 2
     assert usage["summary"]["referenced"] == 1
+    assert usage["summary"]["narrative_used"] == 1
+    assert usage["summary"]["evidence_only_reference"] == 0
     assert usage["summary"]["not_referenced"] == 1
     not_referenced = [item["field_path"] for item in usage["datapoints"] if item["usage_status"] == "not_referenced"]
     assert not_referenced == ["market_snapshot.beta"]
     markdown = (report_dir / "AAPL-validation-scaffold.md").read_text(encoding="utf-8")
-    assert "Deterministic data usage: 1 referenced, 1 not referenced" in markdown
+    assert "Deterministic data usage: 1 narrative-used, 0 evidence-only references, 1 not referenced" in markdown
 
 
 def test_validator_flags_missing_required_deterministic_usage_dispositions(tmp_path):
@@ -254,6 +256,108 @@ def test_validator_flags_missing_required_deterministic_usage_dispositions(tmp_p
     assert validation["blocking_issue_count"] == 1
 
 
+def test_validator_flags_weak_required_deterministic_usage_rationale(tmp_path):
+    report_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (report_dir / "AAPL-research.md").write_text("# AAPL Research\n", encoding="utf-8")
+    payload = {
+        **complete_research_payload("AAPL", "equity"),
+        "deterministic_bundle": {"bundle_dir": str(data_dir)},
+        "deterministic_data_usage": [
+            {
+                "field_path": "equity_fundamentals.ebitda",
+                "disposition": "used",
+                "rationale": "Used in the report as part of identity, market snapshot, financial profile, valuation/performance context, or technical context.",
+                "report_section": "Financials, Holdings, And Balance Sheet",
+            }
+        ],
+    }
+    (report_dir / "AAPL-research.json").write_text(json.dumps(payload), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (data_dir / "deterministic_data_usage.json").write_text(
+        json.dumps(
+            {
+                "version": "deterministic-data-usage-v1",
+                "datapoints": [
+                    {
+                        "field_path": "equity_fundamentals.ebitda",
+                        "field_name": "ebitda",
+                        "materiality": "required",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (normalized / "equity_fundamentals.json").write_text(
+        json.dumps({"ebitda": {"value": -1000, "status": "ok", "provider": "alphavantage"}}),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["deterministic_data_usage_dispositions"]["summary"]["weak_required"] == 1
+    issue_ids = {issue["id"] for issue in validation["issues"]}
+    assert "deterministic-usage-weak-required-equity_fundamentals-ebitda" in issue_ids
+
+
+def test_validator_filing_section_gap_issue_includes_remediation_targets(tmp_path):
+    report_dir = tmp_path / "reports" / "QUBT" / "2026-06-22"
+    data_dir = tmp_path / "data" / "QUBT" / "2026-06-22"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (report_dir / "QUBT-research.md").write_text(
+        "# QUBT Research\n\nExplicit Data Gaps: no filing-section extracts were available.\n",
+        encoding="utf-8",
+    )
+    (report_dir / "QUBT-research.json").write_text(
+        json.dumps(
+            {
+                **complete_research_payload("QUBT", "equity"),
+                "deterministic_bundle": {"bundle_dir": str(data_dir)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "research_input_pack.md").write_text("# QUBT Deterministic Research Input Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "QUBT", "asset_type": "equity"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(
+        json.dumps(
+            {
+                "gaps": [
+                    {
+                        "field": "filing_section_extracts",
+                        "status": "workflow_output_absent",
+                        "attempted_sources": ["sec_submissions", "sec_companyfacts"],
+                        "notes": "No filing sections.",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (normalized / "identity.json").write_text("{}", encoding="utf-8")
+
+    result = run_validator(str(report_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "QUBT-validation-scaffold.json").read_text(encoding="utf-8"))
+    issue = next(item for item in validation["issues"] if item["id"] == "filing-section-extracts-missing")
+    assert issue["severity"] == "minor"
+    assert "market-research/shared/scripts/deterministic_research_collector.py" in issue["description"]
+    assert "market-research/researcher/references/report-template.md" in issue["description"]
+
+
 def test_validator_collects_deterministic_data_usage_for_data_bundle(tmp_path):
     data_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
     normalized = data_dir / "normalized"
@@ -285,7 +389,8 @@ def test_validator_collects_deterministic_data_usage_for_data_bundle(tmp_path):
     assert result.returncode == 0, result.stderr
     validation = json.loads((tmp_path / "reports" / "AAPL" / "2026-06-01" / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
     assert validation["deterministic_data_usage"]["summary"]["total_ok_datapoints"] == 1
-    assert validation["deterministic_data_usage"]["datapoints"][0]["usage_status"] == "referenced"
+    assert validation["deterministic_data_usage"]["summary"]["evidence_only_reference"] == 1
+    assert validation["deterministic_data_usage"]["datapoints"][0]["usage_status"] == "evidence_only_reference"
 
 
 def test_validator_flags_missing_expanded_research_json_sections(tmp_path):

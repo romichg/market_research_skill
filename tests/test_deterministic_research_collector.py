@@ -1924,3 +1924,38 @@ def test_build_bundle_emits_deterministic_data_usage_requirements(tmp_path):
     assert by_path["equity_fundamentals.analyst_target_price"]["materiality"] == "review"
     pack = (bundle_dir / "research_input_pack.md").read_text(encoding="utf-8")
     assert "## Deterministic Data Usage Requirements" in pack
+
+
+def test_build_bundle_uses_lifecycle_hints_for_usage_requirements(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "QUBT",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "QUBT"},
+        {
+            "Name": "Quantum Computing Inc.",
+            "RevenueTTM": "4334000",
+            "EPS": "-0.26",
+            "BookValue": "7.08",
+            "OperatingMarginTTM": "-5.57",
+        },
+        source_url="https://alphavantage.example/query?function=OVERVIEW&symbol=QUBT",
+    )
+
+    result = module.build_bundle(
+        "QUBT",
+        "2026-06-21",
+        cache,
+        tmp_path / "data",
+        providers=["alphavantage"],
+        endpoint_plan={"alphavantage": {"overview"}},
+        asset_type="equity",
+    )
+
+    usage = json.loads((Path(result["bundle_dir"]) / "deterministic_data_usage.json").read_text(encoding="utf-8"))
+    by_path = {item["field_path"]: item for item in usage["datapoints"]}
+    assert by_path["equity_fundamentals.book_value"]["materiality"] == "review"
+    assert by_path["equity_fundamentals.operating_margin_ttm"]["materiality"] == "review"

@@ -56,6 +56,21 @@ REQUIRED_FIELD_PREFIXES = (
 
 REVIEW_NAMESPACES = {"news", "equity_events", "equity_insiders"}
 
+EARLY_STAGE_REVIEW_FIELD_PATHS = {
+    "market_snapshot.latest_volume",
+    "equity_fundamentals.book_value",
+    "equity_fundamentals.operating_margin_ttm",
+    "equity_fundamentals.return_on_assets_ttm",
+    "equity_fundamentals.return_on_equity_ttm",
+    "equity_fundamentals.quarterly_revenue_growth_yoy",
+}
+
+GENERIC_RATIONALE_PHRASES = {
+    "used in the report",
+    "used in the report as part of identity, market snapshot, financial profile, valuation/performance context, or technical context",
+    "not material",
+}
+
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -98,11 +113,20 @@ def collect_normalized_datapoints_from_payload(namespace: str, artifact: Path, p
             collect_normalized_datapoints_from_payload(namespace, artifact, value, f"{prefix}{index}.", datapoints)
 
 
-def classify_materiality(field_path: str, asset_type: str | None = None) -> str:
+def is_early_stage_volatile_equity(asset_type: str | None, lifecycle_hints: dict[str, Any] | None = None) -> bool:
+    if asset_type != "equity" or not isinstance(lifecycle_hints, dict):
+        return False
+    hint_names = ["negative_eps", "negative_ebitda", "high_realized_volatility", "micro_or_early_revenue", "recent_revenue_step_up"]
+    return sum(1 for name in hint_names if lifecycle_hints.get(name) is True) >= 2
+
+
+def classify_materiality(field_path: str, asset_type: str | None = None, lifecycle_hints: dict[str, Any] | None = None) -> str:
     namespace, _, field_tail = field_path.partition(".")
     field_name = field_tail.split(".")[-1]
     if field_path in REQUIRED_FIELD_PATHS or any(field_path.startswith(prefix) for prefix in REQUIRED_FIELD_PREFIXES):
         return "required"
+    if is_early_stage_volatile_equity(asset_type, lifecycle_hints) and field_path in EARLY_STAGE_REVIEW_FIELD_PATHS:
+        return "review"
     if asset_type in {"etf", "fund"} and namespace in {"market_snapshot", "etf_holdings"}:
         return "required"
     if field_name in REVIEW_FIELD_NAMES or namespace in REVIEW_NAMESPACES:
@@ -112,11 +136,11 @@ def classify_materiality(field_path: str, asset_type: str | None = None) -> str:
     return "context"
 
 
-def build_usage_requirements(normalized_dir: Path, asset_type: str | None = None) -> dict[str, Any]:
+def build_usage_requirements(normalized_dir: Path, asset_type: str | None = None, lifecycle_hints: dict[str, Any] | None = None) -> dict[str, Any]:
     datapoints = []
     summary = {"total_ok_datapoints": 0, "required": 0, "review": 0, "context": 0}
     for datapoint in collect_normalized_datapoints(normalized_dir):
-        materiality = classify_materiality(datapoint["field_path"], asset_type)
+        materiality = classify_materiality(datapoint["field_path"], asset_type, lifecycle_hints)
         item = {
             **datapoint,
             "materiality": materiality,
@@ -146,23 +170,53 @@ def report_usage_dispositions(report: Any) -> dict[str, dict[str, Any]]:
     return dispositions
 
 
+def weak_usage_rationale(entry: dict[str, Any], requirement: dict[str, Any]) -> str | None:
+    rationale = str(entry.get("rationale") or "").strip()
+    disposition = entry.get("disposition")
+    field_name = str(requirement.get("field_name") or "").lower()
+    if len(rationale) < 24:
+        return "rationale_too_short"
+    if rationale.lower().rstrip(".") in GENERIC_RATIONALE_PHRASES:
+        return "generic_rationale"
+    if disposition == "used" and not entry.get("report_section"):
+        return "used_without_report_section"
+    if disposition == "used" and field_name and field_name not in rationale.lower() and field_name.replace("_", " ") not in rationale.lower():
+        return "rationale_not_field_specific"
+    return None
+
+
 def compare_usage_dispositions(requirements: dict[str, Any], report: Any) -> dict[str, Any]:
     dispositions = report_usage_dispositions(report)
     required_items = [item for item in requirements.get("datapoints", []) if item.get("materiality") == "required"]
     review_items = [item for item in requirements.get("datapoints", []) if item.get("materiality") == "review"]
     missing_required = [item for item in required_items if item.get("field_path") not in dispositions]
     missing_review = [item for item in review_items if item.get("field_path") not in dispositions]
+    weak_required = []
+    weak_review = []
+    for bucket, items in [(weak_required, required_items), (weak_review, review_items)]:
+        for item in items:
+            field_path = item.get("field_path")
+            entry = dispositions.get(field_path)
+            if not entry:
+                continue
+            weak_reason = weak_usage_rationale(entry, item)
+            if weak_reason:
+                bucket.append({**item, "weak_reason": weak_reason})
     return {
         "summary": {
             "total_required": len(required_items),
             "dispositioned_required": len(required_items) - len(missing_required),
             "missing_required": len(missing_required),
+            "weak_required": len(weak_required),
             "total_review": len(review_items),
             "dispositioned_review": len(review_items) - len(missing_review),
             "missing_review": len(missing_review),
+            "weak_review": len(weak_review),
         },
         "missing_required": missing_required,
         "missing_review": missing_review,
+        "weak_required": weak_required,
+        "weak_review": weak_review,
     }
 
 
@@ -200,25 +254,38 @@ def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[
     return sorted(set(reasons))
 
 
+def usage_status_from_reasons(reasons: list[str]) -> str:
+    if "value" in reasons:
+        return "narrative_used"
+    if any(reason in reasons for reason in ["field_path", "field_name", "raw_path", "source_url"]):
+        return "evidence_only_reference"
+    return "not_referenced"
+
+
 def deterministic_data_usage_audit(bundle: dict[str, Any], report: Any) -> dict[str, Any]:
     datapoints = collect_normalized_datapoints(bundle.get("normalized"))
     corpus = report_reference_corpus(bundle.get("report_markdown"), bundle.get("report_json"), report)
     audited = []
     for datapoint in datapoints:
         reasons = datapoint_reference_reasons(datapoint, corpus)
+        usage_status = usage_status_from_reasons(reasons)
         audited.append(
             {
                 **datapoint,
-                "usage_status": "referenced" if reasons else "not_referenced",
+                "usage_status": usage_status,
                 "reference_reasons": reasons,
             }
         )
-    referenced = sum(1 for item in audited if item["usage_status"] == "referenced")
+    narrative_used = sum(1 for item in audited if item["usage_status"] == "narrative_used")
+    evidence_only_reference = sum(1 for item in audited if item["usage_status"] == "evidence_only_reference")
+    referenced = narrative_used + evidence_only_reference
     not_referenced = sum(1 for item in audited if item["usage_status"] == "not_referenced")
     return {
         "summary": {
             "total_ok_datapoints": len(audited),
             "referenced": referenced,
+            "narrative_used": narrative_used,
+            "evidence_only_reference": evidence_only_reference,
             "not_referenced": not_referenced,
         },
         "datapoints": audited,

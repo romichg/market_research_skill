@@ -4,7 +4,7 @@ Use this outline for the human-facing research report. Use `research_input_pack.
 
 ## Report Quality Bar
 
-Every report should read like useful investment research, not an artifact inventory.
+Every report should read like useful investor-grade investment research, not an artifact inventory.
 
 - Lead with a clear bottom line.
 - Explain what the company, ADR, or fund does in practical terms.
@@ -13,6 +13,20 @@ Every report should read like useful investment research, not an artifact invent
 - Use sections such as `What Looks Attractive`, `What Worries Me`, and `My Take` when they improve readability.
 - If trading data is unavailable, replace mechanical technical analysis with relevant lifecycle context such as IPO terms, implied valuation, listing timeline, post-listing monitoring items, or explicit absence of market history.
 - For ETFs, adapt the same standard to fund objective, index methodology, holdings, exposures, fees, liquidity, tracking/performance context, distributions, portfolio role, risks, and monitoring triggers.
+
+## Reader Experience And Evidence Placement
+
+Write the main Markdown as an investor memo. Do not turn the report into an audit trail. Local artifact paths are important for validation, but they should usually live in `sources.json`, `material_claims`, `deterministic_data_usage`, or a consolidated evidence section rather than after every paragraph.
+
+Use inline citations sparingly:
+
+- Use them for highly material numbers, controversial claims, direct filing language, or places where source quality itself matters.
+- Avoid appending `Source:` to every paragraph when the paragraph is ordinary synthesis from already captured evidence.
+- Prefer one consolidated `Sources And Evidence` section that maps major claim groups to local artifacts.
+
+## News And Contract Value Framing
+
+For framework agreements, letters of intent, milestone-dependent values, or "up to" contract announcements, state whether the amount is booked revenue, backlog, a firm order, a non-binding framework, or potential value dependent on milestones. Do not let potential program value read like recognized revenue.
 
 ## Deterministic Input Pack Structure
 
@@ -149,7 +163,15 @@ This report is research support and is not personalized financial advice.
   "decision_factors": {},
   "risks": [],
   "catalysts": [],
-  "source_coverage": {},
+  "source_coverage": {
+    "provider_limit_impact": [
+      {
+        "provider_or_gap": "FMP insider statistics plan-gated",
+        "affected_analysis_area": "Dilution and governance monitoring",
+        "report_handling": "Used SEC filing index evidence; did not quantify insider activity."
+      }
+    ]
+  },
   "calculation_audit": [
     {
       "calculation": "Example return or moving-average calculation.",

@@ -93,6 +93,52 @@ def write_research_report(report_dir: Path, symbol: str, security_type: str) -> 
     )
 
 
+def test_report_template_prioritizes_investor_grade_narrative_over_citation_dump():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "investor-grade" in text
+    assert "do not turn the report into an audit trail" in text
+    assert "consolidated evidence" in text
+    assert "local artifact paths" in text
+
+
+def test_verifier_checks_investor_usefulness_not_only_deterministic_coverage():
+    text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "investor usefulness" in text
+    assert "deterministic coverage is not sufficient" in text
+
+
+def test_researcher_guidance_requires_provider_impact_mapping():
+    text = (ROOT / "market-research" / "researcher" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "provider-limit impact" in text
+    assert "affected analysis area" in text
+
+
+def test_report_template_includes_provider_limit_impact_example():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "provider_limit_impact" in text
+    assert "affected_analysis_area" in text
+
+
+def test_report_template_requires_potential_value_not_booked_revenue_framing():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "potential value" in text
+    assert "booked revenue" in text
+    assert "milestone" in text
+
+
+def test_verifier_checks_potential_value_news_framing():
+    text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "potential" in text
+    assert "booked revenue" in text
+    assert "framework" in text
+
+
+def test_readme_presents_self_improve_as_batch_supervisor_mode():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "$market-research batch-supervisor self-improve runtime/market-research-batch-20260620" in text
+    assert "underlying helper can also be run directly" in text.lower()
+
+
 def test_market_research_offline_acceptance_for_equity_and_etf(tmp_path):
     data_dir = tmp_path / "data"
     cache_dir = tmp_path / "cache"

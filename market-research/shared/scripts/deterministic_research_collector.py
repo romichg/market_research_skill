@@ -1496,6 +1496,29 @@ def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], fundamental
     return gaps
 
 
+def normalized_value(payload: dict[str, Any], key: str) -> Any:
+    item = payload.get(key)
+    if isinstance(item, dict):
+        return item.get("value")
+    return None
+
+
+def infer_lifecycle_hints(asset_type: str | None, fundamentals: dict[str, Any], technicals: dict[str, Any]) -> dict[str, Any]:
+    eps = number(normalized_value(fundamentals, "eps"))
+    ebitda = number(normalized_value(fundamentals, "ebitda"))
+    revenue_ttm = number(normalized_value(fundamentals, "revenue_ttm"))
+    quarterly_revenue_growth = number(normalized_value(fundamentals, "quarterly_revenue_growth_yoy"))
+    realized_volatility = number(normalized_value(technicals, "realized_volatility_30"))
+    return {
+        "asset_type": asset_type,
+        "negative_eps": eps is not None and eps < 0,
+        "negative_ebitda": ebitda is not None and ebitda < 0,
+        "high_realized_volatility": realized_volatility is not None and realized_volatility >= 0.8,
+        "micro_or_early_revenue": revenue_ttm is not None and revenue_ttm < 50_000_000,
+        "recent_revenue_step_up": quarterly_revenue_growth is not None and quarterly_revenue_growth >= 0.5,
+    }
+
+
 def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: list[str], endpoint_plan: dict[str, set[str]] | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
     entries = []
     path_map: dict[str, str] = {}
@@ -1709,7 +1732,8 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         write_json(normalized / "equity_insiders.json", equity_insiders)
     if asset_type_value in {"etf", "fund"}:
         write_json(normalized / "etf_holdings.json", etf_holdings)
-    usage_requirements = build_usage_requirements(normalized, asset_type_value)
+    lifecycle_hints = infer_lifecycle_hints(asset_type_value, fundamentals, technicals)
+    usage_requirements = build_usage_requirements(normalized, asset_type_value, lifecycle_hints)
     write_json(bundle_dir / "deterministic_data_usage.json", usage_requirements)
     write_json(bundle_dir / "source_manifest.json", {"sources": raw_entries})
     write_json(bundle_dir / "gaps.json", {"gaps": gaps})

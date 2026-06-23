@@ -162,13 +162,19 @@ python3 market-research/batch-supervisor/scripts/research_loop.py summarize runt
 
 Create a prompt-only self-improvement review over one or more completed batch roots:
 
+```text
+$market-research batch-supervisor self-improve runtime/market-research-batch-20260620 runtime/market-research-batch-20260621
+```
+
+The batch-supervisor self-improve mode writes a central prompt under `runtime/self-improvement/TIMESTAMP/`. Run that prompt inside Codex when you want to consolidate lessons and plan skill improvements.
+
+The underlying helper can also be run directly from the repository root for debugging or custom output roots:
+
 ```bash
 python3 market-research/batch-supervisor/scripts/research_loop.py self-improve \
   runtime/market-research-batch-20260620 \
   runtime/market-research-batch-20260621
 ```
-
-The command writes a central prompt under `runtime/self-improvement/TIMESTAMP/`. Run that prompt inside Codex when you want to consolidate lessons and plan skill improvements.
 
 ## Useful Helper Commands
 

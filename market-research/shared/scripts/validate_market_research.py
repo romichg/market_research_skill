@@ -155,6 +155,9 @@ def discover(run_dir: Path, report_md: str | None, report_json: str | None) -> d
     data_bundle = deterministic_bundle_for_report_dir(run_dir, payload if isinstance(payload, dict) else None, symbol)
     if data_bundle:
         result["deterministic_bundle_dir"] = data_bundle
+        result["manifest"] = data_bundle / "manifest.json"
+        result["source_manifest"] = data_bundle / "source_manifest.json"
+        result["gaps"] = data_bundle / "gaps.json"
         result["normalized"] = data_bundle / "normalized"
         result["deterministic_data_usage_requirements"] = data_bundle / "deterministic_data_usage.json"
     return result
@@ -316,23 +319,36 @@ def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[
     return sorted(set(reasons))
 
 
+def usage_status_from_reasons(reasons: list[str]) -> str:
+    if "value" in reasons:
+        return "narrative_used"
+    if any(reason in reasons for reason in ["field_path", "field_name", "raw_path", "source_url"]):
+        return "evidence_only_reference"
+    return "not_referenced"
+
+
 def deterministic_data_usage_audit(bundle: dict[str, Any], report: Any) -> dict[str, Any]:
     datapoints = collect_normalized_datapoints(bundle.get("normalized"))
     corpus = report_reference_corpus(bundle.get("report_markdown"), bundle.get("report_json"), report)
     audited = []
     for datapoint in datapoints:
         reasons = datapoint_reference_reasons(datapoint, corpus)
+        usage_status = usage_status_from_reasons(reasons)
         audited.append({
             **datapoint,
-            "usage_status": "referenced" if reasons else "not_referenced",
+            "usage_status": usage_status,
             "reference_reasons": reasons,
         })
-    referenced = sum(1 for item in audited if item["usage_status"] == "referenced")
+    narrative_used = sum(1 for item in audited if item["usage_status"] == "narrative_used")
+    evidence_only_reference = sum(1 for item in audited if item["usage_status"] == "evidence_only_reference")
+    referenced = narrative_used + evidence_only_reference
     not_referenced = sum(1 for item in audited if item["usage_status"] == "not_referenced")
     return {
         "summary": {
             "total_ok_datapoints": len(audited),
             "referenced": referenced,
+            "narrative_used": narrative_used,
+            "evidence_only_reference": evidence_only_reference,
             "not_referenced": not_referenced,
         },
         "datapoints": audited,
@@ -368,6 +384,52 @@ def usage_disposition_issues(comparison: dict[str, Any]) -> list[dict[str, Any]]
                 "severity": "moderate",
                 "status": "open",
                 "description": f"Report JSON does not disposition required deterministic datapoint: {field_path}.",
+            }
+        )
+    for item in comparison.get("weak_required", []):
+        field_path = item.get("field_path", "unknown")
+        safe_field_path = str(field_path).replace(".", "-").replace("_", "_")
+        weak_reason = item.get("weak_reason", "weak_rationale")
+        issues.append(
+            {
+                "id": f"deterministic-usage-weak-required-{safe_field_path}",
+                "severity": "minor",
+                "status": "open",
+                "description": f"Report JSON disposition for required deterministic datapoint {field_path} is weak: {weak_reason}. Use a field-specific rationale and report section.",
+            }
+        )
+    for item in comparison.get("weak_review", []):
+        field_path = item.get("field_path", "unknown")
+        safe_field_path = str(field_path).replace(".", "-").replace("_", "_")
+        weak_reason = item.get("weak_reason", "weak_rationale")
+        issues.append(
+            {
+                "id": f"deterministic-usage-weak-review-{safe_field_path}",
+                "severity": "minor",
+                "status": "open",
+                "description": f"Report JSON disposition for review deterministic datapoint {field_path} is weak: {weak_reason}. Use a field-specific rationale.",
+            }
+        )
+    return issues
+
+
+def gap_issues(gaps_payload: dict[str, Any], report_corpus: str) -> list[dict[str, Any]]:
+    issues = []
+    gaps = gaps_payload.get("gaps") if isinstance(gaps_payload, dict) else []
+    if not isinstance(gaps, list):
+        return issues
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            continue
+        if gap.get("field") != "filing_section_extracts":
+            continue
+        disclosed = any(term in report_corpus for term in ["filing-section", "filing section", "sec_filing_sections"])
+        issues.append(
+            {
+                "id": "filing-section-extracts-missing",
+                "severity": "minor" if disclosed else "moderate",
+                "status": "open",
+                "description": "Deterministic bundle lacks SEC filing-section extracts. Remediation targets: add extraction or explicit unavailable status in market-research/shared/scripts/deterministic_research_collector.py; require report disclosure in market-research/researcher/references/report-template.md; verifier should treat undisclosed filing-specific risk limitations as moderate.",
             }
         )
     return issues
@@ -450,6 +512,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     usage_requirements = load_usage_requirements(bundle)
     usage_dispositions = usage_contract.compare_usage_dispositions(usage_requirements, report)
     issues.extend(usage_disposition_issues(usage_dispositions))
+    issues.extend(gap_issues(gaps_payload, report_reference_corpus(md_path, json_path, report)))
     counts = issue_counts(issues)
     blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")
     validation = {
@@ -483,7 +546,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
         f"Blocking issues: {blocking}",
         "",
         "Deterministic data usage: "
-        f"{usage_audit['summary']['referenced']} referenced, "
+        f"{usage_audit['summary']['narrative_used']} narrative-used, "
+        f"{usage_audit['summary']['evidence_only_reference']} evidence-only references, "
         f"{usage_audit['summary']['not_referenced']} not referenced "
         f"out of {usage_audit['summary']['total_ok_datapoints']} normalized ok datapoints.",
         "",
