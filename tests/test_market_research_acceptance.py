@@ -113,6 +113,20 @@ def test_researcher_guidance_requires_provider_impact_mapping():
     assert "affected analysis area" in text
 
 
+def test_researcher_skill_routes_operational_detail_to_workflow_reference():
+    skill_text = (ROOT / "market-research" / "researcher" / "SKILL.md").read_text(encoding="utf-8").lower()
+    workflow = ROOT / "market-research" / "researcher" / "references" / "researcher-workflow.md"
+
+    assert "references/researcher-workflow.md" in skill_text
+    assert workflow.exists()
+
+    workflow_text = workflow.read_text(encoding="utf-8").lower()
+    assert "quota-safe starting points" in workflow_text
+    assert "--offline" in workflow_text
+    assert "--max-provider-calls" in workflow_text
+    assert "procedural_source_helper.py init-run" in workflow_text
+
+
 def test_report_template_includes_provider_limit_impact_example():
     text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
     assert "provider_limit_impact" in text
