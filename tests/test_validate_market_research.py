@@ -10,6 +10,15 @@ def run_validator(*args):
     return subprocess.run([sys.executable, str(VALIDATOR), *args], text=True, capture_output=True, check=False)
 
 
+def test_validator_uses_shared_deterministic_usage_audit_implementation():
+    text = VALIDATOR.read_text(encoding="utf-8")
+
+    assert "usage_contract.deterministic_data_usage_audit(bundle, report)" in text
+    assert "def deterministic_data_usage_audit(" not in text
+    assert "def collect_normalized_datapoints(" not in text
+    assert "def datapoint_reference_reasons(" not in text
+
+
 def complete_research_payload(symbol="AAPL", security_type="equity"):
     return {
         "symbol": symbol,

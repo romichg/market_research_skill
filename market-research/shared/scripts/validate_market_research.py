@@ -66,7 +66,6 @@ REQUIRED_RESEARCH_FIELDS = [
     "calculation_audit",
 ]
 FRESH_CONTEXT_INSTRUCTION = "Use this helper output as deterministic lint only; validate cited sources, procedural calculations, markdown/JSON agreement, and conclusions from saved artifacts without creating a parallel research thesis."
-IGNORED_USAGE_PROVIDERS = {"input", "cli", "deterministic_classifier", "unavailable"}
 
 
 def is_date_component(value: str) -> bool:
@@ -291,112 +290,6 @@ def deterministic_bundle_issues(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
-def collect_normalized_datapoints(normalized_dir: Path | None) -> list[dict[str, Any]]:
-    if not isinstance(normalized_dir, Path) or not normalized_dir.exists():
-        return []
-    datapoints: list[dict[str, Any]] = []
-    for path in sorted(normalized_dir.glob("*.json")):
-        payload = read_json(path)
-        collect_normalized_datapoints_from_payload(path.stem, path, payload, "", datapoints)
-    return datapoints
-
-
-def collect_normalized_datapoints_from_payload(namespace: str, artifact: Path, payload: Any, prefix: str, datapoints: list[dict[str, Any]]) -> None:
-    if isinstance(payload, dict):
-        if "value" in payload:
-            status = payload.get("status", "ok")
-            provider = payload.get("provider")
-            if status == "ok" and provider not in IGNORED_USAGE_PROVIDERS:
-                field_path = f"{namespace}.{prefix.rstrip('.')}"
-                datapoints.append({
-                    "artifact": str(artifact),
-                    "namespace": namespace,
-                    "field_path": field_path,
-                    "field_name": prefix.rstrip(".").split(".")[-1] if prefix else namespace,
-                    "value": payload.get("value"),
-                    "provider": provider,
-                    "source_url": payload.get("source_url"),
-                    "raw_path": payload.get("raw_path"),
-                    "status": status,
-                })
-            return
-        for key, value in payload.items():
-            collect_normalized_datapoints_from_payload(namespace, artifact, value, f"{prefix}{key}.", datapoints)
-    elif isinstance(payload, list):
-        for index, value in enumerate(payload):
-            collect_normalized_datapoints_from_payload(namespace, artifact, value, f"{prefix}{index}.", datapoints)
-
-
-def report_reference_corpus(md_path: Path | None, json_path: Path | None, report: Any) -> str:
-    parts: list[str] = []
-    if isinstance(md_path, Path) and md_path.exists():
-        parts.append(md_path.read_text(encoding="utf-8", errors="ignore"))
-    if isinstance(json_path, Path) and json_path.exists():
-        parts.append(json_path.read_text(encoding="utf-8", errors="ignore"))
-    elif report:
-        parts.append(json.dumps(report, sort_keys=True))
-    return "\n".join(parts).lower()
-
-
-def value_tokens(value: Any) -> list[str]:
-    if value is None:
-        return []
-    tokens = [str(value)]
-    if isinstance(value, float):
-        tokens.append(f"{value:g}")
-        tokens.append(f"{value:.2f}")
-    return [token.lower() for token in tokens if token]
-
-
-def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[str]:
-    checks = [
-        ("field_path", datapoint.get("field_path")),
-        ("field_name", datapoint.get("field_name")),
-        ("raw_path", datapoint.get("raw_path")),
-        ("source_url", datapoint.get("source_url")),
-    ]
-    reasons = [reason for reason, value in checks if isinstance(value, str) and value and value.lower() in corpus]
-    if any(token in corpus for token in value_tokens(datapoint.get("value"))):
-        reasons.append("value")
-    return sorted(set(reasons))
-
-
-def usage_status_from_reasons(reasons: list[str]) -> str:
-    if "value" in reasons:
-        return "narrative_used"
-    if any(reason in reasons for reason in ["field_path", "field_name", "raw_path", "source_url"]):
-        return "evidence_only_reference"
-    return "not_referenced"
-
-
-def deterministic_data_usage_audit(bundle: dict[str, Any], report: Any) -> dict[str, Any]:
-    datapoints = collect_normalized_datapoints(bundle.get("normalized"))
-    corpus = report_reference_corpus(bundle.get("report_markdown"), bundle.get("report_json"), report)
-    audited = []
-    for datapoint in datapoints:
-        reasons = datapoint_reference_reasons(datapoint, corpus)
-        usage_status = usage_status_from_reasons(reasons)
-        audited.append({
-            **datapoint,
-            "usage_status": usage_status,
-            "reference_reasons": reasons,
-        })
-    narrative_used = sum(1 for item in audited if item["usage_status"] == "narrative_used")
-    evidence_only_reference = sum(1 for item in audited if item["usage_status"] == "evidence_only_reference")
-    referenced = narrative_used + evidence_only_reference
-    not_referenced = sum(1 for item in audited if item["usage_status"] == "not_referenced")
-    return {
-        "summary": {
-            "total_ok_datapoints": len(audited),
-            "referenced": referenced,
-            "narrative_used": narrative_used,
-            "evidence_only_reference": evidence_only_reference,
-            "not_referenced": not_referenced,
-        },
-        "datapoints": audited,
-    }
-
-
 def load_usage_requirements(bundle: dict[str, Any]) -> dict[str, Any]:
     requirements_path = bundle.get("deterministic_data_usage_requirements")
     if isinstance(requirements_path, Path) and requirements_path.exists():
@@ -549,11 +442,11 @@ def cmd_validate(args: argparse.Namespace) -> None:
     issues = deterministic_bundle_issues(bundle) if bundle["bundle_type"] == "deterministic_data_bundle" else deterministic_issues(report, sources_by_id)
     gaps_path = bundle.get("gaps")
     gaps_payload = read_json(gaps_path) if isinstance(gaps_path, Path) and gaps_path.exists() else {}
-    usage_audit = deterministic_data_usage_audit(bundle, report)
+    usage_audit = usage_contract.deterministic_data_usage_audit(bundle, report)
     usage_requirements = load_usage_requirements(bundle)
     usage_dispositions = usage_contract.compare_usage_dispositions(usage_requirements, report)
     issues.extend(usage_disposition_issues(usage_dispositions))
-    issues.extend(gap_issues(gaps_payload, report_reference_corpus(md_path, json_path, report)))
+    issues.extend(gap_issues(gaps_payload, usage_contract.report_reference_corpus(md_path, json_path, report)))
     counts = issue_counts(issues)
     blocking = sum(1 for issue in issues if issue["severity"] in {"critical", "moderate"} and issue["status"] == "open")
     validation = {
