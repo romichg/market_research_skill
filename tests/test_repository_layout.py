@@ -60,6 +60,21 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/quality-bar.md"),
         Path("docs/operations.md"),
     ]
+    expected_active_docs = {
+        Path("docs/README.md"),
+        Path("docs/architecture.md"),
+        Path("docs/operations.md"),
+        Path("docs/quality-bar.md"),
+        Path("docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
+        Path("docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
+    }
+    actual_active_docs = {
+        path.relative_to(ROOT)
+        for path in (ROOT / "docs").rglob("*")
+        if path.is_file()
+    }
+
+    assert actual_active_docs == expected_active_docs
     for rel in required_docs:
         assert (ROOT / rel).exists(), f"{rel} should be an active canonical doc"
 
