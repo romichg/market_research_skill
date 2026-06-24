@@ -67,6 +67,7 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/quality-bar.md"),
         Path("docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
         Path("docs/superpowers/plans/2026-06-24-full-skill-and-helper-optimization.md"),
+        Path("docs/superpowers/plans/2026-06-24-post-optimization-run-handoff.md"),
         Path("docs/superpowers/plans/2026-06-24-skill-token-and-helper-optimization.md"),
         Path("docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
     }
