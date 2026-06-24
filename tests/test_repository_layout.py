@@ -32,9 +32,8 @@ def test_active_files_do_not_reference_old_skill_paths():
     ]
     allowed_prefixes = {"OLD", ".git", ".worktrees"}
     allowed_files = {
-        Path("docs/plans/20260619_rework_plan.md"),
-        Path("docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
-        Path("docs/superpowers/plans/2026-06-21-market-research-skill-rename-and-quality.md"),
+        Path("docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
+        Path("docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
     }
     offenders = []
     for path in ROOT.rglob("*"):
@@ -52,3 +51,37 @@ def test_active_files_do_not_reference_old_skill_paths():
             if needle in text:
                 offenders.append(f"{rel}: {needle}")
     assert offenders == []
+
+
+def test_active_docs_use_canonical_consolidated_structure():
+    required_docs = [
+        Path("docs/README.md"),
+        Path("docs/architecture.md"),
+        Path("docs/quality-bar.md"),
+        Path("docs/operations.md"),
+    ]
+    for rel in required_docs:
+        assert (ROOT / rel).exists(), f"{rel} should be an active canonical doc"
+
+    index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    for rel in required_docs[1:]:
+        assert str(rel) in index
+    assert "OLD/docs-archive/" in index
+
+
+def test_historical_generated_docs_are_archived_outside_active_docs():
+    archived = [
+        Path("OLD/docs-archive/docs/plans/20260619_rework_plan.md"),
+        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
+        Path("OLD/docs-archive/docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
+    ]
+    for rel in archived:
+        assert (ROOT / rel).exists(), f"{rel} should be preserved in the archive"
+
+    forbidden_active = [
+        Path("docs/plans/20260619_rework_plan.md"),
+        Path("docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
+        Path("docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
+    ]
+    for rel in forbidden_active:
+        assert not (ROOT / rel).exists(), f"{rel} should not remain active"
