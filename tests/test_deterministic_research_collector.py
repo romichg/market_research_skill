@@ -165,6 +165,41 @@ def test_cli_doctor_redacts_secrets(tmp_path):
     assert "tiingo" in result.stdout
 
 
+def test_fetch_writes_opt_in_metrics_without_changing_stdout_json(tmp_path):
+    metrics = tmp_path / "metrics" / "collector.json"
+
+    result = run_cli(
+        "fetch",
+        "AAPL",
+        "--offline",
+        "--providers",
+        "sec,tiingo",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+        "--metrics-json",
+        str(metrics),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbol"] == "AAPL"
+    sidecar = json.loads(metrics.read_text(encoding="utf-8"))
+    assert sidecar["script"] == "deterministic_research_collector.py"
+    assert sidecar["command"] == "fetch"
+    assert sidecar["symbol"] == "AAPL"
+    assert sidecar["providers_requested"] == ["sec", "tiingo"]
+    assert sidecar["provider_fetches_attempted"] == 0
+    assert sidecar["elapsed_seconds"] >= 0
+
+
 def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     module = load_module()
     calls = []

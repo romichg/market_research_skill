@@ -24,6 +24,7 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deterministic_data_usage import build_usage_requirements
+from script_metrics import add_metrics_arg, start_timer, write_metrics
 
 
 SECRET_NAMES = {
@@ -2108,6 +2109,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
+    metrics_start = getattr(args, "_metrics_start", start_timer())
     root = Path(args.repo_root)
     config = load_env_files(root)
     symbol = normalize_symbol(args.symbol)
@@ -2128,12 +2130,27 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     effective_endpoint_plan = {provider: set(endpoints) for provider, endpoints in endpoint_plan.items()}
     budgets = parse_budgets(args.max_provider_calls)
     warnings: list[str] = []
+    provider_metrics: list[dict[str, Any]] = []
     if not args.offline:
         for provider in providers:
             budget = provider_call_budget(provider, budgets)
+            provider_root = cache_root / symbol / provider
+            before = len(list(provider_root.glob("*.json"))) if provider_root.exists() else 0
             if budget <= 0:
                 warnings.append(f"Skipped {provider}: provider call budget is {budget}.")
                 effective_endpoint_plan[provider] = set()
+                provider_metrics.append(
+                    {
+                        "provider": provider,
+                        "budget": budget,
+                        "estimated_call_cost": 0,
+                        "endpoints": [],
+                        "fetch_attempted": False,
+                        "cache_files_before": before,
+                        "cache_files_after": before,
+                        "new_cache_files": 0,
+                    }
+                )
                 continue
             endpoints = endpoint_plan.get(provider, set())
             estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=endpoints)
@@ -2146,15 +2163,56 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 warnings.append(f"Limited {provider}: estimated call cost {estimated_cost} exceeds budget {budget}; fetching {', '.join(sorted(budgeted_endpoints))}.")
                 endpoints = budgeted_endpoints
             effective_endpoint_plan[provider] = set(endpoints)
-            before = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
             fetch_provider(symbol, provider, as_of, cache_root, config, refresh=args.refresh, endpoints=endpoints)
-            after = len(list((cache_root / symbol / provider).glob("*.json"))) if (cache_root / symbol / provider).exists() else 0
+            after = len(list(provider_root.glob("*.json"))) if provider_root.exists() else 0
+            provider_metrics.append(
+                {
+                    "provider": provider,
+                    "budget": budget,
+                    "estimated_call_cost": estimated_cost,
+                    "endpoints": sorted(endpoints),
+                    "fetch_attempted": True,
+                    "cache_files_before": before,
+                    "cache_files_after": after,
+                    "new_cache_files": max(0, after - before),
+                }
+            )
             if after - before > budget:
                 die(f"Provider {provider} exceeded call budget {budget}")
+    else:
+        for provider in providers:
+            provider_root = cache_root / symbol / provider
+            before = len(list(provider_root.glob("*.json"))) if provider_root.exists() else 0
+            provider_metrics.append(
+                {
+                    "provider": provider,
+                    "budget": provider_call_budget(provider, budgets),
+                    "estimated_call_cost": 0,
+                    "endpoints": sorted(endpoint_plan.get(provider, set())),
+                    "fetch_attempted": False,
+                    "cache_files_before": before,
+                    "cache_files_after": before,
+                    "new_cache_files": 0,
+                }
+            )
     statuses = collect_provider_status(cache_root, symbol, providers, effective_endpoint_plan)
     raise_for_auth_failures(statuses)
     warnings.extend(provider_status_warnings(statuses))
     result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"), warnings=warnings, endpoint_plan=effective_endpoint_plan)
+    write_metrics(
+        getattr(args, "metrics_json", None),
+        start=metrics_start,
+        script="deterministic_research_collector.py",
+        command=getattr(args, "command", "fetch"),
+        symbol=symbol,
+        as_of=as_of,
+        offline=args.offline,
+        providers_requested=providers,
+        provider_fetches_attempted=sum(1 for item in provider_metrics if item["fetch_attempted"]),
+        provider_call_estimate=sum(item["estimated_call_cost"] for item in provider_metrics),
+        provider_metrics=provider_metrics,
+        bundle_dir=result.get("bundle_dir"),
+    )
     print(redact(json.dumps(result, indent=2, sort_keys=True), config))
 
 
@@ -2203,6 +2261,7 @@ def add_common_paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reports-dir")
     parser.add_argument("--runtime-dir")
     parser.add_argument("--cache-dir")
+    add_metrics_arg(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2261,6 +2320,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    args._metrics_start = start_timer()
     args.func(args)
 
 

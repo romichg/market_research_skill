@@ -39,6 +39,33 @@ def test_validation_gate_passes_only_without_open_critical_or_moderate(tmp_path)
     assert payload["open_blocking_issue_ids"] == ["moderate-open"]
 
 
+def test_inspect_validation_writes_opt_in_metrics_without_changing_stdout_json(tmp_path):
+    validation = tmp_path / "validation.json"
+    metrics = tmp_path / "metrics" / "loop.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {"id": "critical-open", "severity": "critical", "status": "open"},
+                    {"id": "minor-open", "severity": "minor", "status": "open"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_harness("inspect-validation", str(validation), "--metrics-json", str(metrics))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["passes_gate"] is False
+    sidecar = json.loads(metrics.read_text(encoding="utf-8"))
+    assert sidecar["script"] == "research_loop.py"
+    assert sidecar["command"] == "inspect-validation"
+    assert sidecar["open_blocking_issue_count"] == 1
+    assert sidecar["elapsed_seconds"] >= 0
+
+
 def test_validation_gate_ignores_closed_blocking_and_open_minor(tmp_path):
     validation = tmp_path / "validation.json"
     validation.write_text(

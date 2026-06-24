@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any
 import re
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "scripts"))
+from script_metrics import add_metrics_arg, start_timer, write_metrics
+
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
 SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
@@ -124,8 +127,19 @@ def inspect_validation_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def cmd_inspect_validation(args: argparse.Namespace) -> None:
+    metrics_start = getattr(args, "_metrics_start", start_timer())
     payload = read_json(Path(args.validation_json))
-    print(json.dumps(inspect_validation_payload(payload), indent=2, sort_keys=True))
+    result = inspect_validation_payload(payload)
+    write_metrics(
+        getattr(args, "metrics_json", None),
+        start=metrics_start,
+        script="research_loop.py",
+        command=getattr(args, "command", "inspect-validation"),
+        validation_json=args.validation_json,
+        passes_gate=result["passes_gate"],
+        open_blocking_issue_count=result["open_blocking_issue_count"],
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
 
 
 def dated_layout_dir(prefix: str, symbol: str, run_dir: str) -> str:
@@ -785,6 +799,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = sub.add_parser("inspect-validation", help="Report whether validation JSON passes the no critical/moderate gate.")
     inspect.add_argument("validation_json")
+    add_metrics_arg(inspect)
     inspect.set_defaults(func=cmd_inspect_validation)
 
     prompts = sub.add_parser("write-prompts", help="Write producer, validator, and remediation prompts for one symbol.")
@@ -833,6 +848,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    args._metrics_start = start_timer()
     args.func(args)
 
 

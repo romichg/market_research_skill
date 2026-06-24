@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from script_metrics import add_metrics_arg, start_timer, write_metrics
+
 SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
 AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SOURCE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -149,6 +151,7 @@ def append_manifest_source_gap(output_root: Path, symbol: str, as_of: str | None
 
 
 def cmd_init_run(args: argparse.Namespace) -> None:
+    metrics_start = getattr(args, "_metrics_start", start_timer())
     symbol = normalize_symbol(args.symbol)
     out = run_dir(Path(args.output_root).resolve(), symbol, args.as_of)
     manifest = out / "run_manifest.json"
@@ -172,7 +175,16 @@ def cmd_init_run(args: argparse.Namespace) -> None:
         },
     }
     write_json(out / "run_manifest.json", manifest)
-    print(json.dumps({"symbol": symbol, "run_dir": str(out), "manifest": str(out / "run_manifest.json")}, indent=2))
+    payload = {"symbol": symbol, "run_dir": str(out), "manifest": str(out / "run_manifest.json")}
+    write_metrics(
+        getattr(args, "metrics_json", None),
+        start=metrics_start,
+        script="procedural_source_helper.py",
+        command=getattr(args, "command", "init-run"),
+        symbol=symbol,
+        run_dir=str(out),
+    )
+    print(json.dumps(payload, indent=2))
 
 
 def cmd_classify(args: argparse.Namespace) -> None:
@@ -746,6 +758,7 @@ def build_parser() -> argparse.ArgumentParser:
     def add_run_location(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--output-root", default="./runtime")
         parser.add_argument("--as-of")
+        add_metrics_arg(parser)
 
     init = sub.add_parser("init-run", help="Create a run directory and manifest.")
     init.add_argument("symbol")
@@ -814,6 +827,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    args._metrics_start = start_timer()
     args.func(args)
 
 

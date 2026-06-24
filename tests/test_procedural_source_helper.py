@@ -33,6 +33,22 @@ def test_init_run_creates_manifest(tmp_path):
     assert manifest["procedural_gap_fills"] == []
 
 
+def test_init_run_writes_opt_in_metrics_without_changing_stdout_json(tmp_path):
+    metrics = tmp_path / "metrics" / "procedural.json"
+
+    result = run_helper("init-run", "aapl", "--output-root", str(tmp_path), "--metrics-json", str(metrics))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbol"] == "AAPL"
+    sidecar = json.loads(metrics.read_text(encoding="utf-8"))
+    assert sidecar["script"] == "procedural_source_helper.py"
+    assert sidecar["command"] == "init-run"
+    assert sidecar["symbol"] == "AAPL"
+    assert sidecar["elapsed_seconds"] >= 0
+    assert sidecar["run_dir"] == payload["run_dir"]
+
+
 def test_default_output_root_is_runtime_symbol_date(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = run_helper("init-run", "aapl", "--as-of", "2026-06-16")
