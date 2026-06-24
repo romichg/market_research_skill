@@ -121,9 +121,9 @@ def test_report_template_includes_provider_limit_impact_example():
 
 def test_report_template_moves_provider_and_skill_internals_to_appendix():
     text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
-    assert "provider names" in text
-    assert "appendix" in text
-    assert "unless they affect investment interpretation" in text
+    assert "routine data vendors" in text
+    assert "data issues and discrepancies" in text
+    assert "sources and evidence" in text
     assert "time-sensitive" in text
     assert "latest available" in text
     assert "cache mechanics" in text
@@ -131,9 +131,9 @@ def test_report_template_moves_provider_and_skill_internals_to_appendix():
 
 def test_verifier_flags_unnecessary_provider_provenance_in_main_body():
     text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
-    assert "provider names" in text
+    assert "routine data-vendor names" in text
     assert "main body" in text
-    assert "appendix" in text
+    assert "data issues and discrepancies" in text
 
 
 def test_self_improvement_lessons_prioritize_investor_product_over_runtime_packaging():
@@ -153,6 +153,77 @@ def test_report_template_requires_potential_value_not_booked_revenue_framing():
     assert "potential value" in text
     assert "booked revenue" in text
     assert "milestone" in text
+
+
+def test_report_template_uses_investor_first_section_order():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8")
+    required = [
+        "## Bottom Line",
+        "## Key Facts",
+        "## Business Profile",
+        "## Business Model And Demand Drivers",
+        "## Market Snapshot And Technical Analysis",
+        "## Financials And Balance Sheet",
+        "## Valuation",
+        "## What Looks Attractive",
+        "## What Worries Me",
+        "## Catalysts And Monitoring Triggers",
+        "## Bull/Base/Bear Decision Variables",
+        "## Risks And Invalidation Points",
+        "## My Take",
+        "## Data Issues And Discrepancies",
+        "## Sources And Evidence",
+    ]
+    positions = [text.index(section) for section in required]
+    assert positions == sorted(positions)
+    assert "## Source Base And Data Quality" not in text
+    assert "## Explicit Data Gaps" not in text
+
+
+def test_report_template_requires_executive_summary_bottom_line():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "executive summary" in text
+    assert "introduce the market value or valuation range before discussing whether it is justified" in text
+    assert "do not make the bottom line a compressed one-paragraph thesis" in text
+
+
+def test_report_template_requires_plain_language_business_and_technology_explanation():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "plain language" in text
+    assert "explain specialized technology" in text
+    assert "what the product does" in text
+    assert "who pays" in text
+    assert "acquisition contribution" in text
+
+
+def test_report_template_forbids_routine_vendor_names_in_main_narrative():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    assert "do not name routine data vendors in the main investment narrative" in text
+    assert "state the data, range, conflict, and investment implication" in text
+    assert "put vendor attribution" in text
+
+
+def test_researcher_skill_requires_procedural_research_for_business_understanding():
+    text = (ROOT / "market-research" / "researcher" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "targeted procedural research" in text
+    assert "business model" in text
+    assert "technology explanation" in text
+    assert "acquisition contribution" in text
+
+
+def test_verifier_requires_business_depth_not_just_filing_facts():
+    text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "business profile depth" in text
+    assert "technology explanation" in text
+    assert "procedural research" in text
+
+
+def test_verifier_requires_analysis_not_number_recital():
+    text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "data recital" in text
+    assert "support and resistance" in text
+    assert "valuation analysis" in text
+    assert "risk section should not include data-quality risk" in text
 
 
 def test_verifier_checks_potential_value_news_framing():

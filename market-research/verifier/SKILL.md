@@ -50,7 +50,7 @@ The scaffold includes `deterministic_data_usage`, a heuristic audit of normalize
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.
 - Check investor usefulness. Deterministic coverage is not sufficient if the report reads like a source inventory or compliance transcript. The report should have a clear thesis, prioritize material facts, explain variant view and risks, and keep citations from overwhelming the prose. Treat excessive path-level citation density as a minor quality issue; treat missing thesis or purely mechanical deterministic recitation as moderate.
-- Assess investor-facing provenance hygiene. Provider names and local tool paths are appropriate in an appendix or sidecar, and appropriate in the main body only when they affect interpretation. Flag main-body references to deterministic bundles, runtime directories, raw paths, source IDs, hashes, cache files, or provider names that do not change the investment conclusion.
+- Assess investor-facing provenance hygiene. Routine data-vendor names and local tool paths do not belong in the main investment narrative. The main body should state the data, range, conflict, and investment implication; vendor attribution and mechanics belong in `Data Issues And Discrepancies`, `Sources And Evidence`, appendices, sidecars, or validation artifacts. Flag main-body references to deterministic bundles, runtime directories, raw paths, source IDs, hashes, cache files, routine vendor names, or provider mechanics.
 - Assess field-level freshness. Time-sensitive fields such as price, volume, market cap, short interest, forward estimates, recent news, insider transactions, and event-driven catalysts should be fresh or explicitly described as latest available. Durable filed evidence may use cached artifacts when source dates are preserved. Main report disclosure should focus on stale or unavailable material data, not cache mechanics.
 - Check for unsupported valuation, performance, peer, or portfolio-fit claims.
 - Check for omitted risks.
@@ -62,6 +62,18 @@ The scaffold includes `deterministic_data_usage`, a heuristic audit of normalize
 - Confirm `gaps.json` marks unavailable free-source data clearly instead of letting missing fields become unsupported prose.
 - Confirm material provider limits are mapped to affected analysis areas, not only listed. Examples include short-interest gaps affecting crowding/squeeze analysis, forward-estimate gaps affecting valuation, insider-statistics gaps affecting dilution/governance analysis, and filing-section gaps affecting direct risk-factor or MD&A validation.
 - When reports cite news with "potential", "up to", "framework", or milestone language, verify that the report does not present it as booked revenue unless a filing or company source supports that treatment.
+
+## Investor Analysis Quality Checks
+
+Flag report-quality issues when a report merely produces a data recital instead of analyzing it. In particular:
+
+- `Bottom Line` must be an executive summary and must introduce market value or valuation range before discussing whether valuation is justified.
+- `Key Facts` should be a table or equivalent at-a-glance presentation, without internal paths or provider mechanics.
+- Business profile depth is a validation dimension. A report that accurately cites filings but does not explain what the business does, technology explanation in plain language, who pays, how revenue is expected to develop, acquisition contribution, or when procedural research was needed should receive a report-quality issue even if deterministic coverage is complete.
+- `Market Snapshot And Technical Analysis` must interpret the numbers. When price history exists, expect discussion of trend, volume, volatility, moving averages, support and resistance, and drawdown.
+- `Financials And Balance Sheet` should organize numbers in a consumable way and explain scale, liquidity, cash burn, margin quality, and dilution.
+- `Valuation` must provide valuation analysis of a selected value or range instead of narrating provider conflicts. Vendor attribution belongs in `Data Issues And Discrepancies`.
+- Risk section should not include data-quality risk; `Risks And Invalidation Points` should focus on company/security risks, and data-quality risk belongs in `Data Issues And Discrepancies`.
 
 5. Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`.
 

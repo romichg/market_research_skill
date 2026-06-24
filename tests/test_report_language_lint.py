@@ -57,3 +57,114 @@ The investment case depends on contract conversion.
     findings = module.lint_report_language(text)
 
     assert findings == []
+
+
+def test_report_language_lint_rejects_saved_deterministic_artifact_language_in_main_body():
+    module = load_module()
+    text = """# QUBT Research
+
+## Bottom Line
+
+The latest saved 10-Q and deterministic artifact show the company has cash.
+
+## Data Issues And Discrepancies
+
+Provider conflicts are discussed here.
+
+## Sources And Evidence
+
+Local artifacts are listed here.
+"""
+
+    findings = module.lint_report_language(text)
+
+    patterns = {finding["pattern"] for finding in findings}
+    assert "saved" in patterns
+    assert "deterministic" in patterns
+    assert "artifact" in patterns
+
+
+def test_report_language_lint_rejects_routine_vendor_names_in_main_body():
+    module = load_module()
+    text = """# QUBT Research
+
+## Valuation
+
+Alpha Vantage reported one market cap and FMP reported another.
+
+## Data Issues And Discrepancies
+
+The market-cap discrepancy is explained here.
+"""
+
+    findings = module.lint_report_language(text)
+
+    assert any(finding["pattern"] == "vendor-name-main-body" for finding in findings)
+
+
+def test_report_language_lint_allows_vendor_names_in_data_issues():
+    module = load_module()
+    text = """# QUBT Research
+
+## Valuation
+
+Market capitalization is best read as a range.
+
+## Data Issues And Discrepancies
+
+Alpha Vantage and FMP disagreed on market capitalization.
+
+## Sources And Evidence
+
+Provider details are recorded here.
+"""
+
+    findings = module.lint_report_language(text)
+
+    assert findings == []
+
+
+def test_report_language_lint_flags_short_bottom_line_without_market_value():
+    module = load_module()
+    text = """# QUBT Research
+
+## Bottom Line
+
+QUBT is speculative.
+
+## Key Facts
+
+| Item | Latest / Current | Why It Matters |
+| --- | --- | --- |
+| Security | US-listed equity | Defines exposure |
+"""
+
+    findings = module.lint_report_structure(text)
+
+    ids = {finding["id"] for finding in findings}
+    assert "bottom-line-too-short" in ids
+    assert "bottom-line-missing-market-value" in ids
+
+
+def test_report_language_lint_requires_key_facts_table_and_technical_analysis_terms():
+    module = load_module()
+    text = """# QUBT Research
+
+## Bottom Line
+
+This is a long enough executive summary paragraph with market cap context of $2 billion and enough words to avoid the short-summary finding. It explains the business, risk, valuation, and monitoring questions for the investor in a concise way. It continues with enough context about liquidity, commercialization, expected evidence, and the main operating questions to satisfy the summary length requirement for this structural test.
+
+## Key Facts
+
+- Security: US-listed equity
+
+## Market Snapshot And Technical Analysis
+
+The stock moved recently.
+"""
+
+    findings = module.lint_report_structure(text)
+
+    ids = {finding["id"] for finding in findings}
+    assert "key-facts-not-table" in ids
+    assert "technical-analysis-too-thin" in ids

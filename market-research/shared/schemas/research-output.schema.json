@@ -27,6 +27,48 @@
     "as_of_date": {
       "type": "string"
     },
+    "executive_summary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "key_facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item", "value", "why_it_matters"],
+        "properties": {
+          "item": {
+            "type": "string"
+          },
+          "value": {},
+          "why_it_matters": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "business_profile": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "technical_snapshot": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "valuation_snapshot": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "data_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
     "material_claims": {
       "type": "array",
       "items": {

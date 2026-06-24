@@ -1,0 +1,97 @@
+{
+  "as_of_date": "2026-06-23",
+  "output_dir": "runtime/self-improvement/20260623-174952-554854",
+  "run_roots": [
+    "runtime/market-research-batch-20260623"
+  ],
+  "human_feedback_incorporated": true,
+  "reviewed_artifacts": [
+    "runtime/market-research-batch-20260623/research-loop-summary.json",
+    "reports/QUBT/2026-06-23/QUBT-research.md",
+    "reports/QUBT/2026-06-23/QUBT-validation.json",
+    "reports/QUBT/2026-06-23/QUBT-validator-skill-issues.md",
+    "runtime/market-research-batch-20260623/QUBT/2026-06-23/QUBT-market-research-issues.md",
+    "market-research/researcher/references/report-template.md",
+    "market-research/researcher/SKILL.md",
+    "market-research/shared/scripts/report_language_lint.py",
+    "tests/test_report_language_lint.py",
+    "tests/test_market_research_acceptance.py",
+    "tests/test_research_output_schema.py"
+  ],
+  "batch_result": {
+    "symbols_total": 1,
+    "passed": [
+      "QUBT"
+    ],
+    "failed": [],
+    "open_blocking_issue_ids": []
+  },
+  "assessment": {
+    "researcher_used_deterministic_data": "yes",
+    "investor_grade_report_quality": "insufficient_depth_and_too_much_internal_provenance",
+    "material_omissions_found": "report_depth_omissions_not_source_support_omissions",
+    "validator_specificity": "needs_stronger_investor_usefulness_checks",
+    "production_skill_files_edited": false,
+    "skill_or_helper_changes_recommended": true
+  },
+  "findings": [
+    {
+      "id": "MR-SI-20260623-HF-001",
+      "severity": "high",
+      "title": "Bottom Line is too compressed and omits market value setup",
+      "evidence": [
+        "reports/QUBT/2026-06-23/QUBT-research.md"
+      ],
+      "recommendation": "Require Bottom Line to read as a 3-5 paragraph executive summary that introduces market value or valuation range before judging valuation."
+    },
+    {
+      "id": "MR-SI-20260623-HF-002",
+      "severity": "high",
+      "title": "Main report overexposes internal provenance",
+      "evidence": [
+        "reports/QUBT/2026-06-23/QUBT-research.md",
+        "reports/QUBT/2026-06-23/QUBT-validation.json"
+      ],
+      "recommendation": "Prohibit saved/deterministic/artifact/local-path/provider-mechanics language in main-body investor sections; move it to Data Issues And Discrepancies, Sources And Evidence, sidecars, or validation artifacts."
+    },
+    {
+      "id": "MR-SI-20260623-HF-003",
+      "severity": "high",
+      "title": "Business profile and model sections do not explain the business deeply enough",
+      "evidence": [
+        "reports/QUBT/2026-06-23/QUBT-research.md"
+      ],
+      "recommendation": "Require targeted procedural research when deterministic outputs do not explain products, technology, customers, revenue model, acquisition contribution, and demand drivers in plain language."
+    },
+    {
+      "id": "MR-SI-20260623-HF-004",
+      "severity": "high",
+      "title": "Market snapshot and valuation sections recite numbers more than they analyze them",
+      "evidence": [
+        "reports/QUBT/2026-06-23/QUBT-research.md"
+      ],
+      "recommendation": "Require table-based market/financial snapshots plus technical analysis, support/resistance, trend interpretation, valuation range analysis, and explicit discussion of what the market is pricing in."
+    },
+    {
+      "id": "MR-SI-20260623-HF-005",
+      "severity": "medium",
+      "title": "Data quality belongs near the bottom, not in the opening narrative",
+      "evidence": [
+        "reports/QUBT/2026-06-23/QUBT-research.md"
+      ],
+      "recommendation": "Merge Source Base And Data Quality and Explicit Data Gaps into Data Issues And Discrepancies near the bottom, before Sources And Evidence."
+    },
+    {
+      "id": "MR-SI-20260623-HF-006",
+      "severity": "medium",
+      "title": "Risk section should focus on company/security risk",
+      "evidence": [
+        "reports/QUBT/2026-06-23/QUBT-research.md"
+      ],
+      "recommendation": "Move data-quality and research-risk discussion out of Risks And Invalidation Points and into Data Issues And Discrepancies."
+    }
+  ],
+  "recommended_plan": "runtime/self-improvement/20260623-174952-554854/self-improvement-plan.md",
+  "ideas_document": "runtime/self-improvement/20260623-174952-554854/self-improvement-ideas.md",
+  "next_step": "Run a separate implementation task using the revised plan, then rerun QUBT as a smoke test and manually review the investor report."
+}

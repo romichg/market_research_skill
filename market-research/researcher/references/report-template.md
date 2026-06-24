@@ -24,7 +24,7 @@ Use inline citations sparingly:
 - Avoid appending `Source:` to every paragraph when the paragraph is ordinary synthesis from already captured evidence.
 - Prefer one consolidated `Sources And Evidence` section that maps major claim groups to local artifacts.
 
-Provider names, source IDs, local paths, raw paths, hashes, deterministic bundle names, runtime directories, cache paths, and skill/tool internals belong in an appendix, validation artifact, runtime artifact, or JSON sidecar unless they affect investment interpretation. In the main investor narrative, name providers only when provider identity changes the conclusion, such as a material discrepancy, stale source, missing data category, or source-quality caveat. Use investor-readable phrases such as "latest available market data", "SEC filings", or "company press release" when provider identity is not material.
+Do not name routine data vendors in the main investment narrative. State the data, range, conflict, and investment implication there; put vendor attribution, source IDs, local paths, raw paths, hashes, deterministic bundle names, runtime directories, cache paths, and skill/tool internals in `Data Issues And Discrepancies`, `Sources And Evidence`, validation artifacts, runtime artifacts, or JSON sidecars. Primary source types such as SEC filings, 10-Qs, 10-Ks, proxy statements, and company releases may be named in the main body because they describe source authority rather than data-vendor plumbing.
 
 Field-level freshness matters more than cache mechanics. Time-sensitive fields should be fresh or explicitly described as latest available: price, volume, market cap, short interest, forward estimates, recent news, insider transactions, and event-driven catalysts. Durable filed evidence may use cached artifacts when source dates are preserved: SEC filings, company releases, historical financial statements, company identity, and risk-factor text. Main report disclosure should focus on stale or unavailable material data, not cache mechanics; cache mechanics belong in references, validation artifacts, manifests, or JSON sidecars.
 
@@ -68,39 +68,43 @@ As of: YYYY-MM-DD
 
 ## Bottom Line
 
-State the practical investment-research conclusion in one or two tight paragraphs. Include the main opportunity, the main offsetting risk, and the core monitoring question.
+Write this as an executive summary, not a compressed thesis. Use 3-5 substantial paragraphs. Introduce the company/security, what it does, current market value or valuation range, the core upside argument, the main risks, and the most important monitoring questions. Introduce the market value or valuation range before discussing whether it is justified; do not make the Bottom Line a compressed one-paragraph thesis.
 
 ## Key Facts
 
-List the most material sourced facts. Keep this short enough that it supports the analysis rather than replacing it.
+Use a compact Markdown table. Do not cite local paths, helper internals, deterministic artifacts, raw files, routine data-vendor names, or source registries in this table.
 
-## Source Base And Data Quality
+| Item | Latest / Current | Why It Matters |
+| --- | --- | --- |
+| Security | US-listed equity / ADR / ETF | Defines what the investor owns. |
+| Market value | $X-Y billion or unavailable | Anchors valuation discussion. |
+| Revenue base | $X for period/date | Shows scale. |
+| Liquidity | Cash/investments/debt | Shows runway and financing risk. |
+| Profitability | Gross margin / operating loss / cash burn | Shows business quality. |
+| Technical setup | Price, trend, support/resistance | Shows trading context. |
+| Near-term monitors | Events and dates | Shows what can change the view. |
 
-Describe saved source copies, deterministic bundle files, primary versus secondary sources, source dates, access dates, confidence, and material limitations. Do not expose internal validation jargon in the human-facing report.
+## Business Profile
 
-State whether usable deterministic data was fully reviewed. If material normalized datapoints were omitted, briefly say why: stale, low-confidence, wrong entity/listing, duplicate of a better source, or not material to the decision.
+Explain what the company or fund is in plain language. For operating companies, explain what the product does, how the technology works in investor-readable terms, who pays, customers, end markets, acquisitions, acquisition contribution, and practical economic exposure. Do not write "not an ETF or ADR"; write what the security is. If the business uses specialized technology, explain specialized technology instead of assuming the reader already understands terms such as photonic components, quantum security, or reservoir computing.
 
-## Business Or Fund Profile
+## Business Model And Demand Drivers
 
-Explain what the company, ADR, or fund is and what economic exposure it provides.
+Explain how the company makes or expects to make money, who pays, what products or services are sold, what demand drivers matter, and what operating constraints could limit adoption. Avoid vague phrases like "appears" or "business model is forming" unless the uncertainty is explicitly explained.
 
-## Business Model, Demand Drivers, Or Fund Methodology
+## Market Snapshot And Technical Analysis
 
-For companies and ADRs, cover revenue model, customers, end-market demand, competitive position, and operating constraints. For ETFs, cover index methodology, selection rules, weighting, rebalance cadence, and what drives returns.
-
-## Market Snapshot Or Lifecycle Context
-
-Use `normalized/technical_signals.json` when trading data exists. If provider technical output is missing, compute local technical context from `normalized/technical_signals.json` and `normalized/prices_daily.json`, label it as locally calculated, and record the inputs in `calculation_audit`.
+Present market data in a table, then analyze it. Include price, market value/range, volume/liquidity, 52-week range, moving averages, volatility, relative strength, drawdown, support and resistance levels, and trend interpretation when price history exists.
 
 If no trading history exists, explain why and use the relevant lifecycle context instead: IPO terms, implied valuation, listing timeline, post-listing monitoring items, liquidity expectations, or explicit absence of market history.
 
-## Financials, Holdings, And Balance Sheet
+## Financials And Balance Sheet
 
-For companies and ADRs, cover revenue growth, margins, earnings quality, cash flow, leverage, liquidity, and use of proceeds when applicable. For ETFs, cover holdings, sector/geography/factor exposures, concentration, distributions, fees, AUM, and liquidity.
+Use a table plus analysis. For companies and ADRs, cover revenue, gross margin, operating expense, net income/loss, operating cash flow, cash/investments, debt/liabilities, working capital, share count/dilution, and acquisition contribution when available. For ETFs, cover holdings, sector/geography/factor exposures, concentration, distributions, fees, AUM, and liquidity. Avoid citation clutter in the main prose.
 
-## Valuation Or Performance Context
+## Valuation
 
-Discuss valuation multiples, peer or market framing, IPO implied valuation, total return, tracking, drawdowns, or other performance context supported by sources.
+Choose a valuation basis or range and analyze it. If market capitalization or share count conflicts across sources, state the range in this section without vendor attribution, then explain vendor/source attribution in `Data Issues And Discrepancies`. Discuss revenue multiples, book value, cash-adjusted value, peer/context limits, and what revenue or margin improvement would be needed to make the valuation less speculative.
 
 ## What Looks Attractive
 
@@ -116,19 +120,23 @@ Identify near-term and medium-term events or metrics that would change the view.
 
 ## Bull/Base/Bear Decision Variables
 
-Frame the decision around variables that can be monitored, not unsupported price targets.
+Use a table or clearly separated bullets. Each case should state what must happen operationally, financially, and in market perception. Frame the decision around variables that can be monitored, not unsupported price targets.
 
 ## Risks And Invalidation Points
 
-List risks and what evidence would invalidate the current interpretation. Do not collapse filing-specific material disclosures into a generic risk list when they are central to the investment case.
-
-## Explicit Data Gaps
-
-State missing or inaccessible data, attempted sources, whether the gap is public-data unavailable or workflow/source-access limited, and how it affects the analysis.
+Focus on company, security, market, financial, governance, execution, liquidity, dilution, customer, product, and regulatory risks. Do not include research/data-quality risk here; put those in `Data Issues And Discrepancies`.
 
 ## My Take
 
-Give a concise, evidence-backed interpretation. Avoid personalized advice.
+Give a fuller evidence-backed interpretation. Explain what would make the security interesting, what would keep it out of a portfolio, and what evidence would change the view. Avoid personalized advice.
+
+## Data Issues And Discrepancies
+
+Merge source-base, data-quality, missing-field, stale-field, and vendor-discrepancy discussion here. Use investor-readable explanations first. Routine data-vendor names, local paths, manifests, gaps files, source registries, and other validation-facing details may be named here when they explain a discrepancy, missing field, or confidence limit.
+
+## Sources And Evidence
+
+Map major claim groups to source documents and local artifacts for auditability. This is where local paths, source IDs, source registries, manifests, and validation-facing provenance belong.
 
 ## Not Financial Advice
 This report is research support and is not personalized financial advice.

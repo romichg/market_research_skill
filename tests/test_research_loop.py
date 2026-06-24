@@ -196,6 +196,16 @@ def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
     assert "Preserve `reports/` as final product and `runtime/` as intermediate work product" in prompt
     assert "field-level freshness" in prompt
     assert "Do not recommend main-body cache mechanics disclosure unless stale or unavailable data changes investor interpretation." in prompt
+    assert "Bottom Line" in prompt
+    assert "executive summary" in prompt
+    assert "routine data-vendor names" in prompt
+    assert "Key Facts" in prompt
+    assert "table" in prompt
+    assert "Business Profile" in prompt
+    assert "plain language" in prompt
+    assert "Market Snapshot And Technical Analysis" in prompt
+    assert "support/resistance" in prompt
+    assert "Data Issues And Discrepancies" in prompt
 
 
 def test_invalid_shell_symbol_rejected_by_loop(tmp_path):

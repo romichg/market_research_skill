@@ -167,6 +167,8 @@ python3 {baseDir}/../shared/scripts/procedural_source_helper.py extract-blackroc
 
 This helper supports both legacy BlackRock API payloads and component-style product-page extracts such as `FundHeaderV3`, `KeyFundFactsV3`, `FeeTableV3`, and `TopHoldingsV3`.
 
+Use targeted procedural research when the deterministic bundle does not explain the business well enough for an investor. For operating companies, fill business-profile gaps on: what the product does, technology explanation in plain language, who pays, revenue model, customer or government/commercial exposure, acquisition contribution, current commercial traction, valuation context, current technical setup, and practical demand drivers. Do not stop at filing labels or provider profiles when they leave the business unclear. The final report is judged on investor usefulness and analysis, not on whether a fact arrived through deterministic or procedural collection.
+
 8. Write working/procedural artifacts under runtime and final report artifacts under reports:
 
 ```text
@@ -187,19 +189,19 @@ The final Markdown report must include these sections:
 
 - `## Bottom Line`
 - `## Key Facts`
-- `## Source Base And Data Quality`
-- `## Business Or Fund Profile`
-- `## Business Model, Demand Drivers, Or Fund Methodology`
-- `## Market Snapshot Or Lifecycle Context`
-- `## Financials, Holdings, And Balance Sheet`
-- `## Valuation Or Performance Context`
+- `## Business Profile`
+- `## Business Model And Demand Drivers`
+- `## Market Snapshot And Technical Analysis`
+- `## Financials And Balance Sheet`
+- `## Valuation`
 - `## What Looks Attractive`
 - `## What Worries Me`
 - `## Catalysts And Monitoring Triggers`
 - `## Bull/Base/Bear Decision Variables`
 - `## Risks And Invalidation Points`
-- `## Explicit Data Gaps`
 - `## My Take`
+- `## Data Issues And Discrepancies`
+- `## Sources And Evidence`
 
 The JSON sidecar must satisfy `../shared/schemas/research-output.schema.json`, including `technical_analysis`, `valuation_or_performance`, `decision_factors`, `risks`, `catalysts`, `source_coverage`, and `calculation_audit`.
 

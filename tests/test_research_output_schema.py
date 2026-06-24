@@ -36,3 +36,21 @@ def test_research_output_schema_requires_expanded_report_sections():
     assert schema["properties"]["catalysts"]["type"] == "array"
     assert schema["properties"]["source_coverage"]["type"] == "object"
     assert schema["properties"]["calculation_audit"]["type"] == "array"
+
+
+def test_research_output_schema_supports_investor_presentation_fields():
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    properties = schema["properties"]
+    for field in [
+        "executive_summary",
+        "key_facts",
+        "business_profile",
+        "technical_snapshot",
+        "valuation_snapshot",
+        "data_issues",
+    ]:
+        assert field in properties
+
+    assert properties["key_facts"]["type"] == "array"
+    assert properties["technical_snapshot"]["type"] == "object"
+    assert properties["valuation_snapshot"]["type"] == "object"
