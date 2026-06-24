@@ -208,6 +208,22 @@ def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
     assert "Data Issues And Discrepancies" in prompt
 
 
+def test_self_improve_defaults_to_docs_superpowers_plans(tmp_path, monkeypatch):
+    run_root = tmp_path / "runtime" / "batch"
+    run_root.mkdir(parents=True)
+    (run_root / "research-loop-summary.json").write_text(json.dumps({"run_root": str(run_root)}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = run_harness("self-improve", str(run_root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    prompt_path = Path(payload["prompt"])
+    assert prompt_path.parts[:4] == ("docs", "superpowers", "plans", "self-improvement")
+    assert prompt_path.name == "self-improvement.md"
+    assert not (tmp_path / "runtime" / "self-improvement").exists()
+
+
 def test_invalid_shell_symbol_rejected_by_loop(tmp_path):
     result = run_harness("run-batch", "AAPL;touch", "--run-root", str(tmp_path), "--dry-run")
 

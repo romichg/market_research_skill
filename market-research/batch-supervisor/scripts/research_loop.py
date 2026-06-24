@@ -22,6 +22,7 @@ DEFAULT_CODEX_COMMAND = (
     "--dangerously-bypass-approvals-and-sandbox - < {prompt_file}"
 )
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 1800
+DEFAULT_SELF_IMPROVEMENT_ROOT = Path("docs") / "superpowers" / "plans" / "self-improvement"
 LOOP_ISSUES_TEMPLATE = """# Loop Skill Issues
 
 Use this file for issues with the supervised orchestration skill itself, not investment research defects.
@@ -366,7 +367,7 @@ def cmd_self_improve(args: argparse.Namespace) -> None:
     for root in run_roots:
         if not root.exists() or not root.is_dir():
             die(f"Run root not found: {root}")
-    output_root = Path(args.output_root) if args.output_root else Path("runtime") / "self-improvement"
+    output_root = Path(args.output_root) if args.output_root else DEFAULT_SELF_IMPROVEMENT_ROOT
     output_dir = output_root / timestamp_slug()
     output_dir.mkdir(parents=True, exist_ok=False)
     prompt_path = output_dir / "self-improvement.md"
@@ -802,7 +803,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     self_improve = sub.add_parser("self-improve", help="Write a central prompt-only self-improvement review for one or more batch run roots.")
     self_improve.add_argument("run_roots", nargs="+")
-    self_improve.add_argument("--output-root", help="Directory for self-improvement prompt runs. Defaults to runtime/self-improvement.")
+    self_improve.add_argument(
+        "--output-root",
+        help="Directory for self-improvement prompt runs. Defaults to docs/superpowers/plans/self-improvement.",
+    )
     self_improve.set_defaults(func=cmd_self_improve)
 
     init_batch = sub.add_parser("init-batch", help="Create batch config and prompt files for symbols.")
