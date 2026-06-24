@@ -72,6 +72,8 @@ def test_active_docs_use_canonical_consolidated_structure():
 def test_historical_generated_docs_are_archived_outside_active_docs():
     archived = [
         Path("OLD/docs-archive/docs/plans/20260619_rework_plan.md"),
+        Path("OLD/docs-archive/docs/superpowers/lessons/2026-06-22-deterministic-usage-and-self-improvement.md"),
+        Path("OLD/docs-archive/docs/superpowers/lessons/2026-06-22-investor-grade-report-quality.md"),
         Path("OLD/docs-archive/docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
         Path("OLD/docs-archive/docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
     ]
@@ -80,6 +82,8 @@ def test_historical_generated_docs_are_archived_outside_active_docs():
 
     forbidden_active = [
         Path("docs/plans/20260619_rework_plan.md"),
+        Path("docs/superpowers/lessons/2026-06-22-deterministic-usage-and-self-improvement.md"),
+        Path("docs/superpowers/lessons/2026-06-22-investor-grade-report-quality.md"),
         Path("docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
         Path("docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
     ]
