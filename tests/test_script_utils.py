@@ -51,3 +51,17 @@ def test_validator_uses_shared_json_primitives():
     assert "from script_utils import" in text
     assert "def read_json(" not in text
     assert "def write_json(" not in text
+
+
+def test_deterministic_collector_uses_shared_script_primitives():
+    text = (ROOT / "market-research" / "shared" / "scripts" / "deterministic_research_collector.py").read_text(encoding="utf-8")
+
+    assert "from script_utils import" in text
+    for duplicate in [
+        "def normalize_symbol(",
+        "def validate_as_of(",
+        "def read_json(",
+        "def write_json(",
+        "def sha256_file(",
+    ]:
+        assert duplicate not in text

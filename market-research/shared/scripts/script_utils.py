@@ -47,7 +47,7 @@ def read_json(path: Path) -> Any:
         die(f"Could not parse JSON {path}: {exc}")
 
 
-def write_json(path: Path, payload: Any, *, atomic: bool = False) -> None:
+def write_json(path: Path, payload: Any, *, atomic: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     if not atomic:

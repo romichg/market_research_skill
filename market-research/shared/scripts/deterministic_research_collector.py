@@ -25,6 +25,7 @@ from urllib.request import Request, urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deterministic_data_usage import build_usage_requirements
 from script_metrics import add_metrics_arg, start_timer, write_metrics
+from script_utils import normalize_symbol, read_json, sha256_file, validate_as_of, write_json
 
 
 SECRET_NAMES = {
@@ -52,8 +53,6 @@ DEFAULT_HTTP_USER_AGENT = (
     "Chrome/126.0.0.0 Safari/537.36"
 )
 BROWSER_USER_AGENT_TOKENS = ("mozilla/", "chrome/", "safari/", "applewebkit", "firefox/")
-SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
-AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PROVIDER_ENDPOINT_COSTS = {
     "sec": {"company_tickers": 1, "submissions": 1, "companyfacts": 1},
     "tiingo": {"metadata": 1, "prices": 1},
@@ -168,25 +167,6 @@ def utc_now() -> str:
 def die(message: str, code: int = 2) -> None:
     print(message, file=sys.stderr)
     raise SystemExit(code)
-
-
-def normalize_symbol(symbol: str) -> str:
-    value = symbol.strip().upper()
-    if not SYMBOL_RE.fullmatch(value):
-        die(f"Invalid symbol: {symbol!r}")
-    return value
-
-
-def validate_as_of(value: str | None) -> str | None:
-    if value in (None, ""):
-        return None
-    if not AS_OF_RE.fullmatch(value):
-        die(f"Invalid as-of {value!r}; expected YYYY-MM-DD.")
-    try:
-        datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        die(f"Invalid as-of {value!r}; expected a real calendar date.")
-    return value
 
 
 def parse_key_value_line(line: str) -> tuple[str, str] | None:
@@ -428,17 +408,6 @@ def cache_symbol_for_endpoint(symbol: str, provider: str, endpoint: str) -> str:
 
 def raw_path(cache_root: Path, symbol: str, provider: str, endpoint: str, params: dict[str, Any]) -> Path:
     return cache_root / cache_symbol_for_endpoint(symbol, provider, endpoint) / provider / f"{cache_key(provider, endpoint, params)}.json"
-
-
-def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
-def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_raw(
@@ -1742,14 +1711,6 @@ def rewrite_raw_paths(payload: Any, path_map: dict[str, str]) -> Any:
     if isinstance(payload, list):
         return [rewrite_raw_paths(item, path_map) for item in payload]
     return payload
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def git_commit(repo_root: Path | None = None) -> str | None:
