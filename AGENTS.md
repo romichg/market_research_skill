@@ -9,8 +9,13 @@ This repository contains portable Agent Skills-format market research workflows.
 - `market-research/batch-supervisor/`: supervised batch supervisor skill and orchestration helper.
 - `market-research/shared/`: shared scripts, schemas, and agent config.
 - `tests/`: pytest coverage for helper scripts and loop behavior.
-- `docs/`: design notes, plans, and AI-human brief material.
+- `docs/README.md`: active documentation index and archive policy.
+- `docs/architecture.md`: skill boundaries, artifact roots, and evidence roles.
+- `docs/quality-bar.md`: durable report-quality, evidence, validation, freshness, and self-improvement standards.
+- `docs/operations.md`: repeatable development and operator workflows.
 - `OLD/`: archived prompts and handoff notes; do not extend unless restoring legacy context.
+
+Historical plans, generated self-improvement outputs, and stale specs belong under `OLD/docs-archive/` with their original relative paths preserved. Do not keep generated planning artifacts active after their durable conclusions are represented in canonical docs.
 
 Skill instructions live in each `SKILL.md`. Reference documents belong under `references/`, schemas under `schemas/`, and executable helpers under `scripts/`. Keep the skill usable by Codex, Claude, OpenClaw, and similar agents by preserving plain Markdown instructions, YAML frontmatter, and repo-relative helper paths.
 

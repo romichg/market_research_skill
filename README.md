@@ -15,6 +15,16 @@ This is research support, not personalized financial advice.
 
 The skill follows the Agent Skills convention: a directory containing `SKILL.md` with YAML frontmatter and Markdown instructions, plus optional `scripts/`, `references/`, and `schemas/` support files. See the Agent Skills spec at <https://agentskills.io/specification>.
 
+## Documentation
+
+Active project documentation lives under `docs/`:
+
+- `docs/architecture.md` explains skill boundaries, artifact roots, and evidence roles.
+- `docs/quality-bar.md` captures the report-quality, evidence, freshness, validation, and self-improvement standards.
+- `docs/operations.md` collects development commands and operator workflows.
+
+Historical plans and generated self-improvement artifacts are archived under `OLD/docs-archive/`.
+
 ## Requirements
 
 - Python 3.11 or newer recommended.
@@ -192,6 +202,8 @@ python3 market-research/shared/scripts/deterministic_research_collector.py fetch
 python3 market-research/shared/scripts/validate_market_research.py --help
 bash market-research/shared/scripts/md-to-pdf.sh reports/AAPL/YYYY-MM-DD/AAPL-research.md
 ```
+
+For the full command list, preflight workflow, and batch/self-improvement operations, see `docs/operations.md`.
 
 Deterministic bundles include `deterministic_data_usage.json`. Research reports should use or explicitly disposition required/review datapoints in the report JSON `deterministic_data_usage` array.
 
