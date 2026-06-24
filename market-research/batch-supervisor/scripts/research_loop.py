@@ -15,11 +15,10 @@ import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "scripts"))
 from script_metrics import add_metrics_arg, start_timer, write_metrics
+from script_utils import normalize_symbol, read_json, validate_as_of, write_json
 
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
-SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
-AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DEFAULT_CODEX_COMMAND = (
     "codex exec -C {cwd} "
     "--dangerously-bypass-approvals-and-sandbox - < {prompt_file}"
@@ -61,20 +60,6 @@ def die(message: str, code: int = 2) -> None:
     raise SystemExit(code)
 
 
-def read_json(path: Path) -> dict[str, Any]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        die(f"JSON file not found: {path}")
-    except json.JSONDecodeError as exc:
-        die(f"Could not parse JSON {path}: {exc}")
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
 def write_if_missing(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
@@ -87,25 +72,6 @@ def ensure_improvement_note_files(root: Path) -> dict[str, str]:
     write_if_missing(loop_issues, LOOP_ISSUES_TEMPLATE)
     write_if_missing(operator_notes, OPERATOR_NOTES_TEMPLATE)
     return {"loop_skill_issues": str(loop_issues), "operator_notes": str(operator_notes)}
-
-
-def normalize_symbol(symbol: str) -> str:
-    value = symbol.strip().upper()
-    if not SYMBOL_RE.fullmatch(value):
-        die(f"Invalid symbol: {symbol!r}")
-    return value
-
-
-def validate_as_of(value: str | None) -> str | None:
-    if value in (None, ""):
-        return None
-    if not AS_OF_RE.fullmatch(value):
-        die(f"Invalid as-of {value!r}; expected YYYY-MM-DD.")
-    try:
-        datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        die(f"Invalid as-of {value!r}; expected a real calendar date.")
-    return value
 
 
 def is_open_blocking(issue: dict[str, Any]) -> bool:

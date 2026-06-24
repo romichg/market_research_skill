@@ -11,6 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deterministic_data_usage as usage_contract
+from script_utils import read_json, write_json
 
 
 def utc_now() -> str:
@@ -20,18 +21,6 @@ def utc_now() -> str:
 def die(message: str, code: int = 2) -> None:
     print(message, file=sys.stderr)
     raise SystemExit(code)
-
-
-def read_json(path: Path) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        die(f"Could not parse JSON {path}: {exc}")
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def is_deterministic_bundle(path: Path) -> bool:

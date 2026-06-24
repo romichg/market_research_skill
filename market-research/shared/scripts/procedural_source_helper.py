@@ -9,9 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
-import hashlib
 import json
-import os
 import re
 import shutil
 import sys
@@ -20,9 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from script_metrics import add_metrics_arg, start_timer, write_metrics
+from script_utils import normalize_symbol, read_json, sha256_file, validate_as_of, write_json
 
-SYMBOL_RE = re.compile(r"^(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}$")
-AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 SOURCE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ETF_REQUIRED_FIELDS = ["fund_name", "expense_ratio", "benchmark", "holdings_summary"]
 EQUITY_REQUIRED_FIELDS = ["company_name", "latest_annual_filing", "revenue", "net_income"]
@@ -37,13 +34,6 @@ def die(message: str, code: int = 2) -> None:
     raise SystemExit(code)
 
 
-def normalize_symbol(symbol: str) -> str:
-    value = symbol.strip().upper()
-    if not SYMBOL_RE.fullmatch(value):
-        die(f"Invalid symbol: {symbol!r}")
-    return value
-
-
 def validate_source_date(value: str | None) -> str | None:
     if value in (None, ""):
         return None
@@ -56,29 +46,6 @@ def validate_source_date(value: str | None) -> str | None:
     return value
 
 
-def validate_as_of(value: str | None) -> str | None:
-    if value in (None, ""):
-        return None
-    if not AS_OF_RE.fullmatch(value):
-        die(f"Invalid as-of {value!r}; expected YYYY-MM-DD.")
-    try:
-        datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        die(f"Invalid as-of {value!r}; expected a real calendar date.")
-    return value
-
-
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp_path.replace(path)
-
-
-def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 @contextlib.contextmanager
 def file_lock(path: Path):
     lock_path = path.with_suffix(path.suffix + ".lock")
@@ -89,14 +56,6 @@ def file_lock(path: Path):
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def run_dir(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
@@ -121,7 +80,7 @@ def update_manifest(output_root: Path, symbol: str, as_of: str | None = None, **
         manifest = read_json(path)
         manifest.update(updates)
         manifest["updated_at"] = utc_now()
-        write_json(path, manifest)
+        write_json(path, manifest, atomic=True)
     return manifest
 
 
@@ -134,7 +93,7 @@ def append_manifest_gap_fills(output_root: Path, symbol: str, as_of: str | None,
         manifest["procedural_gap_fills"] = fills
         manifest["research_context"] = str(research_context)
         manifest["updated_at"] = utc_now()
-        write_json(path, manifest)
+        write_json(path, manifest, atomic=True)
     return manifest
 
 
@@ -146,7 +105,7 @@ def append_manifest_source_gap(output_root: Path, symbol: str, as_of: str | None
         gaps.append(gap)
         manifest["source_gaps"] = gaps
         manifest["updated_at"] = utc_now()
-        write_json(path, manifest)
+        write_json(path, manifest, atomic=True)
     return manifest
 
 
@@ -174,7 +133,7 @@ def cmd_init_run(args: argparse.Namespace) -> None:
             "source_bundle": str(source_bundle),
         },
     }
-    write_json(out / "run_manifest.json", manifest)
+    write_json(out / "run_manifest.json", manifest, atomic=True)
     payload = {"symbol": symbol, "run_dir": str(out), "manifest": str(out / "run_manifest.json")}
     write_metrics(
         getattr(args, "metrics_json", None),
@@ -199,7 +158,7 @@ def cmd_classify(args: argparse.Namespace) -> None:
         "confidence": args.confidence,
         "notes": [args.note] if args.note else [],
     }
-    write_json(out / "source_bundle" / "classification.json", classification)
+    write_json(out / "source_bundle" / "classification.json", classification, atomic=True)
     update_manifest(output_root, symbol, args.as_of, security_type=args.security_type, classification=str(out / "source_bundle" / "classification.json"))
     print(json.dumps(classification, indent=2, sort_keys=True))
 
@@ -233,7 +192,7 @@ def cmd_record_source(args: argparse.Namespace) -> None:
         payload = load_sources(out)
         payload["sources"] = [s for s in payload["sources"] if s.get("id") != args.id]
         payload["sources"].append(source)
-        write_json(sources_path, payload)
+        write_json(sources_path, payload, atomic=True)
     print(json.dumps(source, indent=2, sort_keys=True))
 
 
@@ -431,7 +390,7 @@ def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str])
 
 
 def write_context_files(out: Path, context: dict[str, Any]) -> None:
-    write_json(out / "research_context.json", context)
+    write_json(out / "research_context.json", context, atomic=True)
     lines = [
         f"# {context['symbol']} Research Context",
         "",
