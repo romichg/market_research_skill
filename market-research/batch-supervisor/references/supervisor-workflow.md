@@ -1,0 +1,65 @@
+# Supervisor Workflow
+
+## Run A Batch
+
+From the repo root:
+
+```bash
+python3 market-research/batch-supervisor/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-batch-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
+```
+
+If `--as-of` is omitted, the harness uses today's date. Runtime prompts, logs, skill issue files, and loop summaries stay under `runtime/SYMBOL/AS_OF/` or the configured runtime `RUN_ROOT/SYMBOL/AS_OF/`; deterministic data bundles belong under `data/SYMBOL/AS_OF/`; polished research and validation artifacts belong under `reports/SYMBOL/AS_OF/`.
+
+Defaults launch child sessions with:
+
+```bash
+codex exec -C {cwd} --dangerously-bypass-approvals-and-sandbox - < {prompt_file}
+```
+
+Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing expected artifacts, the harness logs the timeout and continues. When a producer writes a canonical deterministic bundle under `data/SYMBOL/YYYY-MM-DD/`, the harness passes that bundle as validator input and routes validation markdown/JSON to `reports/SYMBOL/YYYY-MM-DD/`. The input path is recorded as `artifact_run_dir` in `research-loop-summary.json`.
+
+Custom validator command templates can use `{run_dir}` for the input artifact path and `{validation_output_dir}` for the reports output path.
+
+## Supervision
+
+Periodically inspect:
+
+```bash
+find RUN_ROOT -name '*.log' -print
+python3 market-research/batch-supervisor/scripts/research_loop.py summarize RUN_ROOT
+```
+
+Failure handling:
+
+- `producer_failed`: inspect `producer.log`; if canonical `reports/SYMBOL/YYYY-MM-DD/` or `data/SYMBOL/YYYY-MM-DD/` artifacts exist, check whether the artifact-complete fallback should have applied.
+- `validator_failed`: inspect `validator.log`; check for partial validation JSON.
+- `failed_blocking_issues`: inspect the latest validation JSON, then either let the loop run another remediation if budget remains or report unresolved blocking IDs.
+- Repeated harness failures: append concrete details to `loop-skill-issues.md`.
+
+## Feedback Collection
+
+Self-improvement is not automatic. To create a central prompt over one or more completed batch roots, prefer:
+
+```text
+$market-research batch-supervisor self-improve RUN_ROOT [RUN_ROOT ...]
+```
+
+The helper can also be run directly:
+
+```bash
+python3 market-research/batch-supervisor/scripts/research_loop.py self-improve RUN_ROOT [RUN_ROOT ...]
+```
+
+This writes `docs/superpowers/plans/self-improvement/TIMESTAMP/self-improvement.md` by default so durable prompts, ideas, plans, and JSON survive `runtime/` cleanup. Open that prompt in Codex and run the review in the current session. The prompt asks for `self-improvement-ideas.md`, `self-improvement-plan.md`, and `self-improvement.json` under the same central output directory.
+
+The generated prompt should evaluate deterministic data usage, investor-grade memo quality, omitted risks or data gaps, validator specificity, and recurring failures that should become checks, prompt requirements, helper scripts, or tests.
+
+Treat the finished investor report as the product: preserve `reports/` for polished deliverables, `runtime/` for intermediate work, and `data/` for deterministic evidence. Prefer field-level freshness guidance over cache-mechanics disclosure; only surface cache/provider mechanics in the main report when stale, missing, or conflicting data changes investor interpretation.
+
+To collect existing issue notes without starting a review:
+
+```bash
+python3 market-research/batch-supervisor/scripts/research_loop.py collect-feedback RUN_ROOT
+```
+
+This writes `skill-improvement-feedback.md` and `.json`. Review those manually, then start a separate explicit skill-improvement task.

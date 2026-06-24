@@ -107,6 +107,32 @@ def test_verifier_checks_investor_usefulness_not_only_deterministic_coverage():
     assert "deterministic coverage is not sufficient" in text
 
 
+def test_verifier_skill_routes_operational_detail_to_workflow_reference():
+    skill = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    workflow = ROOT / "market-research" / "verifier" / "references" / "verifier-workflow.md"
+
+    assert "references/verifier-workflow.md" in skill
+    assert workflow.exists()
+
+    text = workflow.read_text(encoding="utf-8").lower()
+    assert "deterministic_data_usage" in text
+    assert "routine data-vendor names" in text
+    assert "open critical/moderate" in text
+
+
+def test_supervisor_skill_routes_operational_detail_to_workflow_reference():
+    skill = (ROOT / "market-research" / "batch-supervisor" / "SKILL.md").read_text(encoding="utf-8").lower()
+    workflow = ROOT / "market-research" / "batch-supervisor" / "references" / "supervisor-workflow.md"
+
+    assert "references/supervisor-workflow.md" in skill
+    assert workflow.exists()
+
+    text = workflow.read_text(encoding="utf-8").lower()
+    assert "research_loop.py run-batch" in text
+    assert "self-improvement is not automatic" in text
+    assert "field-level freshness" in text
+
+
 def test_researcher_guidance_requires_provider_impact_mapping():
     text = (ROOT / "market-research" / "researcher" / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "provider-limit impact" in text
