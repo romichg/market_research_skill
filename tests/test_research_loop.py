@@ -933,3 +933,32 @@ def test_collect_feedback_writes_manual_improvement_package(tmp_path):
     text = feedback_md.read_text(encoding="utf-8")
     assert "Manual Skill Improvement Package" in text
     assert "Add PDF output later" in text
+
+
+def test_collect_feedback_includes_json_skill_issue_sidecars(tmp_path):
+    root = tmp_path / "batch"
+    issue = root / "QUBT" / "2026-06-23" / "QUBT-validator-skill-issues.json"
+    issue.parent.mkdir(parents=True)
+    issue.write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {
+                        "id": "VSKILL-001",
+                        "severity": "minor",
+                        "status": "open",
+                        "description": "Schema validation dependency is not operationally specified.",
+                        "suggested_owner": "verifier",
+                        "evidence_path": "reports/QUBT/2026-06-23/QUBT-validation.md",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_harness("collect-feedback", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert str(issue) in payload["issue_files"]

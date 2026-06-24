@@ -65,12 +65,20 @@ def lint_report_language(text: str) -> list[dict[str, str]]:
         body = section_text.lower()
         for pattern in FORBIDDEN_MAIN_BODY_PATTERNS:
             if pattern in body:
-                findings.append({"severity": "minor", "pattern": pattern, "message": INTERNAL_PROVENANCE_MESSAGE})
+                findings.append(
+                    {
+                        "severity": "minor",
+                        "pattern": pattern,
+                        "section": heading,
+                        "message": INTERNAL_PROVENANCE_MESSAGE,
+                    }
+                )
         if any(vendor in body for vendor in VENDOR_NAMES):
             findings.append(
                 {
                     "severity": "minor",
                     "pattern": "vendor-name-main-body",
+                    "section": heading,
                     "message": "routine data-vendor names belong in Data Issues And Discrepancies or Sources And Evidence, not the main investment narrative",
                 }
             )
@@ -105,6 +113,7 @@ def lint_report_structure(text: str) -> list[dict[str, str]]:
                 {
                     "severity": "minor",
                     "id": "bottom-line-too-short",
+                    "section": "bottom line",
                     "message": "Bottom Line should read as an executive summary, not a compressed thesis.",
                 }
             )
@@ -113,12 +122,20 @@ def lint_report_structure(text: str) -> list[dict[str, str]]:
                 {
                     "severity": "minor",
                     "id": "bottom-line-missing-market-value",
+                    "section": "bottom line",
                     "message": "Bottom Line should introduce market value or valuation range before judging valuation.",
                 }
             )
     key_facts = sections.get("key facts", "")
     if key_facts and not has_markdown_table(key_facts):
-        findings.append({"severity": "minor", "id": "key-facts-not-table", "message": "Key Facts should be a compact table."})
+        findings.append(
+            {
+                "severity": "minor",
+                "id": "key-facts-not-table",
+                "section": "key facts",
+                "message": "Key Facts should be a compact table.",
+            }
+        )
     technical = sections.get("market snapshot and technical analysis", "")
     required_terms = ["support", "resistance", "moving average", "volume", "volatility", "trend"]
     if technical and sum(1 for term in required_terms if term in technical.lower()) < 4:
@@ -126,6 +143,7 @@ def lint_report_structure(text: str) -> list[dict[str, str]]:
             {
                 "severity": "minor",
                 "id": "technical-analysis-too-thin",
+                "section": "market snapshot and technical analysis",
                 "message": "Technical analysis should interpret support, resistance, moving averages, volume, volatility, and trend when price history exists.",
             }
         )
@@ -147,7 +165,8 @@ def main() -> None:
         print(json.dumps({"findings": findings}, indent=2, sort_keys=True))
     else:
         for finding in findings:
-            print(f"{finding['severity']}: {finding['message']} ({finding['pattern']})")
+            identifier = finding.get("pattern") or finding.get("id") or "finding"
+            print(f"{finding['severity']}: {finding['message']} ({identifier})")
     raise SystemExit(1 if findings else 0)
 
 

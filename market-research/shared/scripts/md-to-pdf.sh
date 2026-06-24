@@ -54,4 +54,6 @@ if pandoc "${pandoc_args[@]}"; then
 fi
 
 echo "PDF not generated: pandoc failed for ${input}." >&2
+echo "If xelatex is installed but LaTeX reports missing lmodern.sty, install the missing package." >&2
+echo "Install a TeX distribution with lmodern support or disable PDF generation." >&2
 exit 0

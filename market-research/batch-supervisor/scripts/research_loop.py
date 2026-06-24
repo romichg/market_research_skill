@@ -240,7 +240,7 @@ def latest_validation_for_symbol(symbol_dir: Path, reports_symbol_dir: Path | No
 
 
 def collect_skill_issue_files(root: Path) -> list[str]:
-    files = sorted(root.glob("**/*skill-issues.md"))
+    files = sorted(root.glob("**/*skill-issues.md")) + sorted(root.glob("**/*skill-issues.json"))
     return [str(path) for path in files]
 
 

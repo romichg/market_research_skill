@@ -26,6 +26,8 @@ Do not rely on the producer conversation as evidence. Treat the report as claims
 - Use `../shared/schemas/deterministic-bundle.schema.json` for deterministic bundle checks.
 - Use `../shared/schemas/validation-output.schema.json` for the validation JSON contract.
 
+If a JSON Schema validator is unavailable, use this fallback: run the repository validation helper and perform manual required-field checks against the schema files. Record this limitation in validation JSON under `validation_limitations`; do not imply full Draft 2020-12 schema validation passed.
+
 ## Workflow
 
 1. Inspect the run directory shape. The helper supports final report directories under `reports/SYMBOL/AS_OF/`, deterministic `data/SYMBOL/AS_OF/` bundles, and a `data/SYMBOL/` parent directory containing dated deterministic bundles. Deterministic bundles outside `data/SYMBOL/AS_OF/` are not valid inputs. When a deterministic data bundle is provided, write the scaffold under `reports/SYMBOL/AS_OF/`. It writes a scaffold named `<SYMBOL>-validation-scaffold.md/json`; it is lint input for validation, not the completed validation judgment:
@@ -47,6 +49,7 @@ The scaffold includes `deterministic_data_usage`, a heuristic audit of normalize
 - Confirm deterministic bundle files align with `../shared/schemas/deterministic-bundle.schema.json`.
 - Treat successful deterministic provider outputs as frozen evidence. Validate non-deterministic interpretation, generated prose, missing-data handling, stale-data caveats, and cited-source support.
 - Review the scaffold `deterministic_data_usage` and `deterministic_data_usage_dispositions` sections. Confirm required/review deterministic datapoints were used or field-level dispositions are defensible before deciding the producer passed data-usage validation.
+- For every required deterministic datapoint, the report JSON `deterministic_data_usage` entry must include a field-specific `rationale` that names the field or value and explains the investor relevance, duplication by better evidence, or reason for omission. Generic rationales such as "used for valuation context" are insufficient for required datapoints.
 - Check source dates and stale-data handling.
 - Check whether facts and interpretation are separated.
 - Check investor usefulness. Deterministic coverage is not sufficient if the report reads like a source inventory or compliance transcript. The report should have a clear thesis, prioritize material facts, explain variant view and risks, and keep citations from overwhelming the prose. Treat excessive path-level citation density as a minor quality issue; treat missing thesis or purely mechanical deterministic recitation as moderate.
@@ -58,6 +61,7 @@ The scaffold includes `deterministic_data_usage`, a heuristic audit of normalize
 - When `sources.json` includes `artifact_sha256` and `artifact_size_bytes`, treat them as frozen-artifact integrity metadata and verify that referenced local artifacts still exist.
 - Check ETF fee, holdings, exposure, and index methodology support.
 - Check equity/ADR filing, financial, valuation, and risk support.
+- For equities and ADRs, check whether the report addresses or dispositions cybersecurity/data-integrity risk and litigation/legal-proceeding status from filed materials. Missing treatment is at least minor; make it moderate when the omitted risk is material to the thesis or when filings contain active proceedings that affect valuation or solvency.
 - If filing-section extracts are absent for an equity, check whether the report discloses that limitation. Treat disclosed absence as a minor evidence-depth issue; treat undisclosed absence as moderate when the report discusses filing-specific risks, MD&A, litigation, liquidity, or going-concern claims.
 - Confirm `gaps.json` marks unavailable free-source data clearly instead of letting missing fields become unsupported prose.
 - Confirm material provider limits are mapped to affected analysis areas, not only listed. Examples include short-interest gaps affecting crowding/squeeze analysis, forward-estimate gaps affecting valuation, insider-statistics gaps affecting dilution/governance analysis, and filing-section gaps affecting direct risk-factor or MD&A validation.
@@ -76,6 +80,10 @@ Flag report-quality issues when a report merely produces a data recital instead 
 - Risk section should not include data-quality risk; `Risks And Invalidation Points` should focus on company/security risks, and data-quality risk belongs in `Data Issues And Discrepancies`.
 
 5. Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`.
+
+When validator skill issues are found, write `<SYMBOL>-validator-skill-issues.md` for human reading and `<SYMBOL>-validator-skill-issues.json` matching `../shared/schemas/skill-issue.schema.json` for aggregation.
+
+If schema tooling is missing, include a validation JSON limitation such as: `"Python jsonschema was unavailable; manual required-field checks were performed."`
 
 6. Classify every issue:
 

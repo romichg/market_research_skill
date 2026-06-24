@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Market Research Skill Issue Sidecar",
+  "type": "object",
+  "required": ["issues"],
+  "properties": {
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "status", "description", "suggested_owner", "evidence_path"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "moderate", "minor"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "closed", "deferred"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "suggested_owner": {
+            "type": "string",
+            "enum": ["researcher", "verifier", "batch-supervisor", "shared-helper", "docs"]
+          },
+          "evidence_path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

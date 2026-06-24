@@ -101,6 +101,8 @@ Use this output as the primary factual input. Every normalized value must carry 
 
 Before drafting the final report, inspect `data/SYMBOL/AS_OF/deterministic_data_usage.json`. For every datapoint marked `materiality: required`, use it in the report or add a field-level `deterministic_data_usage` JSON disposition explaining why it was not used. For every datapoint marked `materiality: review`, use it when it affects the investor thesis, risk profile, valuation/performance context, lifecycle context, or source-quality discussion; otherwise add a disposition explaining why it was not material, duplicated by a better source, stale/wrong-entity, or unusable. Do not let required or review deterministic fields disappear silently.
 
+For every required deterministic datapoint, the report JSON `deterministic_data_usage` entry must include a field-specific `rationale` that names the field or value and explains the investor relevance, duplication by better evidence, or reason for omission. Generic rationales such as "used for valuation context" are insufficient for required datapoints.
+
 When provider technical output is absent or incomplete, compute technical analysis locally from `data/SYMBOL/AS_OF/normalized/technical_signals.json` and `data/SYMBOL/AS_OF/normalized/prices_daily.json`. Use adjusted-close language for returns, moving averages, drawdowns, volatility, and support/resistance approximations, and record the calculation inputs in the report JSON `technical_analysis` and `calculation_audit` fields.
 
 2. If deterministic output is sparse or a procedural source bundle is required, normalize the symbol to uppercase and create the run:
@@ -169,6 +171,8 @@ This helper supports both legacy BlackRock API payloads and component-style prod
 
 Use targeted procedural research when the deterministic bundle does not explain the business well enough for an investor. For operating companies, fill business-profile gaps on: what the product does, technology explanation in plain language, who pays, revenue model, customer or government/commercial exposure, acquisition contribution, current commercial traction, valuation context, current technical setup, and practical demand drivers. Do not stop at filing labels or provider profiles when they leave the business unclear. The final report is judged on investor usefulness and analysis, not on whether a fact arrived through deterministic or procedural collection.
 
+For event-driven issuer news dated on or after the as-of date, perform a same-day SEC freshness check against the issuer filings page or SEC company browse results, especially for 8-K, 10-Q, 10-K, S-3, S-1, 13D/G, and proxy filings. If deterministic SEC submissions lag, capture the filing procedurally, cite the filing date, and disclose the deterministic omission in `Data Issues And Discrepancies`.
+
 8. Write working/procedural artifacts under runtime and final report artifacts under reports:
 
 ```text
@@ -215,7 +219,7 @@ When a deterministic bundle exists, the JSON sidecar should also include `determ
 bash {baseDir}/../shared/scripts/md-to-pdf.sh ./reports/SYMBOL/YYYY-MM-DD/SYMBOL-research.md
 ```
 
-If `pandoc` or `xelatex` is unavailable, report the helper message and continue with the Markdown and JSON artifacts. Do not treat missing PDF tooling as a research failure.
+If `pandoc`, `xelatex`, or LaTeX packages such as `lmodern.sty` are unavailable, report the helper message and continue with the Markdown and JSON artifacts. Do not treat missing PDF tooling as a research failure.
 
 11. Tell the user the artifact paths, including the PDF path if generated, and recommend running `market-research verifier` in a fresh agent context against the run directory.
 

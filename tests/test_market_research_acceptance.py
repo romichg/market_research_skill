@@ -211,6 +211,13 @@ def test_researcher_skill_requires_procedural_research_for_business_understandin
     assert "acquisition contribution" in text
 
 
+def test_researcher_requires_same_day_sec_check_for_event_driven_news():
+    text = (ROOT / "market-research" / "researcher" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "same-day sec" in text
+    assert "8-k" in text
+    assert "issuer filings page" in text or "sec company browse" in text
+
+
 def test_verifier_requires_business_depth_not_just_filing_facts():
     text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "business profile depth" in text
@@ -226,11 +233,35 @@ def test_verifier_requires_analysis_not_number_recital():
     assert "risk section should not include data-quality risk" in text
 
 
+def test_researcher_template_requires_equity_risk_checklist_treatment():
+    text = (ROOT / "market-research" / "researcher" / "references" / "report-template.md").read_text(encoding="utf-8").lower()
+    for term in [
+        "cybersecurity",
+        "litigation",
+        "legal proceedings",
+        "customer concentration",
+        "supplier concentration",
+        "dilution",
+        "internal controls",
+    ]:
+        assert term in text
+    assert "addressed" in text
+    assert "not material" in text
+    assert "not found in filed sources" in text
+
+
 def test_verifier_checks_potential_value_news_framing():
     text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "potential" in text
     assert "booked revenue" in text
     assert "framework" in text
+
+
+def test_verifier_documents_schema_validation_fallback():
+    text = (ROOT / "market-research" / "verifier" / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "json schema" in text
+    assert "fallback" in text
+    assert "manual required-field checks" in text
 
 
 def test_readme_presents_self_improve_as_batch_supervisor_mode():

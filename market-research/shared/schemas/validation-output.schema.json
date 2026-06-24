@@ -82,6 +82,12 @@
     },
     "scaffold": {
       "type": "boolean"
+    },
+    "validator_skill_issues": {
+      "type": "array",
+      "items": {
+        "$ref": "skill-issue.schema.json#/properties/issues/items"
+      }
     }
   },
   "additionalProperties": true

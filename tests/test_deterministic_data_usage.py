@@ -106,7 +106,14 @@ def test_compare_usage_dispositions_flags_weak_required_rationale():
     comparison = module.compare_usage_dispositions(requirements, report)
 
     assert comparison["summary"]["weak_required"] == 1
-    assert comparison["weak_required"][0]["field_path"] == "equity_fundamentals.ebitda"
+    weak = comparison["weak_required"][0]
+    assert weak["field_path"] == "equity_fundamentals.ebitda"
+    assert weak["field_name"] == "ebitda"
+    assert weak["materiality"] == "required"
+    assert weak["disposition"] == "used"
+    assert weak["report_section"] == "Financials, Holdings, And Balance Sheet"
+    assert weak["weak_reason"] == "generic_rationale"
+    assert weak["suggested_fix"] == "Mention the field or value and why it changed, supported, or did not change the investor view."
 
 
 def test_usage_audit_does_not_treat_raw_path_only_as_narrative_use(tmp_path):

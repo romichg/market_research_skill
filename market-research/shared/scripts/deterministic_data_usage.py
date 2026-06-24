@@ -8,6 +8,7 @@ from typing import Any
 
 
 IGNORED_USAGE_PROVIDERS = {"input", "cli", "deterministic_classifier", "unavailable"}
+WEAK_RATIONALE_SUGGESTED_FIX = "Mention the field or value and why it changed, supported, or did not change the investor view."
 
 REQUIRED_FIELD_PATHS = {
     "identity.asset_type",
@@ -201,7 +202,15 @@ def compare_usage_dispositions(requirements: dict[str, Any], report: Any) -> dic
                 continue
             weak_reason = weak_usage_rationale(entry, item)
             if weak_reason:
-                bucket.append({**item, "weak_reason": weak_reason})
+                bucket.append(
+                    {
+                        **item,
+                        "disposition": entry.get("disposition"),
+                        "report_section": entry.get("report_section"),
+                        "weak_reason": weak_reason,
+                        "suggested_fix": WEAK_RATIONALE_SUGGESTED_FIX,
+                    }
+                )
     return {
         "summary": {
             "total_required": len(required_items),

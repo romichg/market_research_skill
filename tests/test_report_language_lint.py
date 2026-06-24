@@ -168,3 +168,57 @@ The stock moved recently.
     ids = {finding["id"] for finding in findings}
     assert "key-facts-not-table" in ids
     assert "technical-analysis-too-thin" in ids
+
+
+def test_report_language_lint_rejects_qubt_style_main_body_provenance():
+    module = load_module()
+    text = """# QUBT Research
+
+## Bottom Line
+
+The latest deterministic adjusted close was $10.76, with a primary normalized market capitalization.
+
+## Market Snapshot And Technical Analysis
+
+| Metric | Value | Evidence |
+| --- | ---: | --- |
+| Latest adjusted close | $10.76 | Deterministic Tiingo normalized prices |
+| Latest quote volume | 21.44M shares | Twelve Data quote |
+
+## Data Issues And Discrepancies
+
+Provider details are discussed here.
+"""
+
+    findings = module.lint_report_language(text)
+
+    patterns = [finding.get("pattern") for finding in findings]
+    assert patterns.count("deterministic") >= 1
+    assert "vendor-name-main-body" in patterns
+
+
+def test_report_language_lint_cli_prints_structural_findings(tmp_path):
+    report = tmp_path / "report.md"
+    report.write_text(
+        """# ABC Research
+
+## Bottom Line
+
+ABC is speculative.
+""",
+        encoding="utf-8",
+    )
+
+    import subprocess
+
+    result = subprocess.run(
+        ["python3", str(LINT), str(report)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 1
+    assert "bottom-line-too-short" in result.stdout
+    assert "Traceback" not in result.stderr

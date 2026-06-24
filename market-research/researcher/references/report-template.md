@@ -126,6 +126,8 @@ Use a table or clearly separated bullets. Each case should state what must happe
 
 Focus on company, security, market, financial, governance, execution, liquidity, dilution, customer, product, and regulatory risks. Do not include research/data-quality risk here; put those in `Data Issues And Discrepancies`.
 
+For equities and ADRs, explicitly treat the following risk checklist with one of `addressed`, `not material`, or `not found in filed sources`: commercialization/execution, liquidity/runway, dilution/share issuance, customer concentration, supplier concentration/manufacturing dependence, cybersecurity/data integrity, litigation/legal proceedings, internal controls, related-party/governance, regulatory/export-control, and valuation/multiple compression. The Markdown should summarize only material risks; the JSON sidecar can preserve checklist dispositions.
+
 ## My Take
 
 Give a fuller evidence-backed interpretation. Explain what would make the security interesting, what would keep it out of a portfolio, and what evidence would change the view. Avoid personalized advice.
