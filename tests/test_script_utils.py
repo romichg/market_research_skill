@@ -65,3 +65,10 @@ def test_deterministic_collector_uses_shared_script_primitives():
         "def sha256_file(",
     ]:
         assert duplicate not in text
+
+
+def test_deterministic_usage_uses_shared_json_reader():
+    text = (ROOT / "market-research" / "shared" / "scripts" / "deterministic_data_usage.py").read_text(encoding="utf-8")
+
+    assert "from script_utils import read_json" in text
+    assert "def read_json(" not in text

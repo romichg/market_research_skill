@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from script_utils import read_json
 
 
 IGNORED_USAGE_PROVIDERS = {"input", "cli", "deterministic_classifier", "unavailable"}
@@ -71,10 +75,6 @@ GENERIC_RATIONALE_PHRASES = {
     "used in the report as part of identity, market snapshot, financial profile, valuation/performance context, or technical context",
     "not material",
 }
-
-
-def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def collect_normalized_datapoints(normalized_dir: Path | None) -> list[dict[str, Any]]:
