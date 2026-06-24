@@ -148,6 +148,7 @@ def test_researcher_skill_routes_operational_detail_to_workflow_reference():
 
     workflow_text = workflow.read_text(encoding="utf-8").lower()
     assert "quota-safe starting points" in workflow_text
+    assert "plan-fetch" in workflow_text
     assert "--offline" in workflow_text
     assert "--max-provider-calls" in workflow_text
     assert "procedural_source_helper.py init-run" in workflow_text

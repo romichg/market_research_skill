@@ -200,6 +200,58 @@ def test_fetch_writes_opt_in_metrics_without_changing_stdout_json(tmp_path):
     assert sidecar["elapsed_seconds"] >= 0
 
 
+def test_plan_fetch_reports_call_estimates_and_cache_reuse_without_writes(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "tiingo",
+        "prices",
+        {"startDate": "2025-06-01", "endDate": "2026-06-01"},
+        [{"date": "2026-06-01", "close": 100}],
+        source_url="https://api.tiingo.com/tiingo/daily/AAPL/prices",
+    )
+
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,eodhd",
+        "--provider-endpoints",
+        "tiingo=prices",
+        "--provider-endpoints",
+        "eodhd=fundamentals,news,historical_market_cap,prices",
+        "--max-provider-calls",
+        "eodhd=1",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(cache),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbol"] == "AAPL"
+    assert payload["command"] == "plan-fetch"
+    assert not (tmp_path / "data" / "AAPL").exists()
+
+    by_provider = {item["provider"]: item for item in payload["providers"]}
+    assert by_provider["tiingo"]["estimated_call_cost"] == 0
+    assert by_provider["tiingo"]["cache_hit_endpoint_count"] == 1
+    assert by_provider["tiingo"]["planned_endpoints"] == ["prices"]
+    assert by_provider["eodhd"]["estimated_call_cost"] == 13
+    assert by_provider["eodhd"]["budget"] == 1
+    assert by_provider["eodhd"]["would_fetch_endpoints"] == ["news"]
+    assert by_provider["eodhd"]["limited_by_budget"] is True
+
+
 def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     module = load_module()
     calls = []

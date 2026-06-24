@@ -2216,6 +2216,79 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     print(redact(json.dumps(result, indent=2, sort_keys=True), config))
 
 
+def provider_fetch_plan(cache_root: Path, symbol: str, provider: str, budget: int, refresh: bool, endpoints: set[str]) -> dict[str, Any]:
+    selected = endpoints_for_provider(provider, endpoints)
+    cached_endpoints = sorted(endpoint for endpoint in selected if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh))
+    estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=refresh, endpoints=selected)
+    if budget <= 0:
+        would_fetch: set[str] = set()
+    elif estimated_cost <= budget:
+        would_fetch = {endpoint for endpoint in selected if endpoint not in set(cached_endpoints)}
+    else:
+        budgeted = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=refresh, endpoints=selected)
+        would_fetch = {endpoint for endpoint in budgeted if endpoint not in set(cached_endpoints)}
+    return {
+        "provider": provider,
+        "budget": budget,
+        "planned_endpoints": sorted(selected),
+        "cached_endpoints": cached_endpoints,
+        "cache_hit_endpoint_count": len(cached_endpoints),
+        "estimated_call_cost": estimated_cost,
+        "would_fetch_endpoints": sorted(would_fetch),
+        "limited_by_budget": estimated_cost > budget,
+    }
+
+
+def cmd_plan_fetch(args: argparse.Namespace) -> None:
+    metrics_start = getattr(args, "_metrics_start", start_timer())
+    root = Path(args.repo_root)
+    config = load_env_files(root)
+    symbol = normalize_symbol(args.symbol)
+    as_of = validate_as_of(args.as_of or date.today().isoformat())
+    paths = resolve_storage_paths(
+        root,
+        config,
+        data_dir=getattr(args, "data_dir", None),
+        cache_dir=getattr(args, "cache_dir", None),
+        reports_dir=getattr(args, "reports_dir", None),
+        runtime_dir=getattr(args, "runtime_dir", None),
+    )
+    cache_root = paths["cache_dir"]
+    providers = parse_provider_list(args.providers, config)
+    endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
+    budgets = parse_budgets(args.max_provider_calls)
+    provider_plans = [
+        provider_fetch_plan(
+            cache_root,
+            symbol,
+            provider,
+            provider_call_budget(provider, budgets),
+            args.refresh,
+            endpoint_plan.get(provider, set()),
+        )
+        for provider in providers
+    ]
+    payload = {
+        "command": "plan-fetch",
+        "symbol": symbol,
+        "as_of": as_of,
+        "providers": provider_plans,
+        "provider_call_estimate": sum(item["estimated_call_cost"] for item in provider_plans),
+        "would_fetch_endpoint_count": sum(len(item["would_fetch_endpoints"]) for item in provider_plans),
+    }
+    write_metrics(
+        getattr(args, "metrics_json", None),
+        start=metrics_start,
+        script="deterministic_research_collector.py",
+        command="plan-fetch",
+        symbol=symbol,
+        as_of=as_of,
+        provider_call_estimate=payload["provider_call_estimate"],
+        would_fetch_endpoint_count=payload["would_fetch_endpoint_count"],
+    )
+    print(redact(json.dumps(payload, indent=2, sort_keys=True), config))
+
+
 def cmd_list_cache(args: argparse.Namespace) -> None:
     root = Path(args.repo_root)
     config = load_env_files(root)
@@ -2286,6 +2359,15 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--provider-endpoints", action="append", help="Restrict endpoints for a provider, e.g. eodhd=fundamentals or fmp=profile,ratios_ttm.")
     add_common_paths(fetch)
     fetch.set_defaults(func=cmd_fetch)
+    plan = sub.add_parser("plan-fetch", help="Estimate provider calls, cache hits, and budget trimming without fetching.")
+    plan.add_argument("symbol")
+    plan.add_argument("--as-of")
+    plan.add_argument("--providers")
+    plan.add_argument("--refresh", action="store_true")
+    plan.add_argument("--max-provider-calls", action="append")
+    plan.add_argument("--provider-endpoints", action="append", help="Restrict endpoints for a provider, e.g. eodhd=fundamentals or fmp=profile,ratios_ttm.")
+    add_common_paths(plan)
+    plan.set_defaults(func=cmd_plan_fetch)
     normalize = sub.add_parser("normalize")
     normalize.add_argument("symbol")
     normalize.add_argument("--as-of")
