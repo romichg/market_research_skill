@@ -17,7 +17,7 @@ def test_generated_artifact_roots_are_ignored():
     ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
     ignored = {line.strip() for line in ignore_text.splitlines() if line.strip() and not line.startswith("#")}
 
-    assert {"data/", "reports/", "runtime/"} <= ignored
+    assert {"data/", "reports/", "runtime/", "OLD/"} <= ignored
 
 
 def test_active_files_do_not_reference_old_skill_paths():
@@ -79,23 +79,7 @@ def test_active_docs_use_canonical_consolidated_structure():
     assert "OLD/docs-archive/" in index
 
 
-def test_historical_generated_docs_are_archived_outside_active_docs():
-    archived = [
-        Path("OLD/docs-archive/docs/plans/20260619_rework_plan.md"),
-        Path("OLD/docs-archive/docs/superpowers/lessons/2026-06-22-deterministic-usage-and-self-improvement.md"),
-        Path("OLD/docs-archive/docs/superpowers/lessons/2026-06-22-investor-grade-report-quality.md"),
-        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
-        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
-        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-full-skill-and-helper-optimization.md"),
-        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-post-optimization-run-handoff.md"),
-        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-skill-token-and-helper-optimization.md"),
-        Path("OLD/docs-archive/docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
-        Path("OLD/docs-archive/docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
-        Path("OLD/docs-archive/docs/superpowers/specs/2026-06-25-report-language-and-etf-holdings-design.md"),
-    ]
-    for rel in archived:
-        assert (ROOT / rel).exists(), f"{rel} should be preserved in the archive"
-
+def test_historical_generated_docs_do_not_remain_active():
     forbidden_active = [
         Path("docs/plans/20260619_rework_plan.md"),
         Path("docs/superpowers/lessons/2026-06-22-deterministic-usage-and-self-improvement.md"),

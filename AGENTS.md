@@ -13,9 +13,9 @@ This repository contains portable Agent Skills-format market research workflows.
 - `docs/architecture.md`: skill boundaries, artifact roots, and evidence roles.
 - `docs/quality-bar.md`: durable report-quality, evidence, validation, freshness, and self-improvement standards.
 - `docs/operations.md`: repeatable development and operator workflows.
-- `OLD/`: archived prompts and handoff notes; do not extend unless restoring legacy context.
+- `OLD/`: local-only ignored archive for prompts, handoff notes, stale plans, and generated self-improvement outputs; do not depend on it in committed tests or docs.
 
-Historical plans, generated self-improvement outputs, and stale specs belong under `OLD/docs-archive/` with their original relative paths preserved. Do not keep generated planning artifacts active after their durable conclusions are represented in canonical docs.
+Historical plans, generated self-improvement outputs, and stale specs may be archived locally under `OLD/docs-archive/` with their original relative paths preserved. Do not keep generated planning artifacts active after their durable conclusions are represented in canonical docs.
 
 Skill instructions live in each `SKILL.md`. Reference documents belong under `references/`, schemas under `schemas/`, and executable helpers under `scripts/`. Keep the skill usable by Codex, Claude, OpenClaw, and similar agents by preserving plain Markdown instructions, YAML frontmatter, and repo-relative helper paths.
 
@@ -57,4 +57,4 @@ Recent commits use short, imperative summaries such as `add supervised market re
 
 ## Security & Configuration Tips
 
-Do not commit credentials, private research bundles, or generated run outputs. Use `.env.example` as the active configuration template; legacy `.env-starter` material belongs under `OLD/` only. When recording external sources, preserve source dates, URLs, checksums, and local artifact paths so later validation can reproduce the evidence trail.
+Do not commit credentials, private research bundles, local `OLD/` archives, or generated run outputs. Use `.env.example` as the active configuration template. When recording external sources, preserve source dates, URLs, checksums, and local artifact paths so later validation can reproduce the evidence trail.
