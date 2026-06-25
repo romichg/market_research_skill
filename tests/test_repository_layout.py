@@ -31,10 +31,7 @@ def test_active_files_do_not_reference_old_skill_paths():
         "market-research" + "-runs",
     ]
     allowed_prefixes = {"OLD", ".git", ".worktrees"}
-    allowed_files = {
-        Path("docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
-        Path("docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
-    }
+    allowed_files = set()
     offenders = []
     for path in ROOT.rglob("*"):
         rel = path.relative_to(ROOT)
@@ -65,13 +62,7 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/architecture.md"),
         Path("docs/operations.md"),
         Path("docs/quality-bar.md"),
-        Path("docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
-        Path("docs/superpowers/plans/2026-06-24-full-skill-and-helper-optimization.md"),
-            Path("docs/superpowers/plans/2026-06-24-post-optimization-run-handoff.md"),
-            Path("docs/superpowers/plans/2026-06-24-skill-token-and-helper-optimization.md"),
-            Path("docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
-            Path("docs/superpowers/specs/2026-06-25-report-language-and-etf-holdings-design.md"),
-        }
+    }
     actual_active_docs = {
         path.relative_to(ROOT)
         for path in (ROOT / "docs").rglob("*")
@@ -94,7 +85,13 @@ def test_historical_generated_docs_are_archived_outside_active_docs():
         Path("OLD/docs-archive/docs/superpowers/lessons/2026-06-22-deterministic-usage-and-self-improvement.md"),
         Path("OLD/docs-archive/docs/superpowers/lessons/2026-06-22-investor-grade-report-quality.md"),
         Path("OLD/docs-archive/docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
+        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
+        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-full-skill-and-helper-optimization.md"),
+        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-post-optimization-run-handoff.md"),
+        Path("OLD/docs-archive/docs/superpowers/plans/2026-06-24-skill-token-and-helper-optimization.md"),
         Path("OLD/docs-archive/docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
+        Path("OLD/docs-archive/docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
+        Path("OLD/docs-archive/docs/superpowers/specs/2026-06-25-report-language-and-etf-holdings-design.md"),
     ]
     for rel in archived:
         assert (ROOT / rel).exists(), f"{rel} should be preserved in the archive"
@@ -104,7 +101,13 @@ def test_historical_generated_docs_are_archived_outside_active_docs():
         Path("docs/superpowers/lessons/2026-06-22-deterministic-usage-and-self-improvement.md"),
         Path("docs/superpowers/lessons/2026-06-22-investor-grade-report-quality.md"),
         Path("docs/superpowers/plans/2026-06-23-market-research-self-improvement.json"),
+        Path("docs/superpowers/plans/2026-06-24-docs-instruction-consolidation.md"),
+        Path("docs/superpowers/plans/2026-06-24-full-skill-and-helper-optimization.md"),
+        Path("docs/superpowers/plans/2026-06-24-post-optimization-run-handoff.md"),
+        Path("docs/superpowers/plans/2026-06-24-skill-token-and-helper-optimization.md"),
         Path("docs/superpowers/specs/2026-06-21-market-research-skill-rename-and-quality-design.md"),
+        Path("docs/superpowers/specs/2026-06-24-docs-instruction-consolidation-design.md"),
+        Path("docs/superpowers/specs/2026-06-25-report-language-and-etf-holdings-design.md"),
     ]
     for rel in forbidden_active:
         assert not (ROOT / rel).exists(), f"{rel} should not remain active"

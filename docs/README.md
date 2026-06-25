@@ -7,8 +7,8 @@ This directory contains active documentation for the market-research skill repos
 - `docs/architecture.md`: skill layout, mode boundaries, canonical artifact roots, and evidence roles.
 - `docs/quality-bar.md`: investor-grade report standards, evidence discipline, deterministic-data usage, freshness, validation expectations, and self-improvement lessons.
 - `docs/operations.md`: development commands, preflight checks, research and validation workflows, batch supervision, self-improvement prompt generation, and generated-artifact handling.
-- `docs/superpowers/specs/`: current approved design specs.
-- `docs/superpowers/plans/`: current approved implementation plans.
+
+There are currently no active implementation plans or design specs. New plans/specs may live under `docs/superpowers/` while actively guiding work, then should be archived once implemented and summarized in canonical docs or tests.
 
 ## Archive Policy
 
