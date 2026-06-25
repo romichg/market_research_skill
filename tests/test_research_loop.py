@@ -139,6 +139,7 @@ def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp
     assert result.returncode == 0, result.stderr
     producer = Path(json.loads(result.stdout)["producer_initial_prompt"]).read_text(encoding="utf-8")
     assert "Use investor-facing language in main report sections" in producer
+    assert "introduce market value, net assets, or a valuation range" in producer
     assert "Portfolio Companies Snapshot" in producer
     assert "all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight" in producer
     assert "authorized participant and creation/redemption mechanics" in producer
@@ -335,6 +336,55 @@ def test_run_batch_finds_reports_when_project_parent_is_named_runtime(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["symbols"]["EWW"]["status"] == "passed"
     assert payload["symbols"]["EWW"]["artifact_run_dir"] == str(reports_bundle)
+
+
+def test_run_batch_syncs_runtime_sources_to_report_dir_before_validation(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    reports_bundle = tmp_path / "reports" / "ECH" / "2026-06-25"
+    runtime_bundle = root / "ECH" / "2026-06-25"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; import json; "
+        f"report_dir = Path(r'{reports_bundle}'); "
+        f"runtime_dir = Path(r'{runtime_bundle}'); "
+        "report_dir.mkdir(parents=True, exist_ok=True); "
+        "runtime_dir.mkdir(parents=True, exist_ok=True); "
+        "(report_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(report_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8'); "
+        "(runtime_dir / 'sources.json').write_text(json.dumps({{'sources': [{{'id': 'issuer'}}]}}), encoding='utf-8'); "
+        "(runtime_dir / 'source_bundle').mkdir(); "
+        "(runtime_dir / 'source_bundle' / 'issuer.html').write_text('issuer source', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; import json; "
+        "run_dir = Path(r'{run_dir}'); "
+        "sources = json.loads((run_dir / 'sources.json').read_text(encoding='utf-8')); "
+        "assert sources['sources'][0]['id'] == 'issuer'; "
+        "assert (run_dir / 'source_bundle' / 'issuer.html').exists(); "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "ECH",
+        "--run-root",
+        str(root),
+        "--as-of",
+        "2026-06-25",
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["ECH"]["status"] == "passed"
+    assert (reports_bundle / "sources.json").exists()
+    assert (reports_bundle / "source_bundle" / "issuer.html").exists()
 
 
 def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
