@@ -141,6 +141,8 @@ def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp
     assert "Use investor-facing language in main report sections" in producer
     assert "Portfolio Companies Snapshot" in producer
     assert "all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight" in producer
+    assert "authorized participant and creation/redemption mechanics" in producer
+    assert "securities lending" in producer
 
 
 def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):

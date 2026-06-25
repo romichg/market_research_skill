@@ -146,6 +146,7 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
             f"Write final research markdown and JSON under `{report_dir}`.",
             "Use investor-facing language in main report sections; avoid workflow terms such as deterministic, bundle, artifact, normalized, raw, runtime, cache, provider, and local paths except in evidence or data-quality sections where auditability requires them.",
             "For ETF reports with holdings, include `Portfolio Companies Snapshot`: cover all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight, with compact business, outlook, and price/technical context when available.",
+            "For ETF risks, explicitly address authorized participant and creation/redemption mechanics, securities lending, premium/discount, tracking, tax/withholding, liquidity, closure/AUM, and concentration risks when material.",
             f"Attempt best-effort PDF generation for the final markdown with `bash market-research/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
             f"Use `{runtime_dir}` for transient runtime notes, prompts, logs, and issue files.",
             "As you run the skill, identify any market-research skill issues separately.",
