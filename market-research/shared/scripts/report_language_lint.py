@@ -100,7 +100,18 @@ def word_count(text: str) -> int:
 
 def has_market_value(text: str) -> bool:
     lowered = text.lower()
-    return any(term in lowered for term in ["market cap", "market value", "valuation range", "enterprise value"])
+    return any(
+        term in lowered
+        for term in [
+            "market cap",
+            "market value",
+            "valuation range",
+            "enterprise value",
+            "net assets",
+            "aum",
+            "assets under management",
+        ]
+    )
 
 
 def has_markdown_table(text: str) -> bool:
@@ -111,6 +122,15 @@ def has_markdown_table(text: str) -> bool:
 def lint_report_structure(text: str) -> list[dict[str, str]]:
     sections = section_map(text)
     findings: list[dict[str, str]] = []
+    if "self-check" in sections:
+        findings.append(
+            {
+                "severity": "minor",
+                "id": "self-check-section",
+                "section": "self-check",
+                "message": "Self-check sections are internal workflow notes and should not appear in investor-facing reports.",
+            }
+        )
     bottom = sections.get("bottom line", "")
     if bottom:
         if word_count(bottom) < 80:
@@ -128,7 +148,7 @@ def lint_report_structure(text: str) -> list[dict[str, str]]:
                     "severity": "minor",
                     "id": "bottom-line-missing-market-value",
                     "section": "bottom line",
-                    "message": "Bottom Line should introduce market value or valuation range before judging valuation.",
+                    "message": "Bottom Line should introduce market value, ETF net assets, or valuation range before judging valuation.",
                 }
             )
     key_facts = sections.get("key facts", "")
@@ -142,8 +162,16 @@ def lint_report_structure(text: str) -> list[dict[str, str]]:
             }
         )
     technical = sections.get("market snapshot and technical analysis", "")
-    required_terms = ["support", "resistance", "moving average", "volume", "volatility", "trend"]
-    if technical and sum(1 for term in required_terms if term in technical.lower()) < 4:
+    required_term_groups = [
+        ["support"],
+        ["resistance"],
+        ["moving average", "moving-average", "moving averages", "moving-averages"],
+        ["volume"],
+        ["volatility"],
+        ["trend"],
+    ]
+    technical_lower = technical.lower()
+    if technical and sum(1 for group in required_term_groups if any(term in technical_lower for term in group)) < 4:
         findings.append(
             {
                 "severity": "minor",

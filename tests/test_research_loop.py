@@ -140,6 +140,8 @@ def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp
     producer = Path(json.loads(result.stdout)["producer_initial_prompt"]).read_text(encoding="utf-8")
     assert "Use investor-facing language in main report sections" in producer
     assert "introduce market value, net assets, or a valuation range" in producer
+    assert "Do not include a Self-Check section" in producer
+    assert "deterministic_* source IDs" in producer
     assert "Portfolio Companies Snapshot" in producer
     assert "all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight" in producer
     assert "authorized participant and creation/redemption mechanics" in producer
@@ -352,6 +354,9 @@ def test_run_batch_syncs_runtime_sources_to_report_dir_before_validation(tmp_pat
         "(report_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
         "(report_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8'); "
         "(runtime_dir / 'sources.json').write_text(json.dumps({{'sources': [{{'id': 'issuer'}}]}}), encoding='utf-8'); "
+        "(runtime_dir / 'run_manifest.json').write_text(json.dumps({{'cycle': 3}}), encoding='utf-8'); "
+        "(runtime_dir / 'research_context.md').write_text('context', encoding='utf-8'); "
+        "(runtime_dir / 'research_context.json').write_text(json.dumps({{'context': True}}), encoding='utf-8'); "
         "(runtime_dir / 'source_bundle').mkdir(); "
         "(runtime_dir / 'source_bundle' / 'issuer.html').write_text('issuer source', encoding='utf-8')"
         "\""
@@ -384,6 +389,9 @@ def test_run_batch_syncs_runtime_sources_to_report_dir_before_validation(tmp_pat
     payload = json.loads(result.stdout)
     assert payload["symbols"]["ECH"]["status"] == "passed"
     assert (reports_bundle / "sources.json").exists()
+    assert json.loads((reports_bundle / "run_manifest.json").read_text(encoding="utf-8")) == {"cycle": 3}
+    assert (reports_bundle / "research_context.md").read_text(encoding="utf-8") == "context"
+    assert json.loads((reports_bundle / "research_context.json").read_text(encoding="utf-8")) == {"context": True}
     assert (reports_bundle / "source_bundle" / "issuer.html").exists()
 
 

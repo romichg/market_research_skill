@@ -147,6 +147,8 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
             f"Write final research markdown and JSON under `{report_dir}`.",
             "Use investor-facing language in main report sections; avoid workflow terms such as deterministic, bundle, artifact, normalized, raw, runtime, cache, provider, and local paths except in evidence or data-quality sections where auditability requires them.",
             "In the Bottom Line, introduce market value, net assets, or a valuation range before judging valuation or portfolio attractiveness.",
+            "Do not include a Self-Check section in the final investor report.",
+            "If report JSON material claims cite deterministic_* source IDs, ensure the final report directory source registry includes matching source entries or use source IDs already present in the final registry.",
             "For ETF reports with holdings, include `Portfolio Companies Snapshot`: cover all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight, with compact business, outlook, and price/technical context when available.",
             "For ETF risks, explicitly address authorized participant and creation/redemption mechanics, securities lending, premium/discount, tracking, tax/withholding, liquidity, closure/AUM, and concentration risks when material.",
             f"Attempt best-effort PDF generation for the final markdown with `bash market-research/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
@@ -602,6 +604,11 @@ def latest_producer_run_dir(run_dir: Path, symbol: str, *, modified_since: float
 def sync_runtime_sources_to_report(runtime_dir: Path, artifact_run_dir: Path) -> None:
     if runtime_dir.resolve(strict=False) == artifact_run_dir.resolve(strict=False):
         return
+    for name in ["run_manifest.json", "research_context.json", "research_context.md"]:
+        source = runtime_dir / name
+        if source.exists():
+            artifact_run_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, artifact_run_dir / name)
     sources = runtime_dir / "sources.json"
     if sources.exists():
         artifact_run_dir.mkdir(parents=True, exist_ok=True)

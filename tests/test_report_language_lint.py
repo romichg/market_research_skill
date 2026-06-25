@@ -147,6 +147,39 @@ QUBT is speculative.
     assert "bottom-line-missing-market-value" in ids
 
 
+def test_report_language_lint_accepts_etf_net_assets_in_bottom_line():
+    module = load_module()
+    text = """# ECH Research
+
+## Bottom Line
+
+ECH is a single-country ETF with about $1.03 billion of net assets, 25 holdings, concentrated Chile exposure, and a clear portfolio role for investors who want targeted country risk. The valuation case depends on portfolio multiples, NAV behavior, liquidity, premium/discount control, and whether the top holdings can keep supporting returns. The main risks are country concentration, currency, commodity exposure, ETF trading mechanics, and drawdown behavior.
+"""
+
+    findings = module.lint_report_structure(text)
+
+    ids = {finding["id"] for finding in findings}
+    assert "bottom-line-missing-market-value" not in ids
+
+
+def test_report_language_lint_rejects_self_check_sections():
+    module = load_module()
+    text = """# ECH Research
+
+## Bottom Line
+
+ECH is a single-country ETF with market value context and enough words to satisfy the summary threshold. This paragraph discusses the exposure, valuation context, trading setup, risks, and monitoring triggers with enough detail for an investor-facing executive summary.
+
+## Self-Check
+
+I checked the workflow outputs.
+"""
+
+    findings = module.lint_report_structure(text)
+
+    assert any(finding.get("id") == "self-check-section" for finding in findings)
+
+
 def test_report_language_lint_requires_key_facts_table_and_technical_analysis_terms():
     module = load_module()
     text = """# QUBT Research
