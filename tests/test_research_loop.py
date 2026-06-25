@@ -131,6 +131,18 @@ def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
     assert "$market-research verifier reports/AAPL/2026-06-16" in validator
 
 
+def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness("write-prompts", "ECH", "--run-dir", "reports/ECH/2026-06-25", "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    producer = Path(json.loads(result.stdout)["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert "Use investor-facing language in main report sections" in producer
+    assert "Portfolio Companies Snapshot" in producer
+    assert "all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight" in producer
+
+
 def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):
     out_dir = tmp_path / "prompts"
     run_dir = "runtime/market-research-loop-20260620/AAPL/2026-06-16"

@@ -11,6 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deterministic_data_usage as usage_contract
+import report_language_lint
 from script_utils import read_json, write_json
 
 
@@ -250,6 +251,26 @@ def deterministic_issues(report: Any, sources_by_id: dict[str, dict[str, Any]]) 
     return issues
 
 
+def report_quality_scaffold_issues(report: Any, markdown_text: str) -> list[dict[str, Any]]:
+    if not isinstance(report, dict):
+        return []
+    if str(report.get("security_type", "")).lower() != "etf":
+        return []
+    if not report_language_lint.has_holdings(report):
+        return []
+    sections = report_language_lint.section_map(markdown_text)
+    if "portfolio companies snapshot" in sections:
+        return []
+    return [
+        {
+            "id": "etf-missing-portfolio-companies-snapshot",
+            "severity": "minor",
+            "status": "open",
+            "description": "ETF report JSON includes holdings, but the Markdown report lacks a Portfolio Companies Snapshot section. For ETFs with 25 or fewer holdings, cover all holdings; otherwise cover the top 25 by portfolio weight.",
+        }
+    ]
+
+
 def deterministic_bundle_issues(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for field in ["manifest", "source_manifest", "gaps", "normalized"]:
@@ -429,6 +450,9 @@ def cmd_validate(args: argparse.Namespace) -> None:
     sources_by_id = load_sources(run_dir, report if isinstance(report, dict) else None)
     sources_by_id.update(load_deterministic_sources(bundle))
     issues = deterministic_bundle_issues(bundle) if bundle["bundle_type"] == "deterministic_data_bundle" else deterministic_issues(report, sources_by_id)
+    if bundle["bundle_type"] != "deterministic_data_bundle":
+        markdown_text = md_path.read_text(encoding="utf-8", errors="ignore")
+        issues.extend(report_quality_scaffold_issues(report, markdown_text))
     gaps_path = bundle.get("gaps")
     gaps_payload = read_json(gaps_path) if isinstance(gaps_path, Path) and gaps_path.exists() else {}
     usage_audit = usage_contract.deterministic_data_usage_audit(bundle, report)

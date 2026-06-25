@@ -5,6 +5,7 @@ import argparse
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 
 ALLOWED_PROVENANCE_SECTIONS = {
@@ -20,12 +21,16 @@ FORBIDDEN_MAIN_BODY_PATTERNS = [
     "deterministic bundle",
     "runtime/",
     "data/",
+    "local path",
+    "normalized",
     "source_manifest.json",
     "manifest.json",
     "gaps.json",
     "sources.json",
     "normalized/",
     "raw/",
+    "cache",
+    "provider",
 ]
 VENDOR_NAMES = [
     "alpha vantage",
@@ -150,9 +155,87 @@ def lint_report_structure(text: str) -> list[dict[str, str]]:
     return findings
 
 
+def has_json_drawdown(report_json: dict[str, Any] | None) -> bool:
+    if not isinstance(report_json, dict):
+        return False
+    for key in ["technical_analysis", "technical_snapshot"]:
+        technical = report_json.get(key)
+        if not isinstance(technical, dict):
+            continue
+        for field, value in technical.items():
+            if "drawdown" in str(field).lower() and value not in (None, "", "Data not available"):
+                return True
+    return False
+
+
+def has_holdings(report_json: dict[str, Any] | None) -> bool:
+    if not isinstance(report_json, dict):
+        return False
+    for key in ["holdings", "portfolio_holdings", "etf_holdings"]:
+        candidate = report_json.get(key)
+        if isinstance(candidate, list) and candidate:
+            return True
+        if isinstance(candidate, dict):
+            holdings = candidate.get("holdings") or candidate.get("top_holdings")
+            if isinstance(holdings, list) and holdings:
+                return True
+    return False
+
+
+def lint_report_quality(text: str, report_json: dict[str, Any] | None = None) -> list[dict[str, str]]:
+    findings = lint_report_language(text) + lint_report_structure(text)
+    for finding in findings:
+        if "id" not in finding and finding.get("pattern") in FORBIDDEN_MAIN_BODY_PATTERNS:
+            finding["id"] = "main-body-internal-language"
+    sections = section_map(text)
+    technical = sections.get("market snapshot and technical analysis", "")
+    if technical and has_json_drawdown(report_json) and "drawdown" not in technical.lower():
+        findings.append(
+            {
+                "severity": "minor",
+                "id": "technical-analysis-missing-drawdown",
+                "section": "market snapshot and technical analysis",
+                "message": "Technical analysis should interpret drawdown when calculated drawdown data exists.",
+            }
+        )
+    security_type = str((report_json or {}).get("security_type", "")).lower()
+    risks = sections.get("risks and invalidation points", "")
+    if security_type == "etf" and risks:
+        risk_text = risks.lower()
+        if "creation" not in risk_text and "redemption" not in risk_text and "authorized participant" not in risk_text:
+            findings.append(
+                {
+                    "severity": "minor",
+                    "id": "etf-risk-missing-creation-redemption",
+                    "section": "risks and invalidation points",
+                    "message": "ETF risks should address authorized participant and creation/redemption mechanics when material.",
+                }
+            )
+        if "securities lending" not in risk_text and "securities-lending" not in risk_text:
+            findings.append(
+                {
+                    "severity": "minor",
+                    "id": "etf-risk-missing-securities-lending",
+                    "section": "risks and invalidation points",
+                    "message": "ETF risks should address securities-lending risk or state why it was not material or not found.",
+                }
+            )
+    if security_type == "etf" and has_holdings(report_json) and "portfolio companies snapshot" not in sections:
+        findings.append(
+            {
+                "severity": "minor",
+                "id": "etf-missing-portfolio-companies-snapshot",
+                "section": "portfolio companies snapshot",
+                "message": "ETF reports should include a Portfolio Companies Snapshot when holdings are available.",
+            }
+        )
+    return findings
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Lint investor-facing market research report language.")
     parser.add_argument("report_markdown")
+    parser.add_argument("--report-json", help="Optional report JSON sidecar for JSON-aware quality checks.")
     parser.add_argument("--json", action="store_true", help="Write findings as JSON.")
     return parser
 
@@ -160,7 +243,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     text = Path(args.report_markdown).read_text(encoding="utf-8", errors="ignore")
-    findings = lint_report_language(text) + lint_report_structure(text)
+    report_json = json.loads(Path(args.report_json).read_text(encoding="utf-8")) if args.report_json else None
+    findings = lint_report_quality(text, report_json)
     if args.json:
         print(json.dumps({"findings": findings}, indent=2, sort_keys=True))
     else:

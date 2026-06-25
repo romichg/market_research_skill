@@ -128,6 +128,36 @@ def test_validator_flags_claim_source_missing_from_sources_json(tmp_path):
     assert validation["issues"][0]["severity"] == "moderate"
 
 
+def test_validator_flags_missing_etf_portfolio_companies_snapshot_when_holdings_exist(tmp_path):
+    run_dir = tmp_path / "reports" / "ECH" / "2026-06-01"
+    run_dir.mkdir(parents=True)
+    (run_dir / "ECH-research.md").write_text(
+        """# ECH Research
+
+## Bottom Line
+
+ECH is a concentrated ETF with a clear market value, portfolio role, valuation context, risks, and monitoring questions.
+""",
+        encoding="utf-8",
+    )
+    (run_dir / "ECH-research.json").write_text(
+        json.dumps(
+            {
+                **complete_research_payload("ECH", "etf"),
+                "holdings": [{"name": "Banco de Chile", "weight": 0.08}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((run_dir / "ECH-validation-scaffold.json").read_text(encoding="utf-8"))
+    issue_ids = {issue["id"] for issue in validation["issues"]}
+    assert "etf-missing-portfolio-companies-snapshot" in issue_ids
+
+
 def test_validator_uses_sources_file_pointer_from_report_json(tmp_path):
     report_dir = tmp_path / "reports" / "DPC" / "2026-06-21"
     runtime_dir = tmp_path / "runtime" / "DPC" / "2026-06-21"

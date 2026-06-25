@@ -18,6 +18,8 @@ Every report should read like useful investor-grade investment research, not an 
 
 Write the main Markdown as an investor memo. Do not turn the report into an audit trail. Local artifact paths are important for validation, but they should usually live in `sources.json`, `material_claims`, `deterministic_data_usage`, or a consolidated evidence section rather than after every paragraph.
 
+Use investor-facing language in the main report. Avoid workflow terms such as deterministic, bundle, artifact, normalized, raw, runtime, cache, provider, and local file paths before `Data Issues And Discrepancies`. Prefer phrases such as latest available close, available market data, calculated price signals, source limitation, and source evidence set.
+
 Use inline citations sparingly:
 
 - Use them for highly material numbers, controversial claims, direct filing language, or places where source quality itself matters.
@@ -101,6 +103,10 @@ If no trading history exists, explain why and use the relevant lifecycle context
 ## Financials And Balance Sheet
 
 Use a table plus analysis. For companies and ADRs, cover revenue, gross margin, operating expense, net income/loss, operating cash flow, cash/investments, debt/liabilities, working capital, share count/dilution, and acquisition contribution when available. For ETFs, cover holdings, sector/geography/factor exposures, concentration, distributions, fees, AUM, and liquidity. Avoid citation clutter in the main prose.
+
+## Portfolio Companies Snapshot
+
+Use this section for ETFs when holdings are available. If the ETF has 25 or fewer holdings, cover all holdings; otherwise cover the top 25 by portfolio weight. Keep each row compact: company/ticker, weight, sector or industry, what it does, quick outlook, and quick price/technical context when reliable public/free data is available. Follow with a synthesis paragraph about what the companies imply for concentration, cyclicality, upside drivers, risks, and monitoring. Do not write full single-company reports for each holding.
 
 ## Valuation
 

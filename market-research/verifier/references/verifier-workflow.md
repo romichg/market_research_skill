@@ -37,6 +37,7 @@ Flag report-quality issues when a report merely produces a data recital instead 
 - `Financials And Balance Sheet` should explain scale, liquidity, cash burn, margin quality, and dilution.
 - `Valuation` must analyze a selected value or range instead of narrating provider conflicts.
 - Risk section should not include data-quality risk; data-quality risk belongs in `Data Issues And Discrepancies`.
+- ETF reports should include `Portfolio Companies Snapshot` when holdings are available. If there are 25 or fewer holdings, the report should cover all holdings; otherwise it should cover the top 25 by weight. The section should give compact company, weight, sector/industry, business, outlook, and price/technical context when available, followed by synthesis.
 
 Routine data-vendor names and local tool/provider mechanics should not appear in the main body unless stale, missing, or conflicting data changes investor interpretation.
 

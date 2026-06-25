@@ -1,5 +1,6 @@
 from pathlib import Path
 import importlib.util
+import json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -222,3 +223,112 @@ ABC is speculative.
     assert result.returncode == 1
     assert "bottom-line-too-short" in result.stdout
     assert "Traceback" not in result.stderr
+
+
+def test_report_quality_lint_flags_internal_language_before_evidence_sections():
+    module = load_module()
+    text = """# ECH Research
+
+## Bottom Line
+
+The latest deterministic close came from the deterministic bundle.
+
+## Sources And Evidence
+
+The deterministic bundle is listed for auditability.
+"""
+
+    findings = module.lint_report_quality(text, {})
+
+    assert any(finding.get("id") == "main-body-internal-language" for finding in findings)
+
+
+def test_report_quality_lint_flags_missing_drawdown_when_json_has_drawdown():
+    module = load_module()
+    text = """# ECH Research
+
+## Market Snapshot And Technical Analysis
+
+Trend, moving averages, volume, volatility, support, and resistance are discussed.
+"""
+    report_json = {"technical_analysis": {"max_drawdown_available": -0.370986}}
+
+    findings = module.lint_report_quality(text, report_json)
+
+    assert any(finding.get("id") == "technical-analysis-missing-drawdown" for finding in findings)
+
+
+def test_report_quality_lint_flags_etf_risk_checklist_gaps():
+    module = load_module()
+    text = """# ECH Research
+
+## Risks And Invalidation Points
+
+The main risks are country, currency, concentration, premium/discount, tracking, tax, withholding, liquidity, and closure risk.
+"""
+    report_json = {"security_type": "etf"}
+
+    findings = module.lint_report_quality(text, report_json)
+
+    assert any(finding.get("id") == "etf-risk-missing-creation-redemption" for finding in findings)
+    assert any(finding.get("id") == "etf-risk-missing-securities-lending" for finding in findings)
+
+
+def test_report_quality_lint_requires_etf_portfolio_companies_snapshot_when_holdings_exist():
+    module = load_module()
+    text = """# ECH Research
+
+## Risks And Invalidation Points
+
+Creation/redemption, authorized participant, securities lending, premium/discount, tracking, tax, withholding, liquidity, closure, and concentration risks are discussed.
+"""
+    report_json = {
+        "security_type": "etf",
+        "holdings": [{"name": "Banco de Chile", "weight": 0.08}],
+    }
+
+    findings = module.lint_report_quality(text, report_json)
+
+    assert any(finding.get("id") == "etf-missing-portfolio-companies-snapshot" for finding in findings)
+
+
+def test_report_language_lint_cli_uses_report_json_for_etf_snapshot_check(tmp_path):
+    report = tmp_path / "ECH-research.md"
+    report_json = tmp_path / "ECH-research.json"
+    report.write_text(
+        """# ECH Research
+
+## Bottom Line
+
+ECH has market value context and enough words to avoid the short summary finding. This paragraph describes the fund, the portfolio, the valuation context, major risks, and monitoring considerations in ordinary investor-facing language for a compact regression test.
+
+## Key Facts
+
+| Item | Latest / Current | Why It Matters |
+| --- | --- | --- |
+| Security | ETF | Defines exposure |
+
+## Market Snapshot And Technical Analysis
+
+Trend, support, resistance, moving averages, volume, volatility, and drawdown are discussed.
+
+## Risks And Invalidation Points
+
+Creation/redemption, authorized participant, securities lending, premium/discount, tracking, tax, withholding, liquidity, closure, and concentration risks are discussed.
+""",
+        encoding="utf-8",
+    )
+    report_json.write_text(json.dumps({"security_type": "etf", "holdings": [{"name": "Banco de Chile", "weight": 0.08}]}), encoding="utf-8")
+
+    import subprocess
+
+    result = subprocess.run(
+        ["python3", str(LINT), str(report), "--report-json", str(report_json)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 1
+    assert "etf-missing-portfolio-companies-snapshot" in result.stdout
