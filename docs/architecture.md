@@ -17,7 +17,7 @@ The top-level `market-research/SKILL.md` routes users to the mode-specific skill
 - `reports/SYMBOL/YYYY-MM-DD/`: polished research Markdown, JSON sidecar, best-effort PDF, validation scaffold, completed validation, and validator issue files.
 - `runtime/SYMBOL/YYYY-MM-DD/`: procedural source workspaces, prompts, logs, run manifests, notes, source bundles, remediation notes, and transient working files.
 
-Generated `data/`, `reports/`, and `runtime/` outputs are not committed. Local historical archives under `OLD/` are also ignored and not pushed.
+Generated `data/`, `reports/`, and `runtime/` outputs are not committed. Local historical archives under `archives/` are also ignored and not pushed.
 
 ## Evidence Roles
 
@@ -27,4 +27,4 @@ Validators inspect frozen artifacts, cited sources, deterministic bundles, sourc
 
 ## Historical Material
 
-Historical plans and generated self-improvement artifacts may live locally under ignored `OLD/docs-archive/`. They can explain why a decision was made, but active docs and skill files define current behavior.
+Historical plans and generated self-improvement artifacts may live locally under ignored `archives/`. They can explain why a decision was made, but active docs and skill files define current behavior.

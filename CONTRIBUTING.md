@@ -5,8 +5,8 @@ This repo is an Agent Skills-format project. Preserve portability first: keep th
 ## Development Rules
 
 - Keep active work under `market-research/`, `tests/`, and root documentation.
-- Treat `OLD/` as local-only ignored historical context; do not depend on it in committed tests or docs.
-- Do not commit credentials, `.env`, private research bundles, local `OLD/` archives, or generated `data/`, `reports/`, or `runtime/` outputs.
+- Treat `archives/` as local-only ignored historical context; do not depend on it in committed tests or docs.
+- Do not commit credentials, `.env`, private research bundles, local `archives/`, or generated `data/`, `reports/`, or `runtime/` outputs.
 - Use `.env.example` as the active configuration template.
 - Keep provider helpers deterministic: explicit inputs, explicit output paths, JSON/Markdown artifacts, useful exit codes.
 - Keep PDF generation best-effort. Missing `pandoc` or `xelatex` must not fail a research run.

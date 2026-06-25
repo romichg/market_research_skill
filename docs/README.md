@@ -1,6 +1,6 @@
 # Market Research Skill Docs
 
-This directory contains active documentation for the market-research skill repository. Active docs should be short, current, and useful for future work. Historical implementation plans, generated self-improvement outputs, and stale specs can be kept locally under ignored `OLD/docs-archive/` with their original relative paths preserved.
+This directory contains active documentation for the market-research skill repository. Active docs should be short, current, and useful for future work. Historical implementation plans, generated self-improvement outputs, and stale specs can be kept locally under ignored `archives/`.
 
 ## Active Docs
 
@@ -12,6 +12,6 @@ There are currently no active implementation plans or design specs. New plans/sp
 
 ## Archive Policy
 
-Do not keep completed/generated plans active just because they may be useful someday. Move them to local ignored `OLD/docs-archive/` and preserve their original path below that directory. For example, `docs/plans/example.md` becomes `OLD/docs-archive/docs/plans/example.md`.
+Do not keep completed/generated plans active just because they may be useful someday. Move them to local ignored `archives/` and preserve enough path context to recover the reason for the work later.
 
-Do not extend archived files unless restoring legacy context. Put durable conclusions in the active docs above. `OLD/` is local-only and should not be pushed to GitHub.
+Do not extend archived files unless restoring legacy context. Put durable conclusions in the active docs above. Local archives should not be pushed to GitHub.

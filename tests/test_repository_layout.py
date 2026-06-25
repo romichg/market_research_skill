@@ -1,15 +1,16 @@
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OLD_ACTIVE_DIRS = ["market-research-full", "validate-market-research", "market-research-loop"]
+LEGACY_SKILL_DIRS = ["market-research-full", "validate-market-research", "market-research-loop"]
 
 
 def test_only_market_research_is_active_skill_tree():
     assert (ROOT / "market-research" / "SKILL.md").exists()
     assert (ROOT / "market-research" / "batch-supervisor" / "SKILL.md").exists()
     assert not (ROOT / "market-research" / "loop-runner").exists()
-    for name in OLD_ACTIVE_DIRS:
+    for name in LEGACY_SKILL_DIRS:
         assert not (ROOT / name).exists(), f"{name} must be moved into market-research"
 
 
@@ -17,7 +18,7 @@ def test_generated_artifact_roots_are_ignored():
     ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
     ignored = {line.strip() for line in ignore_text.splitlines() if line.strip() and not line.startswith("#")}
 
-    assert {"data/", "reports/", "runtime/", "OLD/"} <= ignored
+    assert {"data/", "reports/", "runtime/", "archives/"} <= ignored
 
 
 def test_active_files_do_not_reference_old_skill_paths():
@@ -30,19 +31,22 @@ def test_active_files_do_not_reference_old_skill_paths():
         "$" + "market-research-loop ",
         "market-research" + "-runs",
     ]
-    allowed_prefixes = {"OLD", ".git", ".worktrees"}
     allowed_files = set()
     offenders = []
-    for path in ROOT.rglob("*"):
-        rel = path.relative_to(ROOT)
-        if not path.is_file():
-            continue
-        if rel.parts and rel.parts[0] in allowed_prefixes:
-            continue
+    tracked_files = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    for file_name in tracked_files:
+        rel = Path(file_name)
         if rel in allowed_files:
             continue
-        if path.suffix not in {".md", ".py", ".json", ".yaml", ".yml", ".toml"}:
+        if rel.suffix not in {".md", ".py", ".json", ".yaml", ".yml", ".toml"}:
             continue
+        path = ROOT / rel
         text = path.read_text(encoding="utf-8", errors="ignore")
         for needle in forbidden:
             if needle in text:
@@ -76,7 +80,6 @@ def test_active_docs_use_canonical_consolidated_structure():
     index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     for rel in required_docs[1:]:
         assert str(rel) in index
-    assert "OLD/docs-archive/" in index
 
 
 def test_historical_generated_docs_do_not_remain_active():

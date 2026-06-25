@@ -91,8 +91,8 @@ python3 market-research/batch-supervisor/scripts/research_loop.py self-improve \
   runtime/market-research-batch-YYYYMMDD
 ```
 
-By default this writes under `docs/superpowers/plans/self-improvement/TIMESTAMP/`. Review the generated prompt manually, run it in Codex when appropriate, and later archive completed/generated outputs under local ignored `OLD/docs-archive/` after durable conclusions are captured in active docs or skill files.
+By default this writes under `docs/superpowers/plans/self-improvement/TIMESTAMP/`. Review the generated prompt manually, run it in Codex when appropriate, and later archive completed/generated outputs under local ignored `archives/` after durable conclusions are captured in active docs or skill files.
 
 ## Generated Artifacts
 
-Do not commit generated `data/`, `reports/`, `runtime/`, local `OLD/` archives, private research bundles, credentials, or `.env`. Commit only durable skill instructions, helper code, tests, schemas, provider docs, and active documentation.
+Do not commit generated `data/`, `reports/`, `runtime/`, local `archives/`, private research bundles, credentials, or `.env`. Commit only durable skill instructions, helper code, tests, schemas, provider docs, and active documentation.
