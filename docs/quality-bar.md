@@ -22,6 +22,10 @@ Rationales must be field-specific. Boilerplate such as "used for valuation conte
 
 Validator referenced/not-referenced audits are useful review leads, but explicit field-level dispositions are the stronger enforcement path.
 
+### Known ETF Collector Gap
+
+ETF identity and holdings can be sparse or wrong in deterministic output when generic profile providers classify the ticker like an operating company or ETF endpoints are plan-gated. Until the collector normalizes ETF profile, holdings, distributions, performance, and source gaps more reliably, researcher runs must cross-check issuer/SEC evidence, correct the security type in the final report and JSON sidecar, and record the deterministic mismatch as a data-quality issue rather than letting it shape the investor narrative.
+
 ## Freshness
 
 Freshness is field-specific, not cache-specific. Investors care whether price, volume, market cap, filings, ownership, estimates, short interest, and news are current enough for the decision; they usually do not care whether durable source-dated evidence came from cache.
