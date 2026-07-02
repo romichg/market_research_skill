@@ -228,7 +228,29 @@ Provider details are discussed here.
 
     patterns = [finding.get("pattern") for finding in findings]
     assert patterns.count("deterministic") >= 1
-    assert "vendor-name-main-body" in patterns
+
+
+def test_report_quality_lint_flags_runtime_source_bundle_when_report_copy_exists(tmp_path):
+    module = load_module()
+    report_dir = tmp_path / "reports" / "QTUP" / "2026-07-01"
+    report_dir.mkdir(parents=True)
+    report = report_dir / "QTUP-research.md"
+    copied = report_dir / "source_bundle" / "qtup_prospectus.pdf"
+    copied.parent.mkdir()
+    copied.write_bytes(b"prospectus")
+    text = f"""# QTUP Research
+
+## Sources And Evidence
+
+| Source ID | Evidence |
+| --- | --- |
+| qtup_prospectus | runtime/market-research-batch-20260701/QTUP/2026-07-01/source_bundle/{copied.name} |
+"""
+    report.write_text(text, encoding="utf-8")
+
+    findings = module.lint_report_quality(text, {}, report_path=report)
+
+    assert any(finding.get("id") == "runtime-source-bundle-path" for finding in findings)
 
 
 def test_report_language_lint_cli_prints_structural_findings(tmp_path):

@@ -609,13 +609,27 @@ def sync_runtime_sources_to_report(runtime_dir: Path, artifact_run_dir: Path) ->
         if source.exists():
             artifact_run_dir.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, artifact_run_dir / name)
+    source_bundle = runtime_dir / "source_bundle"
+    report_source_bundle = artifact_run_dir / "source_bundle"
+    if source_bundle.exists() and source_bundle.is_dir():
+        shutil.copytree(source_bundle, report_source_bundle, dirs_exist_ok=True)
     sources = runtime_dir / "sources.json"
     if sources.exists():
         artifact_run_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(sources, artifact_run_dir / "sources.json")
-    source_bundle = runtime_dir / "source_bundle"
-    if source_bundle.exists() and source_bundle.is_dir():
-        shutil.copytree(source_bundle, artifact_run_dir / "source_bundle", dirs_exist_ok=True)
+        payload = read_json(sources)
+        runtime_bundle_resolved = source_bundle.resolve(strict=False)
+        for source in payload.get("sources", []) if isinstance(payload, dict) else []:
+            if not isinstance(source, dict) or not isinstance(source.get("local_artifact"), str):
+                continue
+            local_artifact = Path(source["local_artifact"])
+            try:
+                relative = local_artifact.resolve(strict=False).relative_to(runtime_bundle_resolved)
+            except ValueError:
+                continue
+            report_artifact = report_source_bundle / relative
+            if report_artifact.exists():
+                source["local_artifact"] = str(report_artifact)
+        write_json(artifact_run_dir / "sources.json", payload)
 
 
 def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:

@@ -133,6 +133,29 @@ def test_classify_manual_updates_manifest(tmp_path):
     assert manifest["security_type"] == "etf"
 
 
+def test_classify_auto_initializes_dated_run(tmp_path):
+    result = run_helper(
+        "classify",
+        "WQTM",
+        "--output-root",
+        str(tmp_path),
+        "--as-of",
+        "2026-07-01",
+        "--security-type",
+        "etf",
+        "--name",
+        "WisdomTree Quantum Computing Fund",
+    )
+
+    assert result.returncode == 0, result.stderr
+    run_dir = tmp_path / "WQTM" / "2026-07-01"
+    classification = json.loads((run_dir / "source_bundle" / "classification.json").read_text())
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert classification["security_type"] == "etf"
+    assert manifest["status"] == "initialized"
+    assert manifest["security_type"] == "etf"
+
+
 def test_record_source_and_prepare_sparse_context(tmp_path):
     run_helper("init-run", "ECH", "--output-root", str(tmp_path))
     run_helper("classify", "ECH", "--output-root", str(tmp_path), "--security-type", "etf", "--name", "iShares MSCI Chile ETF")

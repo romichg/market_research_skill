@@ -116,6 +116,33 @@ def test_compare_usage_dispositions_flags_weak_required_rationale():
     assert weak["suggested_fix"] == "Mention the field or value and why it changed, supported, or did not change the investor view."
 
 
+def test_compare_usage_dispositions_flags_repeated_boilerplate_rationales():
+    module = load_module()
+    requirements = {
+        "datapoints": [
+            {"field_path": "market_snapshot.fifty_two_week_high", "materiality": "required", "field_name": "fifty_two_week_high"},
+            {"field_path": "market_snapshot.fifty_two_week_low", "materiality": "required", "field_name": "fifty_two_week_low"},
+            {"field_path": "technical_signals.average_volume_30", "materiality": "review", "field_name": "average_volume_30"},
+        ]
+    }
+    report = {
+        "deterministic_data_usage": [
+            {
+                "field_path": item["field_path"],
+                "disposition": "used",
+                "rationale": f"{item['field_path']} was used to anchor WQTM market, liquidity, performance, or technical context for investors.",
+                "report_section": "Market Snapshot And Technical Analysis",
+            }
+            for item in requirements["datapoints"]
+        ]
+    }
+
+    comparison = module.compare_usage_dispositions(requirements, report)
+
+    weak_reasons = {item["weak_reason"] for item in comparison["weak_required"] + comparison["weak_review"]}
+    assert "boilerplate_rationale" in weak_reasons
+
+
 def test_usage_audit_does_not_treat_raw_path_only_as_narrative_use(tmp_path):
     module = load_module()
     normalized = tmp_path / "normalized"

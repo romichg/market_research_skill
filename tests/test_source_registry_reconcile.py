@@ -1,0 +1,110 @@
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "market-research" / "shared" / "scripts" / "source_registry_reconcile.py"
+VALIDATOR = ROOT / "market-research" / "shared" / "scripts" / "validate_market_research.py"
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("source_registry_reconcile", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_report_and_data(tmp_path):
+    report_dir = tmp_path / "reports" / "EWW" / "2026-07-01"
+    data_dir = tmp_path / "data" / "EWW" / "2026-07-01"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    (normalized / "prices_daily.json").write_text(json.dumps({"prices": []}), encoding="utf-8")
+    (normalized / "technical_signals.json").write_text(json.dumps({"latest_close": {"value": 22.5}}), encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "EWW", "as_of": "2026-07-01"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# EWW Deterministic Research Input Pack\n", encoding="utf-8")
+    (report_dir / "EWW-research.md").write_text(
+        """# EWW Research
+
+## Sources And Evidence
+
+| Source ID | Use |
+| --- | --- |
+| det_prices_daily | Price history |
+""",
+        encoding="utf-8",
+    )
+    (report_dir / "EWW-research.json").write_text(
+        json.dumps(
+            {
+                "symbol": "EWW",
+                "security_type": "etf",
+                "as_of_date": "2026-07-01",
+                "deterministic_bundle": {"bundle_dir": str(data_dir)},
+                "material_claims": [{"claim": "EWW closed at $22.50.", "source_id": "det_technical_signals"}],
+                "data_gaps": [],
+                "technical_analysis": {},
+                "valuation_or_performance": {},
+                "decision_factors": {},
+                "risks": [],
+                "catalysts": [],
+                "source_coverage": {},
+                "calculation_audit": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "sources.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    return report_dir, data_dir
+
+
+def test_source_registry_reconcile_fixes_missing_deterministic_ids(tmp_path):
+    module = load_module()
+    report_dir, data_dir = write_report_and_data(tmp_path)
+
+    result = module.reconcile_report_sources(report_dir, data_dir, fix=True)
+
+    assert result["missing_ids"] == ["det_prices_daily", "det_technical_signals"]
+    assert set(result["added_ids"]) == {"det_prices_daily", "det_technical_signals"}
+    sources = json.loads((report_dir / "sources.json").read_text(encoding="utf-8"))["sources"]
+    by_id = {source["id"]: source for source in sources}
+    assert by_id["det_prices_daily"]["local_artifact"].endswith("normalized/prices_daily.json")
+    assert by_id["det_technical_signals"]["sha256"]
+
+
+def test_source_registry_reconcile_check_cli_exits_nonzero_for_missing_ids(tmp_path):
+    report_dir, data_dir = write_report_and_data(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "check", str(report_dir), "--data-dir", str(data_dir)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["missing_ids"] == ["det_prices_daily", "det_technical_signals"]
+
+
+def test_validator_surfaces_missing_source_registry_ids(tmp_path):
+    report_dir, data_dir = write_report_and_data(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, str(VALIDATOR), str(report_dir)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((report_dir / "EWW-validation-scaffold.json").read_text(encoding="utf-8"))
+    issue_ids = {issue["id"] for issue in validation["issues"]}
+    assert "source-registry-missing-det-technical-signals" in issue_ids

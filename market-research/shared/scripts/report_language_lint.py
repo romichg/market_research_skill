@@ -210,7 +210,31 @@ def has_holdings(report_json: dict[str, Any] | None) -> bool:
     return False
 
 
-def lint_report_quality(text: str, report_json: dict[str, Any] | None = None) -> list[dict[str, str]]:
+def lint_runtime_source_bundle_paths(text: str, report_path: Path | None = None) -> list[dict[str, str]]:
+    if report_path is None:
+        return []
+    findings: list[dict[str, str]] = []
+    report_source_bundle = report_path.parent / "source_bundle"
+    if not report_source_bundle.exists():
+        return findings
+    for heading, section_text in iter_sections(text):
+        if not section_allows_provenance(heading):
+            continue
+        for match in re.finditer(r"runtime/[^\s|`)]*/source_bundle/([^\s|`)]+)", section_text):
+            filename = Path(match.group(1)).name
+            if (report_source_bundle / filename).exists():
+                findings.append(
+                    {
+                        "severity": "minor",
+                        "id": "runtime-source-bundle-path",
+                        "section": heading,
+                        "message": "Sources And Evidence should point to the report-local source_bundle copy when it exists, not the runtime workspace path.",
+                    }
+                )
+    return findings
+
+
+def lint_report_quality(text: str, report_json: dict[str, Any] | None = None, report_path: Path | None = None) -> list[dict[str, str]]:
     findings = lint_report_language(text) + lint_report_structure(text)
     for finding in findings:
         if "id" not in finding and finding.get("pattern") in FORBIDDEN_MAIN_BODY_PATTERNS:
@@ -257,6 +281,7 @@ def lint_report_quality(text: str, report_json: dict[str, Any] | None = None) ->
                 "message": "ETF reports should include a Portfolio Companies Snapshot when holdings are available.",
             }
         )
+    findings.extend(lint_runtime_source_bundle_paths(text, report_path))
     return findings
 
 
@@ -272,7 +297,7 @@ def main() -> None:
     args = build_parser().parse_args()
     text = Path(args.report_markdown).read_text(encoding="utf-8", errors="ignore")
     report_json = json.loads(Path(args.report_json).read_text(encoding="utf-8")) if args.report_json else None
-    findings = lint_report_quality(text, report_json)
+    findings = lint_report_quality(text, report_json, Path(args.report_markdown))
     if args.json:
         print(json.dumps({"findings": findings}, indent=2, sort_keys=True))
     else:

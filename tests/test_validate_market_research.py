@@ -85,6 +85,27 @@ def test_validator_rejects_runtime_research_bundle(tmp_path):
     assert not (run_dir / "AAPL-validation-scaffold.json").exists()
 
 
+def test_validator_data_bundle_with_report_paths_hints_report_dir_invocation(tmp_path):
+    report_dir = tmp_path / "reports" / "EWW" / "2026-07-01"
+    data_dir = tmp_path / "data" / "EWW" / "2026-07-01"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    report_md = report_dir / "EWW-research.md"
+    report_json = report_dir / "EWW-research.json"
+    report_md.write_text("# EWW Research\n", encoding="utf-8")
+    report_json.write_text(json.dumps(complete_research_payload("EWW", "etf")), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# EWW Input Pack\n", encoding="utf-8")
+    (data_dir / "manifest.json").write_text(json.dumps({"symbol": "EWW"}), encoding="utf-8")
+    (data_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (data_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+
+    result = run_validator(str(data_dir), "--report-md", str(report_md), "--report-json", str(report_json))
+
+    assert result.returncode != 0
+    assert "For final report validation, pass reports/SYMBOL/YYYY-MM-DD as run_dir" in result.stderr
+
+
 def test_validator_flags_missing_json(tmp_path):
     run_dir = tmp_path / "MSFT"
     run_dir.mkdir()

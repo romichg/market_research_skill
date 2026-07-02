@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import os
 import shlex
 import subprocess
@@ -393,6 +394,40 @@ def test_run_batch_syncs_runtime_sources_to_report_dir_before_validation(tmp_pat
     assert (reports_bundle / "research_context.md").read_text(encoding="utf-8") == "context"
     assert json.loads((reports_bundle / "research_context.json").read_text(encoding="utf-8")) == {"context": True}
     assert (reports_bundle / "source_bundle" / "issuer.html").exists()
+
+
+def test_sync_runtime_sources_rewrites_local_artifacts_to_report_bundle(tmp_path):
+    spec = importlib.util.spec_from_file_location("research_loop", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["research_loop"] = module
+    spec.loader.exec_module(module)
+    runtime_dir = tmp_path / "runtime" / "market-research-batch-20260701" / "QTUP" / "2026-07-01"
+    report_dir = tmp_path / "reports" / "QTUP" / "2026-07-01"
+    source_bundle = runtime_dir / "source_bundle"
+    source_bundle.mkdir(parents=True)
+    artifact = source_bundle / "qtup_prospectus.pdf"
+    artifact.write_bytes(b"prospectus")
+    (runtime_dir / "sources.json").write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "id": "qtup_prospectus",
+                        "local_artifact": str(artifact),
+                        "sha256": "not-used-in-this-test",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    module.sync_runtime_sources_to_report(runtime_dir, report_dir)
+
+    sources = json.loads((report_dir / "sources.json").read_text(encoding="utf-8"))
+    assert sources["sources"][0]["local_artifact"] == str(report_dir / "source_bundle" / "qtup_prospectus.pdf")
+    assert (report_dir / "source_bundle" / "qtup_prospectus.pdf").read_bytes() == b"prospectus"
 
 
 def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):

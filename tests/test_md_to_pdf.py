@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,6 +34,9 @@ def test_pdf_helper_is_best_effort_when_pandoc_is_missing(tmp_path):
     assert "PDF not generated" in result.stderr
     assert "pandoc" in result.stderr
     assert not report.with_suffix(".pdf").exists()
+    status = json.loads(result.stdout.splitlines()[-1])
+    assert status["generated"] is False
+    assert status["reason"] == "pandoc_missing"
 
 
 def test_pdf_helper_requires_existing_markdown_input(tmp_path):

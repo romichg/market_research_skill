@@ -92,6 +92,8 @@ python3 {baseDir}/../shared/scripts/procedural_source_helper.py init-run SYMBOL 
 
 Pass `--as-of YYYY-MM-DD` to place procedural runtime artifacts under `runtime/SYMBOL/YYYY-MM-DD/`; without `--as-of`, explicit `--output-root` calls keep the legacy `output_root/SYMBOL` layout.
 
+Mutating procedural helper commands such as `classify`, `record-source`, `record-source-gap`, and `record-gap-fill` auto-create the dated runtime directory and manifest when needed. `init-run` remains the recommended first step because it makes the run directory explicit before source capture.
+
 Classify the security when needed:
 
 ```bash

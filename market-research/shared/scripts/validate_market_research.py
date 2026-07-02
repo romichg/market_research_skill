@@ -12,6 +12,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deterministic_data_usage as usage_contract
 import report_language_lint
+import source_registry_reconcile
 from script_utils import read_json, write_json
 
 
@@ -39,7 +40,11 @@ DETERMINISTIC_BUNDLE_LOCATION_MESSAGE = (
     "Place or copy deterministic bundles under data/SYMBOL/YYYY-MM-DD, "
     "or pass a final report directory under reports."
 )
-FINAL_REPORT_LOCATION_MESSAGE = "Final report directories must be under reports/SYMBOL/YYYY-MM-DD."
+FINAL_REPORT_LOCATION_MESSAGE = (
+    "Final report directories must be under reports/SYMBOL/YYYY-MM-DD. "
+    "For final report validation, pass reports/SYMBOL/YYYY-MM-DD as run_dir. "
+    "Use data/SYMBOL/YYYY-MM-DD only for deterministic scaffold lint."
+)
 VALIDATION_OUTPUT_LOCATION_MESSAGE = "Validation output prefixes must be under reports/SYMBOL/YYYY-MM-DD for the validated symbol/date."
 REQUIRED_RESEARCH_FIELDS = [
     "symbol",
@@ -453,6 +458,9 @@ def cmd_validate(args: argparse.Namespace) -> None:
     if bundle["bundle_type"] != "deterministic_data_bundle":
         markdown_text = md_path.read_text(encoding="utf-8", errors="ignore")
         issues.extend(report_quality_scaffold_issues(report, markdown_text))
+        deterministic_bundle_dir = bundle.get("deterministic_bundle_dir")
+        if isinstance(deterministic_bundle_dir, Path):
+            issues.extend(source_registry_reconcile.source_registry_issues(run_dir, deterministic_bundle_dir))
     gaps_path = bundle.get("gaps")
     gaps_payload = read_json(gaps_path) if isinstance(gaps_path, Path) and gaps_path.exists() else {}
     usage_audit = usage_contract.deterministic_data_usage_audit(bundle, report)

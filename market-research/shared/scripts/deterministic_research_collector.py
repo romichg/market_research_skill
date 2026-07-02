@@ -579,6 +579,35 @@ def choose_candidate(candidates: list[dict[str, Any]], attempted_providers: list
     return chosen
 
 
+def asset_type_signal(value: str, provider: str, source_url: str, endpoint: str, raw: Path, strength: int, reason: str, status: str = "ok") -> dict[str, Any]:
+    point = provenance(value, provider, source_url, endpoint, raw, status=status, selection_reason=reason)
+    point["strength"] = strength
+    return point
+
+
+def choose_asset_type(signals: list[dict[str, Any]]) -> dict[str, Any]:
+    usable = [signal for signal in signals if signal.get("value") not in (None, "")]
+    if not usable:
+        return provenance("unknown", "deterministic_classifier", "", "classification", Path(""), status="gap", selection_reason="no asset-type evidence")
+    chosen = dict(sorted(usable, key=lambda item: item.get("strength", 0), reverse=True)[0])
+    alternates = [
+        {
+            "value": item.get("value"),
+            "provider": item.get("provider"),
+            "endpoint": item.get("endpoint"),
+            "raw_path": item.get("raw_path"),
+            "strength": item.get("strength"),
+            "selection_reason": item.get("selection_reason"),
+            "status": item.get("status"),
+        }
+        for item in usable
+        if item != chosen
+    ]
+    if alternates:
+        chosen["alternates"] = alternates
+    return chosen
+
+
 def retry_policy_for_provider(provider: str) -> RetryPolicy:
     if provider == "sec":
         return RetryPolicy(max_attempts=3, initial_backoff_seconds=1.0)
@@ -916,6 +945,7 @@ def raise_for_auth_failures(statuses: list[dict[str, Any]]) -> None:
 def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     providers = providers or DEFAULT_PROVIDERS
     identity: dict[str, Any] = {"input_symbol": provenance(symbol, "input", "", "symbol", Path("")), "normalized_symbol": provenance(symbol, "input", "", "symbol", Path(""))}
+    asset_type_signals: list[dict[str, Any]] = []
     submissions = read_raw_latest(cache_root, symbol, "sec", "submissions") if provider_enabled(providers, "sec") and provider_endpoint_enabled(endpoint_plan, "sec", "submissions") else None
     if submissions and raw_payload_ok("sec", submissions[1]):
         raw, payload = submissions
@@ -929,7 +959,9 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
             identity["exchange"] = provenance(data["exchanges"][0], "sec", url, "submissions", raw)
         recent_forms = data.get("filings", {}).get("recent", {}).get("form", []) if isinstance(data.get("filings"), dict) else []
         asset_type = "adr" if any(form in {"20-F", "40-F", "6-K"} for form in recent_forms) else "equity"
-        identity["asset_type"] = provenance(asset_type, "sec", url, "submissions", raw)
+        strength = 80 if asset_type == "adr" else 20
+        reason = "sec foreign issuer filing forms" if asset_type == "adr" else "sec submissions default equity classification"
+        asset_type_signals.append(asset_type_signal(asset_type, "sec", url, "submissions", raw, strength, reason))
     eod = read_raw_latest(cache_root, symbol, "eodhd", "fundamentals") if provider_enabled(providers, "eodhd") and provider_endpoint_enabled(endpoint_plan, "eodhd", "fundamentals") else None
     if eod and raw_payload_ok("eodhd", eod[1]) and "company_name" not in identity:
         raw, payload = eod
@@ -939,10 +971,11 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
             identity["company_name"] = provenance(general["Name"], "eodhd", url, "fundamentals", raw)
         if general.get("Exchange"):
             identity["exchange"] = provenance(general["Exchange"], "eodhd", url, "fundamentals", raw)
-        if "asset_type" not in identity:
-            category = f"{general.get('Type', '')} {general.get('Category', '')}".lower()
-            asset_type = "etf" if "etf" in category or "fund" in category else "equity"
-            identity["asset_type"] = provenance(asset_type, "eodhd", url, "fundamentals", raw)
+        category = f"{general.get('Type', '')} {general.get('Category', '')}".lower()
+        asset_type = "etf" if "etf" in category or "fund" in category else "equity"
+        strength = 75 if asset_type == "etf" else 30
+        reason = "eodhd type/category fund evidence" if asset_type == "etf" else "eodhd type/category equity evidence"
+        asset_type_signals.append(asset_type_signal(asset_type, "eodhd", url, "fundamentals", raw, strength, reason))
     fmp = read_raw_latest(cache_root, symbol, "fmp", "profile") if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "profile") else None
     if fmp and raw_payload_ok("fmp", fmp[1]):
         raw, payload = fmp
@@ -955,8 +988,13 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
                 identity["exchange"] = provenance(data["exchangeShortName"], "fmp", url, "profile", raw)
             if data.get("industry"):
                 identity["industry"] = provenance(data["industry"], "fmp", url, "profile", raw)
-            if "asset_type" not in identity:
-                identity["asset_type"] = provenance("equity", "fmp", url, "profile", raw)
+            company_name = str(data.get("companyName") or "")
+            if data.get("isEtf") is True:
+                asset_type_signals.append(asset_type_signal("etf", "fmp", url, "profile", raw, 90, "fmp profile isEtf flag"))
+            elif "etf" in company_name.lower():
+                asset_type_signals.append(asset_type_signal("etf", "fmp", url, "profile", raw, 70, "fmp profile name contains ETF"))
+            else:
+                asset_type_signals.append(asset_type_signal("equity", "fmp", url, "profile", raw, 30, "fmp profile default equity classification"))
     twelve = read_raw_latest(cache_root, symbol, "twelve_data", "profile") if provider_enabled(providers, "twelve_data") and provider_endpoint_enabled(endpoint_plan, "twelve_data", "profile") else None
     if twelve and raw_payload_ok("twelve_data", twelve[1]):
         raw, payload = twelve
@@ -972,19 +1010,30 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
             currency = data.get("currency") or data.get("currency_base")
             if currency:
                 identity["currency"] = provenance(currency, "twelve_data", url, "profile", raw)
-            if "asset_type" not in identity:
-                type_text = str(data.get("type") or data.get("instrument_type") or "").lower()
-                if "etf" in type_text:
-                    asset_type = "etf"
-                elif "fund" in type_text:
-                    asset_type = "fund"
-                elif any(value in type_text for value in ["stock", "common", "equity"]):
-                    asset_type = "equity"
-                else:
-                    asset_type = "unknown"
-                identity["asset_type"] = provenance(asset_type, "twelve_data", url, "profile", raw, status="ok" if asset_type != "unknown" else "gap")
-    if "asset_type" not in identity:
-        identity["asset_type"] = provenance("unknown", "deterministic_classifier", "", "classification", Path(""), status="gap")
+            type_text = str(data.get("type") or data.get("instrument_type") or "").lower()
+            if "etf" in type_text:
+                asset_type = "etf"
+                strength = 75
+                reason = "twelve data profile ETF type"
+            elif "fund" in type_text:
+                asset_type = "fund"
+                strength = 70
+                reason = "twelve data profile fund type"
+            elif any(value in type_text for value in ["stock", "common", "equity"]):
+                asset_type = "equity"
+                strength = 30
+                reason = "twelve data profile equity type"
+            else:
+                asset_type = "unknown"
+                strength = 5
+                reason = "twelve data profile lacks recognized type"
+            asset_type_signals.append(asset_type_signal(asset_type, "twelve_data", url, "profile", raw, strength, reason, status="ok" if asset_type != "unknown" else "gap"))
+    av_etf = read_raw_latest(cache_root, symbol, "alphavantage", "etf_profile") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "etf_profile") else None
+    if av_etf and raw_payload_ok("alphavantage", av_etf[1]):
+        raw, payload = av_etf
+        url = payload.get("provider_result", {}).get("url", "")
+        asset_type_signals.append(asset_type_signal("etf", "alphavantage", url, "etf_profile", raw, 85, "alphavantage ETF_PROFILE response"))
+    identity["asset_type"] = choose_asset_type(asset_type_signals)
     return identity
 
 
@@ -1811,6 +1860,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     news = rewrite_raw_paths(normalize_news(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     equity_events = rewrite_raw_paths(normalize_equity_events(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     equity_insiders = rewrite_raw_paths(normalize_equity_insiders(cache_root, symbol, providers, endpoint_plan), raw_path_map)
+    etf_profile = rewrite_raw_paths(normalize_etf_profile(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     etf_holdings = rewrite_raw_paths(normalize_etf_holdings(cache_root, symbol, providers, endpoint_plan), raw_path_map)
     price_raw_path = raw_path_map.get(str(price_raw), str(price_raw) if price_raw else None)
     gaps = default_gaps(identity, snapshot, fundamentals, providers)
@@ -1825,6 +1875,7 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
         write_json(normalized / "equity_events.json", equity_events)
         write_json(normalized / "equity_insiders.json", equity_insiders)
     if asset_type_value in {"etf", "fund"}:
+        write_json(normalized / "etf_profile.json", etf_profile)
         write_json(normalized / "etf_holdings.json", etf_holdings)
     sec_submissions_entry = next((entry for entry in raw_entries if entry.get("provider") == "sec" and entry.get("endpoint") == "submissions" and entry.get("status") == "ok"), None)
     cik_value = identity.get("cik", {}).get("value") if isinstance(identity.get("cik"), dict) else None
@@ -1941,39 +1992,96 @@ def normalize_news(cache_root: Path, symbol: str, providers: list[str] | None = 
     return {"items": items, "status": "ok" if items else "empty"}
 
 
+def normalize_etf_profile(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    providers = providers or DEFAULT_PROVIDERS
+    raw = read_raw_latest(cache_root, symbol, "alphavantage", "etf_profile") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "etf_profile") else None
+    if not raw:
+        return {"status": "unavailable", "gaps_recorded": True}
+    path, payload = raw
+    status = raw_payload_status("alphavantage", payload)
+    if status != "ok":
+        return {"status": status, "gaps_recorded": True}
+    data = payload.get("data", {})
+    if not isinstance(data, dict):
+        return {"status": "empty", "gaps_recorded": True}
+    url = payload.get("provider_result", {}).get("url", "")
+    profile: dict[str, Any] = {"status": "ok"}
+    field_map = {
+        "net_assets": ("net_assets", "usd"),
+        "aum": ("net_assets", "usd"),
+        "nav": ("nav", "usd"),
+        "net_expense_ratio": ("net_expense_ratio", "percent"),
+        "expense_ratio": ("net_expense_ratio", "percent"),
+        "dividend_yield": ("dividend_yield", "percent"),
+        "yield": ("dividend_yield", "percent"),
+        "holdings_count": ("holdings_count", None),
+    }
+    for source_key, (target_key, unit) in field_map.items():
+        if source_key not in data or target_key in profile:
+            continue
+        value = number(data.get(source_key))
+        if value is not None:
+            profile[target_key] = provenance(value, "alphavantage", url, "etf_profile", path, unit=unit)
+    holdings = data.get("holdings")
+    if isinstance(holdings, list) and "holdings_count" not in profile:
+        profile["holdings_count"] = provenance(len(holdings), "alphavantage", url, "etf_profile", path)
+    return profile
+
+
+def holding_from_item(item: dict[str, Any], provider: str, endpoint: str, path: Path, url: str) -> dict[str, Any]:
+    ticker = item.get("asset") or item.get("symbol") or item.get("ticker")
+    weight = number(item.get("weightPercentage") or item.get("weight") or item.get("percentage"))
+    holding: dict[str, Any] = {}
+    if ticker not in (None, ""):
+        holding["ticker"] = provenance(str(ticker).upper(), provider, url, endpoint, path)
+    if weight is not None:
+        holding["weight"] = provenance(weight, provider, url, endpoint, path, unit="percent")
+    name = item.get("name") or item.get("companyName") or item.get("description")
+    if name:
+        holding["name"] = provenance(name, provider, url, endpoint, path)
+    return holding
+
+
 def normalize_etf_holdings(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     providers = providers or DEFAULT_PROVIDERS
-    if not provider_enabled(providers, "fmp") or not provider_endpoint_enabled(endpoint_plan, "fmp", "etf_holdings"):
-        return {"status": "unavailable", "top_holdings": []}
-    raw = read_raw_latest(cache_root, symbol, "fmp", "etf_holdings")
-    if not raw:
-        return {"status": "empty", "top_holdings": []}
-    path, payload = raw
-    status = raw_payload_status("fmp", payload)
-    if status != "ok":
-        return {"status": status, "top_holdings": []}
-    data = payload.get("data", [])
-    if isinstance(data, dict):
-        data = [data]
-    url = payload.get("provider_result", {}).get("url", "")
     holdings = []
-    for item in data if isinstance(data, list) else []:
-        if not isinstance(item, dict):
-            continue
-        ticker = item.get("asset") or item.get("symbol") or item.get("ticker")
-        weight = number(item.get("weightPercentage") or item.get("weight") or item.get("percentage"))
-        if ticker in (None, "") and weight is None:
-            continue
-        holding: dict[str, Any] = {}
-        if ticker not in (None, ""):
-            holding["ticker"] = provenance(str(ticker).upper(), "fmp", url, "etf_holdings", path)
-        if weight is not None:
-            holding["weight"] = provenance(weight, "fmp", url, "etf_holdings", path, unit="percent")
-        name = item.get("name") or item.get("companyName")
-        if name:
-            holding["name"] = provenance(name, "fmp", url, "etf_holdings", path)
-        holdings.append(holding)
-    return {"status": "ok" if holdings else "empty", "top_holdings": holdings}
+    if provider_enabled(providers, "fmp") and provider_endpoint_enabled(endpoint_plan, "fmp", "etf_holdings"):
+        raw = read_raw_latest(cache_root, symbol, "fmp", "etf_holdings")
+        if raw:
+            path, payload = raw
+            status = raw_payload_status("fmp", payload)
+            if status == "ok":
+                data = payload.get("data", [])
+                if isinstance(data, dict):
+                    data = [data]
+                url = payload.get("provider_result", {}).get("url", "")
+                for item in data if isinstance(data, list) else []:
+                    if isinstance(item, dict):
+                        holding = holding_from_item(item, "fmp", "etf_holdings", path, url)
+                        if holding:
+                            holdings.append(holding)
+                if holdings:
+                    return {"status": "ok", "top_holdings": holdings}
+            elif status not in {"empty", "missing"}:
+                return {"status": status, "top_holdings": []}
+    if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "etf_profile"):
+        raw = read_raw_latest(cache_root, symbol, "alphavantage", "etf_profile")
+        if raw:
+            path, payload = raw
+            status = raw_payload_status("alphavantage", payload)
+            if status != "ok":
+                return {"status": status, "top_holdings": []}
+            data = payload.get("data", {})
+            url = payload.get("provider_result", {}).get("url", "")
+            av_holdings = data.get("holdings") if isinstance(data, dict) else None
+            for item in av_holdings if isinstance(av_holdings, list) else []:
+                if isinstance(item, dict):
+                    holding = holding_from_item(item, "alphavantage", "etf_profile", path, url)
+                    if holding:
+                        holdings.append(holding)
+            if holdings:
+                return {"status": "ok", "top_holdings": holdings}
+    return {"status": "empty", "top_holdings": []}
 
 
 def normalize_equity_events(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:

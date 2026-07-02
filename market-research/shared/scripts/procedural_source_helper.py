@@ -67,11 +67,36 @@ def manifest_path(output_root: Path, symbol: str, as_of: str | None = None) -> P
     return run_dir(output_root, symbol, as_of) / "run_manifest.json"
 
 
-def ensure_run(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
+def initialized_manifest(symbol: str, as_of: str | None, source_bundle: Path) -> dict[str, Any]:
+    now = utc_now()
+    return {
+        "symbol": symbol,
+        "as_of": as_of,
+        "created_at": now,
+        "updated_at": now,
+        "status": "initialized",
+        "security_type": None,
+        "helper_errors": [],
+        "source_gaps": [],
+        "procedural_gap_fills": [],
+        "files": {
+            "source_bundle": str(source_bundle),
+        },
+    }
+
+
+def initialize_run(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
     out = run_dir(output_root, symbol, as_of)
-    if not (out / "run_manifest.json").exists():
-        die(f"Run directory not initialized for {symbol}; run init-run first.")
+    source_bundle = out / "source_bundle"
+    source_bundle.mkdir(parents=True, exist_ok=True)
+    manifest = out / "run_manifest.json"
+    if not manifest.exists():
+        write_json(manifest, initialized_manifest(symbol, as_of, source_bundle), atomic=True)
     return out
+
+
+def ensure_run(output_root: Path, symbol: str, as_of: str | None = None) -> Path:
+    return initialize_run(output_root, symbol, as_of)
 
 
 def update_manifest(output_root: Path, symbol: str, as_of: str | None = None, **updates: Any) -> dict[str, Any]:
@@ -118,22 +143,7 @@ def cmd_init_run(args: argparse.Namespace) -> None:
         die(f"Run directory already initialized for {symbol}; pass --force to overwrite.")
     source_bundle = out / "source_bundle"
     source_bundle.mkdir(parents=True, exist_ok=True)
-    now = utc_now()
-    manifest = {
-        "symbol": symbol,
-        "as_of": args.as_of,
-        "created_at": now,
-        "updated_at": now,
-        "status": "initialized",
-        "security_type": None,
-        "helper_errors": [],
-        "source_gaps": [],
-        "procedural_gap_fills": [],
-        "files": {
-            "source_bundle": str(source_bundle),
-        },
-    }
-    write_json(out / "run_manifest.json", manifest, atomic=True)
+    write_json(out / "run_manifest.json", initialized_manifest(symbol, args.as_of, source_bundle), atomic=True)
     payload = {"symbol": symbol, "run_dir": str(out), "manifest": str(out / "run_manifest.json")}
     write_metrics(
         getattr(args, "metrics_json", None),

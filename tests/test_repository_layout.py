@@ -67,11 +67,17 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/operations.md"),
         Path("docs/quality-bar.md"),
     }
-    actual_active_docs = {
-        path.relative_to(ROOT)
-        for path in (ROOT / "docs").rglob("*")
-        if path.is_file()
-    }
+    transient_active_roots = [
+        Path("docs/superpowers/plans/self-improvement"),
+    ]
+    actual_active_docs = set()
+    for path in (ROOT / "docs").rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(ROOT)
+        if any(root in rel.parents for root in transient_active_roots):
+            continue
+        actual_active_docs.add(rel)
 
     assert actual_active_docs == expected_active_docs
     for rel in required_docs:

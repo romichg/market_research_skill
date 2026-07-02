@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -186,10 +187,35 @@ def weak_usage_rationale(entry: dict[str, Any], requirement: dict[str, Any]) -> 
     return None
 
 
+def rationale_template(rationale: str, field_path: str | None = None, field_name: str | None = None) -> str:
+    template = rationale.lower()
+    for value in [field_path, field_name, (field_name or "").replace("_", " ")]:
+        if value:
+            template = template.replace(str(value).lower(), "<field>")
+    template = re.sub(r"\s+", " ", template).strip().rstrip(".")
+    return template
+
+
+def boilerplate_rationale_paths(requirements: list[dict[str, Any]], dispositions: dict[str, dict[str, Any]]) -> set[str]:
+    by_template: dict[str, list[str]] = {}
+    for requirement in requirements:
+        field_path = requirement.get("field_path")
+        entry = dispositions.get(field_path)
+        if not entry:
+            continue
+        rationale = str(entry.get("rationale") or "")
+        template = rationale_template(rationale, str(field_path), str(requirement.get("field_name") or ""))
+        if "was used to anchor" not in template:
+            continue
+        by_template.setdefault(template, []).append(str(field_path))
+    return {field_path for paths in by_template.values() if len(paths) >= 2 for field_path in paths}
+
+
 def compare_usage_dispositions(requirements: dict[str, Any], report: Any) -> dict[str, Any]:
     dispositions = report_usage_dispositions(report)
     required_items = [item for item in requirements.get("datapoints", []) if item.get("materiality") == "required"]
     review_items = [item for item in requirements.get("datapoints", []) if item.get("materiality") == "review"]
+    boilerplate_paths = boilerplate_rationale_paths(required_items + review_items, dispositions)
     missing_required = [item for item in required_items if item.get("field_path") not in dispositions]
     missing_review = [item for item in review_items if item.get("field_path") not in dispositions]
     weak_required = []
@@ -201,6 +227,8 @@ def compare_usage_dispositions(requirements: dict[str, Any], report: Any) -> dic
             if not entry:
                 continue
             weak_reason = weak_usage_rationale(entry, item)
+            if not weak_reason and field_path in boilerplate_paths:
+                weak_reason = "boilerplate_rationale"
             if weak_reason:
                 bucket.append(
                     {
