@@ -773,3 +773,29 @@ def test_extract_blackrock_component_payload_promotes_key_fields(tmp_path):
     assert by_key["holdings_summary"]["value"]["as_of"] == "May 27, 2026"
     assert by_key["net_assets"]["value"]["formatted"] == "1,994,787,694"
     assert context["context_quality"]["is_sparse"] is False
+
+
+def test_extract_blackrock_rejects_wrong_product_identity(tmp_path):
+    payload = {
+        "FundHeaderV3": {
+            "fundName": "iShares MSCI Germany ETF",
+            "ticker": "EWG",
+        }
+    }
+    source_path = tmp_path / "blackrock_wrong_product.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+    run_helper("init-run", "EWW", "--output-root", str(tmp_path))
+
+    result = run_helper(
+        "extract-blackrock",
+        "EWW",
+        "--output-root",
+        str(tmp_path),
+        "--json-file",
+        str(source_path),
+        "--source-id",
+        "blackrock_components",
+    )
+
+    assert result.returncode != 0
+    assert "BlackRock/iShares payload identity mismatch" in result.stderr

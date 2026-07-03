@@ -132,6 +132,8 @@ For BlackRock/iShares ETF payloads already downloaded, extracted from the produc
 python3 {baseDir}/../shared/scripts/procedural_source_helper.py extract-blackrock SYMBOL --output-root ./runtime --as-of YYYY-MM-DD --json-file ./runtime/SYMBOL/YYYY-MM-DD/source_bundle/blackrock_product_api.json --source-id blackrock_product_api
 ```
 
+The BlackRock/iShares extractor validates the payload identity against the requested ticker before promoting data. If a product ID resolves to the wrong fund, record a source gap instead of using the payload.
+
 ## Final Artifacts
 
 Working/procedural artifacts belong under runtime:
@@ -161,3 +163,11 @@ bash {baseDir}/../shared/scripts/md-to-pdf.sh ./reports/SYMBOL/YYYY-MM-DD/SYMBOL
 ```
 
 If `pandoc`, `xelatex`, or LaTeX packages such as `lmodern.sty` are unavailable, report the helper message and continue with Markdown and JSON artifacts. Do not treat missing PDF tooling as a research failure.
+
+Before handing the final report to a verifier, run the producer self-check:
+
+```bash
+python3 {baseDir}/../shared/scripts/producer_self_check.py ./reports/SYMBOL/YYYY-MM-DD --data-dir ./data/SYMBOL/YYYY-MM-DD --runtime-dir ./runtime/SYMBOL/YYYY-MM-DD --fix-safe
+```
+
+Fix open critical or moderate self-check findings before requesting validation. Minor self-check findings may remain when they are not thesis-blocking, but record them in runtime issue notes. The self-check writes `producer-self-check.md` and `producer-self-check.json` under runtime; do not add a Self-Check section to the investor report.

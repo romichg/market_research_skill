@@ -18,7 +18,7 @@ def test_generated_artifact_roots_are_ignored():
     ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
     ignored = {line.strip() for line in ignore_text.splitlines() if line.strip() and not line.startswith("#")}
 
-    assert {"data/", "reports/", "runtime/", "archives/"} <= ignored
+    assert {"data/", "reports/", "runtime/", "docs/superpowers/plans/self-improvement/"} <= ignored
 
 
 def test_active_files_do_not_reference_old_skill_paths():
@@ -47,6 +47,8 @@ def test_active_files_do_not_reference_old_skill_paths():
         if rel.suffix not in {".md", ".py", ".json", ".yaml", ".yml", ".toml"}:
             continue
         path = ROOT / rel
+        if not path.exists():
+            continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         for needle in forbidden:
             if needle in text:
@@ -66,6 +68,8 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/architecture.md"),
         Path("docs/operations.md"),
         Path("docs/quality-bar.md"),
+        Path("docs/maintainer-notes/README.md"),
+        Path("docs/maintainer-notes/20260702-producer-self-check-and-validator-loops.md"),
     }
     transient_active_roots = [
         Path("docs/superpowers/plans/self-improvement"),

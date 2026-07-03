@@ -40,6 +40,29 @@ VENDOR_NAMES = [
     "eodhd",
     "marketaux",
 ]
+ETF_PROVENANCE_PHRASES = [
+    "sponsor's",
+    "sponsor page",
+    "sponsor holdings download",
+    "saved page",
+    "saved source",
+    "wrapper was doing its job",
+]
+TECHNICAL_DECISION_TERMS = [
+    "sizing",
+    "position",
+    "invalidation",
+    "entry",
+    "confirm",
+    "confirms",
+    "confirmation",
+    "breaks below",
+    "break below",
+    "reclaims",
+    "reclaim",
+    "limit order",
+    "limit orders",
+]
 INTERNAL_PROVENANCE_MESSAGE = "skill-internal provenance belongs in an appendix unless it changes the investment interpretation"
 
 
@@ -87,6 +110,28 @@ def lint_report_language(text: str) -> list[dict[str, str]]:
                     "message": "routine data-vendor names belong in Data Issues And Discrepancies or Sources And Evidence, not the main investment narrative",
                 }
             )
+    return findings
+
+
+def lint_etf_narrative_language(text: str, report_json: dict[str, Any] | None = None) -> list[dict[str, str]]:
+    if str((report_json or {}).get("security_type", "")).lower() != "etf":
+        return []
+    findings = []
+    for heading, section_text in iter_sections(text):
+        if section_allows_provenance(heading):
+            continue
+        body = section_text.lower()
+        for phrase in ETF_PROVENANCE_PHRASES:
+            if phrase in body:
+                findings.append(
+                    {
+                        "severity": "minor",
+                        "id": "etf-provenance-heavy-language",
+                        "section": heading,
+                        "message": "State ETF facts directly in main sections; keep source mechanics such as sponsor page/download wording in Sources And Evidence or Data Issues And Discrepancies.",
+                    }
+                )
+                break
     return findings
 
 
@@ -210,6 +255,104 @@ def has_holdings(report_json: dict[str, Any] | None) -> bool:
     return False
 
 
+def etf_holding_rows(report_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(report_json, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for key in ["holdings", "portfolio_holdings", "etf_holdings"]:
+        candidate = report_json.get(key)
+        if isinstance(candidate, list):
+            rows.extend(row for row in candidate if isinstance(row, dict))
+        elif isinstance(candidate, dict):
+            for nested_key in ["holdings", "top_holdings", "top25", "top_25"]:
+                nested = candidate.get(nested_key)
+                if isinstance(nested, list):
+                    rows.extend(row for row in nested if isinstance(row, dict))
+    return rows
+
+
+def collect_source_ids(value: Any) -> set[str]:
+    source_ids: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"source_id", "source_ids"}:
+                if isinstance(item, str):
+                    source_ids.add(item.lower())
+                elif isinstance(item, list):
+                    source_ids.update(str(entry).lower() for entry in item)
+            else:
+                source_ids.update(collect_source_ids(item))
+    elif isinstance(value, list):
+        for item in value:
+            source_ids.update(collect_source_ids(item))
+    return source_ids
+
+
+def has_holding_context_support(report_json: dict[str, Any] | None, report_path: Path | None) -> bool:
+    source_ids = collect_source_ids(report_json)
+    support_terms = [
+        "classification",
+        "company_profile",
+        "company_profiles",
+        "constituent_profile",
+        "constituent_profiles",
+        "holding_context",
+        "holdings_context",
+    ]
+    if any(any(term in source_id for term in support_terms) for source_id in source_ids):
+        return True
+    if report_path is not None:
+        sources_path = report_path.parent / "sources.json"
+        if sources_path.exists():
+            try:
+                sources_text = sources_path.read_text(encoding="utf-8", errors="ignore").lower()
+            except OSError:
+                sources_text = ""
+            if any(term in sources_text for term in support_terms):
+                return True
+    return False
+
+
+def lint_etf_holding_context_support(
+    text: str,
+    report_json: dict[str, Any] | None = None,
+    report_path: Path | None = None,
+) -> list[dict[str, str]]:
+    if str((report_json or {}).get("security_type", "")).lower() != "etf":
+        return []
+    rows = etf_holding_rows(report_json)
+    if not rows:
+        return []
+    context_fields = ["business_outlook", "business", "outlook", "sector_or_industry", "industry", "sector"]
+    rows_with_context = [
+        row for row in rows if any(str(row.get(field, "")).strip() for field in context_fields)
+    ]
+    sections = section_map(text)
+    snapshot = sections.get("portfolio companies snapshot", "").lower()
+    markdown_has_context = "business" in snapshot or "outlook" in snapshot or "sector" in snapshot or "industry" in snapshot
+    if not rows_with_context and not markdown_has_context:
+        if len(rows) >= 10:
+            return [
+                {
+                    "severity": "moderate",
+                    "id": "etf-holding-company-context-too-thin",
+                    "section": "portfolio companies snapshot",
+                    "message": "ETF Portfolio Companies Snapshot should include investor-useful sector/industry, compact business/outlook, and price or technical context for major holdings when holdings are available.",
+                }
+            ]
+        return []
+    if has_holding_context_support(report_json, report_path):
+        return []
+    return [
+        {
+            "severity": "moderate",
+            "id": "etf-holding-company-context-unsupported",
+            "section": "portfolio companies snapshot",
+            "message": "Holding-level sector, business, or outlook context needs cited company-level sources or a cited holdings-classification artifact; otherwise narrow the table to issuer-supported holding facts.",
+        }
+    ]
+
+
 def lint_runtime_source_bundle_paths(text: str, report_path: Path | None = None) -> list[dict[str, str]]:
     if report_path is None:
         return []
@@ -235,7 +378,7 @@ def lint_runtime_source_bundle_paths(text: str, report_path: Path | None = None)
 
 
 def lint_report_quality(text: str, report_json: dict[str, Any] | None = None, report_path: Path | None = None) -> list[dict[str, str]]:
-    findings = lint_report_language(text) + lint_report_structure(text)
+    findings = lint_report_language(text) + lint_etf_narrative_language(text, report_json) + lint_report_structure(text)
     for finding in findings:
         if "id" not in finding and finding.get("pattern") in FORBIDDEN_MAIN_BODY_PATTERNS:
             finding["id"] = "main-body-internal-language"
@@ -250,6 +393,17 @@ def lint_report_quality(text: str, report_json: dict[str, Any] | None = None, re
                 "message": "Technical analysis should interpret drawdown when calculated drawdown data exists.",
             }
         )
+    if technical and any(term in technical.lower() for term in ["support", "resistance", "volatility", "drawdown"]):
+        technical_lower = technical.lower()
+        if not any(term in technical_lower for term in TECHNICAL_DECISION_TERMS):
+            findings.append(
+                {
+                    "severity": "minor",
+                    "id": "technical-analysis-missing-decision-use",
+                    "section": "market snapshot and technical analysis",
+                    "message": "Technical analysis should translate support/resistance, volatility, or drawdown into sizing, entry, confirmation, or invalidation implications.",
+                }
+            )
     security_type = str((report_json or {}).get("security_type", "")).lower()
     risks = sections.get("risks and invalidation points", "")
     if security_type == "etf" and risks:
@@ -281,6 +435,7 @@ def lint_report_quality(text: str, report_json: dict[str, Any] | None = None, re
                 "message": "ETF reports should include a Portfolio Companies Snapshot when holdings are available.",
             }
         )
+    findings.extend(lint_etf_holding_context_support(text, report_json, report_path))
     findings.extend(lint_runtime_source_bundle_paths(text, report_path))
     return findings
 

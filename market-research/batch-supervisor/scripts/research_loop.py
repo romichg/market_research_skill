@@ -15,6 +15,7 @@ from typing import Any
 import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "scripts"))
+import producer_self_check
 from script_metrics import add_metrics_arg, start_timer, write_metrics
 from script_utils import normalize_symbol, read_json, validate_as_of, write_json
 
@@ -125,6 +126,8 @@ def report_dir_for_prompt(symbol: str, run_dir: str) -> str:
 
 def runtime_dir_for_prompt(symbol: str, run_dir: str) -> str:
     path = Path(run_dir)
+    if path.name.upper() == symbol and "runtime" in path.parts:
+        return run_dir
     if len(path.parts) >= 3 and path.parts[-3] == "runtime" and path.parts[-2].upper() == symbol:
         return run_dir
     if len(path.parts) >= 3 and path.parts[-3] == "reports" and path.parts[-2].upper() == symbol:
@@ -134,16 +137,21 @@ def runtime_dir_for_prompt(symbol: str, run_dir: str) -> str:
     return dated_layout_dir("runtime", symbol, run_dir)
 
 
+def data_dir_for_prompt(symbol: str, run_dir: str) -> str:
+    return dated_layout_dir("data", symbol, run_dir)
+
+
 def producer_initial_prompt(symbol: str, run_dir: str) -> str:
     report_dir = report_dir_for_prompt(symbol, run_dir)
     runtime_dir = runtime_dir_for_prompt(symbol, run_dir)
+    data_dir = data_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
             f"$market-research researcher {symbol}",
             "",
             "Run the market-research researcher workflow in this fresh Codex context.",
             f"Use deterministic evidence first: `python3 market-research/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
-            f"Use the deterministic bundle under `data/{symbol}/YYYY-MM-DD/` as evidence.",
+            f"Use the deterministic bundle under `{data_dir}/` as evidence.",
             f"Write final research markdown and JSON under `{report_dir}`.",
             "Use investor-facing language in main report sections; avoid workflow terms such as deterministic, bundle, artifact, normalized, raw, runtime, cache, provider, and local paths except in evidence or data-quality sections where auditability requires them.",
             "In the Bottom Line, introduce market value, net assets, or a valuation range before judging valuation or portfolio attractiveness.",
@@ -151,6 +159,7 @@ def producer_initial_prompt(symbol: str, run_dir: str) -> str:
             "If report JSON material claims cite deterministic_* source IDs, ensure the final report directory source registry includes matching source entries or use source IDs already present in the final registry.",
             "For ETF reports with holdings, include `Portfolio Companies Snapshot`: cover all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight, with compact business, outlook, and price/technical context when available.",
             "For ETF risks, explicitly address authorized participant and creation/redemption mechanics, securities lending, premium/discount, tracking, tax/withholding, liquidity, closure/AUM, and concentration risks when material.",
+            f"Before verifier handoff, run `python3 market-research/shared/scripts/producer_self_check.py {report_dir} --data-dir {data_dir} --runtime-dir {runtime_dir} --fix-safe` and fix open critical/moderate self-check findings.",
             f"Attempt best-effort PDF generation for the final markdown with `bash market-research/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
             f"Use `{runtime_dir}` for transient runtime notes, prompts, logs, and issue files.",
             "As you run the skill, identify any market-research skill issues separately.",
@@ -171,8 +180,14 @@ def default_validation_output_dir(symbol: str, run_dir: str) -> str:
     return f"reports/{symbol}/YYYY-MM-DD"
 
 
-def validator_prompt(symbol: str, run_dir: str, validation_output_dir: str | None = None) -> str:
+def validator_prompt(
+    symbol: str,
+    run_dir: str,
+    validation_output_dir: str | None = None,
+    skill_issue_dir: str | None = None,
+) -> str:
     output_dir = validation_output_dir or default_validation_output_dir(symbol, run_dir)
+    issue_dir = skill_issue_dir or runtime_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
             f"$market-research verifier {run_dir}",
@@ -180,22 +195,23 @@ def validator_prompt(symbol: str, run_dir: str, validation_output_dir: str | Non
             "Run the market-research verifier workflow in this fresh Codex context.",
             f"Validate the input artifacts in `{run_dir}`.",
             "Record validator skill issues separately.",
-            f"Write validator skill issues to `{output_dir}/{symbol}-validator-skill-issues.md`.",
+            f"Write validator skill issues to `{issue_dir}/{symbol}-validator-skill-issues.md`.",
             f"Write validation markdown and JSON artifacts under `{output_dir}`.",
             "",
         ]
     )
 
 
-def remediation_prompt(symbol: str, run_dir: str) -> str:
+def remediation_prompt(symbol: str, run_dir: str, skill_issue_dir: str | None = None) -> str:
+    issue_dir = skill_issue_dir or runtime_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
-            f"The validator found blocking issues in `{run_dir}`.",
+            f"The validator or producer self-check found blocking issues in `{run_dir}`.",
             "",
             "Fix only open critical/moderate issues reported by the validation markdown/JSON.",
             "Verify each finding against frozen artifacts before editing.",
             "Update affected report, context, source registry, and manifest artifacts consistently.",
-            f"Append any market-research skill improvements to `{run_dir}/{symbol}-market-research-skill-issues.md`.",
+            f"Append any market-research skill improvements to `{issue_dir}/{symbol}-market-research-skill-issues.md`.",
             "Do not delete validator outputs.",
             "",
         ]
@@ -227,25 +243,137 @@ def latest_validation_for_symbol(symbol_dir: Path, reports_symbol_dir: Path | No
     return candidates[-1] if candidates else None
 
 
-def collect_skill_issue_files(root: Path) -> list[str]:
-    files = sorted(root.glob("**/*skill-issues.md")) + sorted(root.glob("**/*skill-issues.json"))
-    return [str(path) for path in files]
+RESEARCHER_COMMENT_RE = re.compile(r"<@rea?searcher:\s*(.*?)>", re.IGNORECASE)
+
+
+def collect_skill_issue_files(*roots: Path) -> list[str]:
+    seen: set[Path] = set()
+    files: list[Path] = []
+    patterns = [
+        "**/*skill-issues.md",
+        "**/*skill-issues.json",
+        "**/*market-research-issues.md",
+        "**/*researcher-comments.md",
+        "**/*researcher-comments.json",
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for pattern in patterns:
+            for path in sorted(root.glob(pattern)):
+                resolved = path.resolve(strict=False)
+                if resolved not in seen:
+                    seen.add(resolved)
+                    files.append(path)
+    return [str(path) for path in sorted(files, key=lambda item: str(item))]
+
+
+def summary_report_dirs(root: Path) -> list[Path]:
+    summary_path = root / "research-loop-summary.json"
+    if not summary_path.exists():
+        return []
+    try:
+        summary = read_json(summary_path)
+    except (OSError, json.JSONDecodeError):
+        return []
+    symbols = summary.get("symbols", {}) if isinstance(summary, dict) else {}
+    if not isinstance(symbols, dict):
+        return []
+    dirs: list[Path] = []
+    for result in symbols.values():
+        if not isinstance(result, dict):
+            continue
+        for key in ["artifact_run_dir", "validation_json"]:
+            value = result.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            path = Path(value)
+            dirs.append(path.parent if key == "validation_json" else path)
+    return dirs
+
+
+def inferred_report_dirs(root: Path) -> list[Path]:
+    reports_root = reports_root_for_loop(root)
+    if not reports_root.exists():
+        return []
+    dirs: list[Path] = []
+    for symbol_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        report_symbol_dir = reports_root / symbol_dir.name
+        if report_symbol_dir.exists():
+            dirs.extend(path for path in sorted(report_symbol_dir.iterdir()) if path.is_dir())
+    return dirs
+
+
+def report_dirs_for_feedback(root: Path) -> list[Path]:
+    seen: set[Path] = set()
+    dirs: list[Path] = []
+    for path in summary_report_dirs(root) + inferred_report_dirs(root):
+        resolved = path.resolve(strict=False)
+        if resolved not in seen and path.exists() and path.is_dir():
+            seen.add(resolved)
+            dirs.append(path)
+    return dirs
+
+
+def collect_researcher_comments(report_dirs: list[Path]) -> list[dict[str, Any]]:
+    comments: list[dict[str, Any]] = []
+    for report_dir in report_dirs:
+        for report in sorted(report_dir.glob("*-research.md")):
+            try:
+                lines = report.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line_number, line in enumerate(lines, start=1):
+                for match in RESEARCHER_COMMENT_RE.finditer(line):
+                    comments.append(
+                        {
+                            "path": str(report),
+                            "line": line_number,
+                            "comment": match.group(1).strip(),
+                            "line_text": line.strip(),
+                        }
+                    )
+    return comments
+
+
+def collect_supporting_artifacts(root: Path) -> list[str]:
+    patterns = [
+        "**/validation_scaffolds/*validation-scaffold.md",
+        "**/validation_scaffolds/*validation-scaffold.json",
+    ]
+    artifacts: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for path in sorted(root.glob(pattern)):
+            resolved = path.resolve(strict=False)
+            if resolved not in seen:
+                seen.add(resolved)
+                artifacts.append(path)
+    return [str(path) for path in sorted(artifacts, key=lambda item: str(item))]
 
 
 def collect_feedback(root: Path) -> dict[str, Any]:
     if not root.exists():
         die(f"Run root not found: {root}")
     notes = ensure_improvement_note_files(root)
-    issue_files = collect_skill_issue_files(root)
+    report_dirs = report_dirs_for_feedback(root)
+    issue_files = collect_skill_issue_files(root, *report_dirs)
     loop_file = root / "loop-skill-issues.md"
     if loop_file.exists() and str(loop_file) not in issue_files:
         issue_files.append(str(loop_file))
     issue_files = sorted(issue_files)
     operator_notes = root / "operator-notes.md"
+    researcher_comments = collect_researcher_comments(report_dirs)
+    supporting_artifacts = collect_supporting_artifacts(root)
     return {
         "run_root": str(root),
         "issue_files": issue_files,
         "issue_file_count": len(issue_files),
+        "supporting_artifacts": supporting_artifacts,
+        "supporting_artifact_count": len(supporting_artifacts),
+        "report_dirs": [str(path) for path in report_dirs],
+        "researcher_comments": researcher_comments,
+        "researcher_comment_count": len(researcher_comments),
         "operator_notes": str(operator_notes),
         "output_markdown": str(root / "skill-improvement-feedback.md"),
         "output_json": str(root / "skill-improvement-feedback.json"),
@@ -253,8 +381,7 @@ def collect_feedback(root: Path) -> dict[str, Any]:
     }
 
 
-def cmd_collect_feedback(args: argparse.Namespace) -> None:
-    root = Path(args.run_root)
+def write_feedback_package(root: Path) -> dict[str, Any]:
     feedback = collect_feedback(root)
     issue_sections = []
     for file_name in feedback["issue_files"]:
@@ -267,6 +394,20 @@ def cmd_collect_feedback(args: argparse.Namespace) -> None:
                 "",
             ]
         )
+    comment_sections = []
+    for item in feedback["researcher_comments"]:
+        comment_sections.extend(
+            [
+                f"- `{item['path']}:{item['line']}`",
+                f"  - Comment: {item['comment']}",
+                f"  - Context: {item['line_text']}",
+            ]
+        )
+    if not comment_sections:
+        comment_sections.append("- None found.")
+    supporting_artifact_sections = [f"- `{path}`" for path in feedback["supporting_artifacts"]]
+    if not supporting_artifact_sections:
+        supporting_artifact_sections.append("- None found.")
     operator_notes = Path(feedback["operator_notes"]).read_text(encoding="utf-8").strip()
     markdown = "\n".join(
         [
@@ -274,11 +415,23 @@ def cmd_collect_feedback(args: argparse.Namespace) -> None:
             "",
             f"Run root: `{root}`",
             "",
-            "Use this package after enough qualified feedback has accumulated. Do not automatically edit skills from one run; review recurring issues, decide scope, then make a separate explicit skill-improvement pass.",
+            "Use this runtime package for self-improvement review. It consolidates useful feedback from runtime artifacts and final report-side issue/comment files without making the final `reports/` tree the primary self-improvement input.",
             "",
             "## Operator Notes",
             "",
             operator_notes,
+            "",
+            "## Report Directories Inspected",
+            "",
+            *[f"- `{path}`" for path in feedback["report_dirs"]],
+            "",
+            "## Researcher Inline Comments",
+            "",
+            *comment_sections,
+            "",
+            "## Supporting Self-Improvement Artifacts",
+            "",
+            *supporting_artifact_sections,
             "",
             "## Collected Skill Issue Files",
             "",
@@ -289,12 +442,19 @@ def cmd_collect_feedback(args: argparse.Namespace) -> None:
     json_path = root / "skill-improvement-feedback.json"
     markdown_path.write_text(markdown, encoding="utf-8")
     write_json(json_path, feedback)
+    return feedback
+
+
+def cmd_collect_feedback(args: argparse.Namespace) -> None:
+    root = Path(args.run_root)
+    feedback = write_feedback_package(root)
     print(json.dumps(feedback, indent=2, sort_keys=True))
 
 
-def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path) -> str:
+def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path, feedback_packages: list[Path] | None = None) -> str:
+    feedback_packages = feedback_packages or []
     run_lines = []
-    for root in run_roots:
+    for index, root in enumerate(run_roots):
         run_lines.extend(
             [
                 f"- Run root: `{root}`",
@@ -303,6 +463,8 @@ def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path) -> str
                 f"  - Operator notes: `{root / 'operator-notes.md'}`",
             ]
         )
+        if index < len(feedback_packages):
+            run_lines.append(f"  - Runtime self-improvement package: `{feedback_packages[index]}`")
     return "\n".join(
         [
             "$superpowers",
@@ -315,6 +477,7 @@ def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path) -> str
             *run_lines,
             "- Existing plans/specs: `docs/superpowers/plans`, `docs/`, `AGENTS.md`, and `README.md`",
             "- Recent repository changes: `git status --short` and relevant `git diff`/`git log` output",
+            "- Treat each runtime self-improvement package as the canonical feedback input for report-side skill issues and inline `<@researcher: ...>` comments. Use final `reports/` files only when the runtime package points to them for context.",
             "",
             "Review questions:",
             "- Did the researcher use all useful deterministic data, especially fields marked required or review in `deterministic_data_usage.json`?",
@@ -354,17 +517,19 @@ def cmd_self_improve(args: argparse.Namespace) -> None:
     for root in run_roots:
         if not root.exists() or not root.is_dir():
             die(f"Run root not found: {root}")
+    feedback_packages = [Path(write_feedback_package(root)["output_markdown"]) for root in run_roots]
     output_root = Path(args.output_root) if args.output_root else DEFAULT_SELF_IMPROVEMENT_ROOT
     output_dir = output_root / timestamp_slug()
     output_dir.mkdir(parents=True, exist_ok=False)
     prompt_path = output_dir / "self-improvement.md"
-    prompt_path.write_text(self_improvement_runs_prompt(run_roots, output_dir), encoding="utf-8")
+    prompt_path.write_text(self_improvement_runs_prompt(run_roots, output_dir, feedback_packages), encoding="utf-8")
     print(
         json.dumps(
             {
                 "prompt": str(prompt_path),
                 "output_dir": str(output_dir),
                 "run_roots": [str(root) for root in run_roots],
+                "feedback_packages": [str(path) for path in feedback_packages],
             },
             indent=2,
             sort_keys=True,
@@ -398,11 +563,76 @@ def summarize_root(root: Path) -> dict[str, Any]:
         "unresolved_blocking_issues": unresolved,
         "skill_issue_files": collect_skill_issue_files(root),
         "improvement_notes": ensure_improvement_note_files(root),
+        "feedback_package": feedback_package_summary(root),
     }
 
 
 def cmd_summarize(args: argparse.Namespace) -> None:
     print(json.dumps(summarize_root(Path(args.run_root)), indent=2, sort_keys=True))
+
+
+def feedback_package_summary(root: Path) -> dict[str, Any]:
+    path = root / "skill-improvement-feedback.json"
+    if not path.exists():
+        return {"path": str(path), "exists": False}
+    payload = read_json(path)
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "issue_file_count": payload.get("issue_file_count", 0) if isinstance(payload, dict) else 0,
+        "researcher_comment_count": payload.get("researcher_comment_count", 0) if isinstance(payload, dict) else 0,
+        "supporting_artifact_count": payload.get("supporting_artifact_count", 0) if isinstance(payload, dict) else 0,
+    }
+
+
+def latest_validation_for_summary_result(result: dict[str, Any]) -> Path | None:
+    candidates: list[Path] = []
+    validation_json = result.get("validation_json")
+    if isinstance(validation_json, str):
+        candidates.append(Path(validation_json))
+    artifact_run_dir = result.get("artifact_run_dir")
+    if isinstance(artifact_run_dir, str):
+        report_dir = Path(artifact_run_dir)
+        symbol = report_dir.parent.name
+        candidates.extend(validation_candidates(report_dir, symbol))
+    existing = [path for path in candidates if path.exists() and path.name.endswith("-validation.json")]
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
+
+
+def cmd_refresh_summary(args: argparse.Namespace) -> None:
+    root = Path(args.run_root)
+    summary_path = root / "research-loop-summary.json"
+    if not summary_path.exists():
+        die(f"Summary not found: {summary_path}")
+    summary = read_json(summary_path)
+    symbols = summary.get("symbols", {}) if isinstance(summary, dict) else {}
+    if not isinstance(symbols, dict):
+        die(f"Summary has no symbols object: {summary_path}")
+    for symbol, result in symbols.items():
+        if not isinstance(result, dict):
+            continue
+        validation_path = latest_validation_for_summary_result(result)
+        if validation_path is None:
+            continue
+        gate = inspect_validation_payload(read_json(validation_path))
+        old_status = result.get("status")
+        current_status = "passed" if gate["passes_gate"] else "failed_blocking_issues"
+        if old_status != current_status and "historical_status" not in result:
+            result["historical_status"] = old_status
+        result["status"] = current_status
+        result["validation_json"] = str(validation_path)
+        result["open_blocking_issue_ids"] = gate["open_blocking_issue_ids"]
+        result["post_loop_refresh"] = {
+            "refreshed_at": datetime.now().isoformat(),
+            "validation_json": str(validation_path),
+            "previous_status": old_status,
+        }
+    write_json(summary_path, summary)
+    print(json.dumps(summary, indent=2, sort_keys=True))
 
 
 def cmd_init_batch(args: argparse.Namespace) -> None:
@@ -613,23 +843,153 @@ def sync_runtime_sources_to_report(runtime_dir: Path, artifact_run_dir: Path) ->
     report_source_bundle = artifact_run_dir / "source_bundle"
     if source_bundle.exists() and source_bundle.is_dir():
         shutil.copytree(source_bundle, report_source_bundle, dirs_exist_ok=True)
+    runtime_bundle_resolved = source_bundle.resolve(strict=False)
+
+    def report_source_bundle_path(value: str) -> str | None:
+        local_artifact = Path(value)
+        relative: Path | None = None
+        try:
+            relative = local_artifact.resolve(strict=False).relative_to(runtime_bundle_resolved)
+        except ValueError:
+            parts = local_artifact.parts
+            if "source_bundle" in parts:
+                bundle_index = parts.index("source_bundle")
+                relative = Path(*parts[bundle_index + 1 :])
+        if relative is None:
+            return None
+        report_artifact = report_source_bundle / relative if relative.parts else report_source_bundle
+        if report_artifact.exists():
+            return str(report_artifact)
+        return None
+
+    def rewrite_json_source_bundle_paths(path: Path) -> None:
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        changed = False
+
+        def rewrite_value(value: Any) -> Any:
+            nonlocal changed
+            if isinstance(value, dict):
+                return {key: rewrite_value(child) for key, child in value.items()}
+            if isinstance(value, list):
+                return [rewrite_value(child) for child in value]
+            if isinstance(value, str) and "source_bundle" in value:
+                rewritten = report_source_bundle_path(value)
+                if rewritten is not None:
+                    changed = True
+                    return rewritten
+            return value
+
+        rewritten_payload = rewrite_value(payload)
+        if changed:
+            write_json(path, rewritten_payload)
+
     sources = runtime_dir / "sources.json"
-    if sources.exists():
+    if sources.exists() or (artifact_run_dir / "sources.json").exists():
         artifact_run_dir.mkdir(parents=True, exist_ok=True)
-        payload = read_json(sources)
-        runtime_bundle_resolved = source_bundle.resolve(strict=False)
+        payload = read_json(sources) if sources.exists() else {"sources": []}
+        report_payload = read_json(artifact_run_dir / "sources.json") if (artifact_run_dir / "sources.json").exists() else {"sources": []}
+
+        def rewrite_source_local_artifact(source: dict[str, Any]) -> None:
+            if not isinstance(source.get("local_artifact"), str):
+                return
+            rewritten = report_source_bundle_path(source["local_artifact"])
+            if rewritten is not None:
+                source["local_artifact"] = rewritten
+
         for source in payload.get("sources", []) if isinstance(payload, dict) else []:
-            if not isinstance(source, dict) or not isinstance(source.get("local_artifact"), str):
-                continue
-            local_artifact = Path(source["local_artifact"])
-            try:
-                relative = local_artifact.resolve(strict=False).relative_to(runtime_bundle_resolved)
-            except ValueError:
-                continue
-            report_artifact = report_source_bundle / relative
-            if report_artifact.exists():
-                source["local_artifact"] = str(report_artifact)
-        write_json(artifact_run_dir / "sources.json", payload)
+            if isinstance(source, dict):
+                rewrite_source_local_artifact(source)
+        for source in report_payload.get("sources", []) if isinstance(report_payload, dict) else []:
+            if isinstance(source, dict):
+                rewrite_source_local_artifact(source)
+        merged: dict[str, dict[str, Any]] = {}
+        for source in report_payload.get("sources", []) if isinstance(report_payload, dict) else []:
+            if isinstance(source, dict):
+                source_id = source.get("id") or source.get("source_id")
+                if source_id:
+                    merged[str(source_id)] = source
+        for source in payload.get("sources", []) if isinstance(payload, dict) else []:
+            if isinstance(source, dict):
+                source_id = source.get("id") or source.get("source_id")
+                if source_id and str(source_id) not in merged:
+                    merged[str(source_id)] = source
+        output_payload = report_payload if isinstance(report_payload, dict) else {}
+        output_payload["sources"] = list(merged.values())
+        write_json(artifact_run_dir / "sources.json", output_payload)
+    json_sidecars = [
+        artifact_run_dir / "run_manifest.json",
+        artifact_run_dir / "research_context.json",
+        *sorted(artifact_run_dir.glob("*-research.json")),
+    ]
+    if report_source_bundle.exists():
+        json_sidecars.extend(sorted(report_source_bundle.glob("*.json")))
+    for json_path in json_sidecars:
+        rewrite_json_source_bundle_paths(json_path)
+    for report_md in sorted(artifact_run_dir.glob("*-research.md")):
+        rewrite_markdown_source_bundle_paths(report_md)
+
+
+def rewrite_markdown_source_bundle_paths(report_md: Path) -> list[dict[str, str]]:
+    text = report_md.read_text(encoding="utf-8")
+    report_bundle = report_md.parent / "source_bundle"
+    if not report_bundle.exists():
+        return []
+    replacements: list[dict[str, str]] = []
+    rewritten_lines: list[str] = []
+    in_evidence_section = False
+    pattern = re.compile(r"(?P<path>[^\s|`)]*runtime/[^\s|`)]*/source_bundle/(?P<relative>[^\s|`)]+))")
+    for line in text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip().lower()
+            in_evidence_section = (
+                "sources" in heading
+                or "evidence" in heading
+                or "appendix" in heading
+                or "data issues" in heading
+                or "discrepanc" in heading
+            )
+        if in_evidence_section and "runtime/" in line and "/source_bundle/" in line:
+            def replace_match(match: re.Match[str]) -> str:
+                relative_text = match.group("relative")
+                trailing = ""
+                while relative_text and relative_text[-1] in ".,;:":
+                    trailing = relative_text[-1] + trailing
+                    relative_text = relative_text[:-1]
+                relative_artifact = Path(relative_text)
+                report_artifact = report_bundle / relative_artifact
+                if not report_artifact.exists():
+                    report_artifact = report_bundle / relative_artifact.name
+                if report_artifact.exists():
+                    replacement = str(report_artifact) + trailing
+                    replacements.append({"from": match.group(0), "to": replacement})
+                    return replacement
+                return match.group(0)
+
+            line = pattern.sub(replace_match, line)
+        rewritten_lines.append(line)
+    if replacements:
+        report_md.write_text("\n".join(rewritten_lines) + "\n", encoding="utf-8")
+    return replacements
+
+
+def data_dir_for_report(root: Path, symbol: str, artifact_run_dir: Path) -> Path | None:
+    if not final_report_exists(artifact_run_dir, symbol):
+        return None
+    candidate = data_root_for_loop(root) / symbol / artifact_run_dir.name
+    return candidate if deterministic_bundle_exists(candidate) else None
+
+
+def run_producer_self_check(root: Path, symbol: str, report_dir: Path, runtime_dir: Path) -> dict[str, Any] | None:
+    data_dir = data_dir_for_report(root, symbol, report_dir)
+    if not final_report_exists(report_dir, symbol) or data_dir is None:
+        return None
+    return producer_self_check.run_self_check(report_dir, data_dir, runtime_dir, fix_safe=True)
 
 
 def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:
@@ -646,6 +1006,22 @@ def validation_candidates(run_dir: Path, symbol: str) -> list[Path]:
     return out
 
 
+def move_intermediate_validation_scaffolds(report_dir: Path, runtime_dir: Path, symbol: str) -> list[str]:
+    if report_dir.resolve(strict=False) == runtime_dir.resolve(strict=False):
+        return []
+    canonical_stems = {f"{symbol}-validation-scaffold"}
+    moved: list[str] = []
+    destination = runtime_dir / "validation_scaffolds"
+    for path in sorted(report_dir.glob(f"{symbol}-*validation-scaffold.*")):
+        if path.stem in canonical_stems:
+            continue
+        destination.mkdir(parents=True, exist_ok=True)
+        target = destination / path.name
+        shutil.move(str(path), str(target))
+        moved.append(str(target))
+    return moved
+
+
 def latest_validation_in_run_dir(run_dir: Path, symbol: str) -> Path | None:
     candidates = validation_candidates(run_dir, symbol)
     if not candidates:
@@ -660,7 +1036,7 @@ def write_iteration_prompts(symbol: str, run_dir: Path, iteration_dir: Path, rem
         "validator": iteration_dir / "validator.prompt.md",
     }
     prompts["producer"].write_text(
-        remediation_prompt(symbol, str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+        remediation_prompt(symbol, str(run_dir), str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
         encoding="utf-8",
     )
     prompts["validator"].write_text(validator_prompt(symbol, str(run_dir)), encoding="utf-8")
@@ -701,7 +1077,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         else:
             command_run_dir = run_dir
         prompts["producer"].write_text(
-            remediation_prompt(symbol, str(command_run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+            remediation_prompt(symbol, str(command_run_dir), str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
             encoding="utf-8",
         )
         commands = {
@@ -726,12 +1102,27 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
             }
         effective_run_dir = artifact_run_dir
         sync_runtime_sources_to_report(run_dir, effective_run_dir)
+        self_check = run_producer_self_check(root, symbol, effective_run_dir, run_dir)
+        if self_check and self_check["blocking_issue_count"]:
+            blocking_ids = [
+                str(issue.get("id", "unknown"))
+                for issue in self_check.get("issues", [])
+                if is_open_blocking(issue)
+            ]
+            if iteration > max_loops:
+                status = "failed_producer_self_check"
+                validation_path = Path(self_check["runtime_dir"]) / "producer-self-check.json"
+                break
+            continue
         validation_output_dir = (
             validation_output_dir_for_artifact(root, symbol, effective_run_dir, args.as_of)
             if deterministic_bundle_exists(effective_run_dir)
             else effective_run_dir
         )
-        prompts["validator"].write_text(validator_prompt(symbol, str(effective_run_dir), str(validation_output_dir)), encoding="utf-8")
+        prompts["validator"].write_text(
+            validator_prompt(symbol, str(effective_run_dir), str(validation_output_dir), str(run_dir)),
+            encoding="utf-8",
+        )
         commands["validator"] = render_command(
             args.validator_command,
             prompt_file=prompts["validator"],
@@ -758,6 +1149,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
             }
         if validation_path is None:
             return {"status": "missing_validation", "iterations": iteration, "run_dir": str(run_dir)}
+        move_intermediate_validation_scaffolds(validation_output_dir, run_dir, symbol)
         gate = inspect_validation_payload(read_json(validation_path))
         blocking_ids = gate["open_blocking_issue_ids"]
         if gate["passes_gate"]:
@@ -816,6 +1208,10 @@ def build_parser() -> argparse.ArgumentParser:
     summarize = sub.add_parser("summarize", help="Summarize final pass/fail state for a loop run root.")
     summarize.add_argument("run_root")
     summarize.set_defaults(func=cmd_summarize)
+
+    refresh = sub.add_parser("refresh-summary", help="Refresh persisted summary status from latest final validation JSON.")
+    refresh.add_argument("run_root")
+    refresh.set_defaults(func=cmd_refresh_summary)
 
     feedback = sub.add_parser("collect-feedback", help="Collect run skill issue notes for a manual improvement pass.")
     feedback.add_argument("run_root")

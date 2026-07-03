@@ -65,6 +65,87 @@ def write_report_and_data(tmp_path):
     return report_dir, data_dir
 
 
+def test_source_registry_reconcile_fixes_all_template_deterministic_aliases(tmp_path):
+    module = load_module()
+    report_dir = tmp_path / "reports" / "EWW" / "2026-07-02"
+    data_dir = tmp_path / "data" / "EWW" / "2026-07-02"
+    normalized = data_dir / "normalized"
+    report_dir.mkdir(parents=True)
+    normalized.mkdir(parents=True)
+    for name in ["identity", "etf_profile", "etf_holdings"]:
+        (normalized / f"{name}.json").write_text(json.dumps({"field": {"value": name}}), encoding="utf-8")
+    for name in ["gaps", "source_manifest", "deterministic_data_usage", "manifest"]:
+        (data_dir / f"{name}.json").write_text(json.dumps({}), encoding="utf-8")
+    (data_dir / "research_input_pack.md").write_text("# EWW Pack\n", encoding="utf-8")
+    (report_dir / "EWW-research.md").write_text(
+        """# EWW Research
+
+## Sources And Evidence
+
+deterministic_identity deterministic_etf_profile deterministic_etf_holdings deterministic_gaps deterministic_source_manifest deterministic_data_usage
+""",
+        encoding="utf-8",
+    )
+    (report_dir / "EWW-research.json").write_text(
+        json.dumps(
+            {
+                "symbol": "EWW",
+                "security_type": "etf",
+                "as_of_date": "2026-07-02",
+                "deterministic_bundle": {"bundle_dir": str(data_dir)},
+                "material_claims": [],
+                "source_coverage": {
+                    "deterministic_source_ids": [
+                        "deterministic_identity",
+                        "deterministic_etf_profile",
+                        "deterministic_etf_holdings",
+                        "deterministic_gaps",
+                        "deterministic_source_manifest",
+                        "deterministic_data_usage",
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "sources.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+
+    result = module.reconcile_report_sources(report_dir, data_dir, fix=True)
+
+    assert set(result["added_ids"]) == {
+        "deterministic_identity",
+        "deterministic_etf_profile",
+        "deterministic_etf_holdings",
+        "deterministic_gaps",
+        "deterministic_source_manifest",
+        "deterministic_data_usage",
+    }
+    sources = json.loads((report_dir / "sources.json").read_text(encoding="utf-8"))["sources"]
+    by_id = {source["id"]: source for source in sources}
+    assert by_id["deterministic_identity"]["local_artifact"].endswith("normalized/identity.json")
+    assert by_id["deterministic_gaps"]["local_artifact"].endswith("gaps.json")
+    assert by_id["deterministic_source_manifest"]["local_artifact"].endswith("source_manifest.json")
+    assert by_id["deterministic_data_usage"]["local_artifact"].endswith("deterministic_data_usage.json")
+
+
+def test_source_registry_reconcile_scans_source_id_lists_recursively():
+    module = load_module()
+    report = {
+        "source_coverage": {
+            "deterministic_source_ids": ["deterministic_gaps", "deterministic_etf_profile"]
+        },
+        "calculation_audit": [
+            {"inputs": [{"source_ids": ["deterministic_prices_daily"]}]}
+        ],
+    }
+
+    assert module.source_ids_from_report_json(report) == {
+        "deterministic_gaps",
+        "deterministic_etf_profile",
+        "deterministic_prices_daily",
+    }
+
+
 def test_source_registry_reconcile_fixes_missing_deterministic_ids(tmp_path):
     module = load_module()
     report_dir, data_dir = write_report_and_data(tmp_path)

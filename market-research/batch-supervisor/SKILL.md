@@ -27,6 +27,8 @@ Treat the finished investor report as the product: preserve `reports/` for polis
 
 ## Output Contract
 
-Each run root contains `research-loop-summary.json`, `loop-skill-issues.md`, `operator-notes.md`, iteration logs, canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/`, final reports and validations under `reports/SYMBOL/YYYY-MM-DD/`, and transient prompts/logs/issues under `runtime/SYMBOL/YYYY-MM-DD/` or the configured runtime run root.
+Each run root contains `research-loop-summary.json`, `loop-skill-issues.md`, `operator-notes.md`, iteration logs, self-improvement feedback packages, intermediate validation scaffold snapshots, canonical deterministic bundles under `data/SYMBOL/YYYY-MM-DD/`, final reports and validations under `reports/SYMBOL/YYYY-MM-DD/`, and transient prompts/logs/issues under `runtime/SYMBOL/YYYY-MM-DD/` or the configured runtime run root.
+
+Write researcher, remediation, validator, and loop skill-improvement notes to runtime. Keep the canonical `SYMBOL-validation-scaffold.md/json` with final validation artifacts in `reports/`, but move intermediate named scaffold snapshots such as `SYMBOL-remediation-validation-scaffold.md/json` to runtime. If a completed report or validation contains useful feedback for skill improvement, collect it into the runtime `skill-improvement-feedback.md/json` package instead of relying on the final report directory as the self-improvement input.
 
 Use `operator-notes.md` for future user-requested changes that should not be implemented automatically, such as browser/captcha handoff, alternate report formats, or new data providers.

@@ -41,6 +41,8 @@ Flag report-quality issues when a report merely produces a data recital instead 
 
 Routine data-vendor names and local tool/provider mechanics should not appear in the main body unless stale, missing, or conflicting data changes investor interpretation.
 
+Producer self-check artifacts under runtime are useful for understanding what the producer already linted, but they are not investor-facing report sections and do not replace verifier judgment.
+
 ## Common Evidence Traps
 
 - Wrong issuer, ADR/local-listing collisions, predecessor entities, pending IPO symbols, or similarly named companies.

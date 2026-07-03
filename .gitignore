@@ -1,8 +1,6 @@
 .env
 .env.*
 !.env.example
-.env-starter
-.env-start
 *.pem
 *.key
 *.p12
@@ -32,13 +30,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
-dist/
-build/
-cool-financial-research/cool-financial-research/
-experiments/
-market-research-runs/
 data/
 reports/
 runtime/
 tmp-loop-smoke/
-archives/
+docs/superpowers/plans/self-improvement/

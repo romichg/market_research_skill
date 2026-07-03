@@ -50,4 +50,5 @@ If provider technical analysis is missing, compute the technical snapshot locall
 - Prefer issuer filings/product pages for current operating facts when API data is stale or unavailable.
 - Do not describe securities-lending data as unavailable until annual/semiannual reports have been checked.
 - If holdings CSV/API capture returns HTML or unusable content, record a workflow extraction gap.
+- For BlackRock/iShares product IDs and regional pages, validate the resolved fund name/ticker before using the payload. A payload for a different country fund is a source-resolution failure, not usable evidence.
 - If a provider fails after retries, use the next successful provider but keep the failure visible via `manifest.json`.

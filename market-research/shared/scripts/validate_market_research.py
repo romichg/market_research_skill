@@ -276,6 +276,23 @@ def report_quality_scaffold_issues(report: Any, markdown_text: str) -> list[dict
     ]
 
 
+def report_language_lint_issues(report: Any, markdown_text: str, markdown_path: Path) -> list[dict[str, Any]]:
+    if not isinstance(report, dict):
+        report = {}
+    issues = []
+    for finding in report_language_lint.lint_report_quality(markdown_text, report, markdown_path):
+        identifier = finding.get("id") or finding.get("pattern") or "report-quality"
+        issues.append(
+            {
+                "id": identifier,
+                "severity": finding.get("severity", "minor"),
+                "status": "open",
+                "description": finding.get("message", "Report quality finding."),
+            }
+        )
+    return issues
+
+
 def deterministic_bundle_issues(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for field in ["manifest", "source_manifest", "gaps", "normalized"]:
@@ -457,7 +474,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     issues = deterministic_bundle_issues(bundle) if bundle["bundle_type"] == "deterministic_data_bundle" else deterministic_issues(report, sources_by_id)
     if bundle["bundle_type"] != "deterministic_data_bundle":
         markdown_text = md_path.read_text(encoding="utf-8", errors="ignore")
-        issues.extend(report_quality_scaffold_issues(report, markdown_text))
+        issues.extend(report_language_lint_issues(report, markdown_text, md_path))
         deterministic_bundle_dir = bundle.get("deterministic_bundle_dir")
         if isinstance(deterministic_bundle_dir, Path):
             issues.extend(source_registry_reconcile.source_registry_issues(run_dir, deterministic_bundle_dir))

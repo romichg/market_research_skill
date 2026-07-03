@@ -15,6 +15,8 @@ from script_utils import read_json, sha256_file, write_json
 
 
 DETERMINISTIC_ALIASES = {
+    "det_identity": "normalized/identity.json",
+    "deterministic_identity": "normalized/identity.json",
     "det_market_snapshot": "normalized/market_snapshot.json",
     "deterministic_market_snapshot": "normalized/market_snapshot.json",
     "det_technical_signals": "normalized/technical_signals.json",
@@ -22,9 +24,16 @@ DETERMINISTIC_ALIASES = {
     "det_prices_daily": "normalized/prices_daily.json",
     "deterministic_prices_daily": "normalized/prices_daily.json",
     "market_prices": "normalized/prices_daily.json",
+    "det_etf_profile": "normalized/etf_profile.json",
+    "deterministic_etf_profile": "normalized/etf_profile.json",
+    "det_etf_holdings": "normalized/etf_holdings.json",
+    "deterministic_etf_holdings": "normalized/etf_holdings.json",
     "det_news": "normalized/news.json",
     "deterministic_news": "normalized/news.json",
     "deterministic_manifest": "manifest.json",
+    "deterministic_source_manifest": "source_manifest.json",
+    "deterministic_gaps": "gaps.json",
+    "deterministic_data_usage": "deterministic_data_usage.json",
 }
 
 SOURCE_ID_KEYS = {"source_id", "source_ids", "source_ids_cited"}
@@ -48,10 +57,30 @@ def source_ids_from_report_json(report: dict[str, Any]) -> set[str]:
         elif isinstance(value, list):
             for item in value:
                 visit(item, key)
-        elif isinstance(value, str) and key in SOURCE_ID_KEYS:
-            found.add(value)
+        elif isinstance(value, str) and (key in SOURCE_ID_KEYS or (key and "source" in key)):
+            if value in DETERMINISTIC_ALIASES or key in SOURCE_ID_KEYS:
+                found.add(value)
 
     visit(report)
+    return found
+
+
+def material_source_ids_from_report_json(report: dict[str, Any]) -> set[str]:
+    found: set[str] = set()
+    material_sections = ["material_claims", "risks", "catalysts"]
+    for section in material_sections:
+        values = report.get(section)
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            for key in SOURCE_ID_KEYS:
+                value = item.get(key)
+                if isinstance(value, str):
+                    found.add(value)
+                elif isinstance(value, list):
+                    found.update(str(child) for child in value if isinstance(child, str))
     return found
 
 
@@ -139,13 +168,13 @@ def reconcile_report_sources(report_dir: Path, data_dir: Path | None = None, fix
 def source_registry_issues(report_dir: Path, data_dir: Path | None = None) -> list[dict[str, Any]]:
     result = reconcile_report_sources(report_dir, data_dir, fix=False)
     issues = []
-    json_ids: set[str] = set()
+    material_json_ids: set[str] = set()
     for json_path in sorted(report_dir.glob("*-research.json")):
         payload = read_json(json_path)
         if isinstance(payload, dict):
-            json_ids.update(source_ids_from_report_json(payload))
+            material_json_ids.update(material_source_ids_from_report_json(payload))
     for source_id in result["missing_ids"]:
-        severity = "moderate" if source_id in json_ids else "minor"
+        severity = "moderate" if source_id in material_json_ids else "minor"
         issues.append(
             {
                 "id": f"source-registry-missing-{source_id.replace('_', '-')}",

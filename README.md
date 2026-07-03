@@ -22,8 +22,7 @@ Active project documentation lives under `docs/`:
 - `docs/architecture.md` explains skill boundaries, artifact roots, and evidence roles.
 - `docs/quality-bar.md` captures the report-quality, evidence, freshness, validation, and self-improvement standards.
 - `docs/operations.md` collects development commands and operator workflows.
-
-Historical plans and generated self-improvement artifacts can be kept locally under ignored `archives/`.
+- `docs/maintainer-notes/` preserves curated handoff notes and lessons for future maintainers and agent workers.
 
 ## Requirements
 
@@ -117,7 +116,7 @@ HTTP_USER_AGENT=
 
 Avoid browser-like values such as `Mozilla/5.0 ... Chrome/...` for SEC API calls. If `SEC_USER_AGENT` is empty or browser-like, SEC calls use the built-in descriptive `DEFAULT_SEC_USER_AGENT`. `HTTP_USER_AGENT` is separate: it is used for generic HTTP provider calls such as MarketAux and defaults to a browser-like value when unset.
 
-Generated `data/`, `reports/`, `runtime/`, local `archives/`, `.env`, and private research bundles should stay out of commits.
+Generated `data/`, `reports/`, `runtime/`, `.env`, and private research bundles should stay out of commits.
 
 ## Run A Single Research Job
 

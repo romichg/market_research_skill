@@ -667,6 +667,45 @@ def context_point(key: str, value: Any, source_id: str, confidence: str = "high"
     }
 
 
+def payload_path_value(payload: dict[str, Any], *path: str) -> Any:
+    value: Any = payload
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def validate_blackrock_product_identity(payload: dict[str, Any], symbol: str) -> list[str]:
+    expected = symbol.upper()
+    tickers = {
+        str(value).upper()
+        for value in [
+            payload.get("ticker"),
+            payload_path_value(payload, "fundHeader", "ticker"),
+            payload_path_value(payload, "fundHeader", "localTicker"),
+            payload_path_value(payload, "FundHeaderV3", "ticker"),
+            payload_path_value(payload, "FundHeaderV3", "localTicker"),
+        ]
+        if value
+    }
+    names = [
+        str(value)
+        for value in [
+            payload.get("fundName"),
+            payload_path_value(payload, "fundHeader", "fundName"),
+            payload_path_value(payload, "FundHeaderV3", "fundName"),
+        ]
+        if value
+    ]
+    mismatches: list[str] = []
+    if tickers and expected not in tickers:
+        mismatches.append(f"expected ticker {expected}, found {sorted(tickers)}")
+    if expected == "EWW" and any("germany" in name.lower() for name in names):
+        mismatches.append("EWW candidate resolved to a Germany fund payload")
+    return mismatches
+
+
 def merge_data_points(output_root: Path, symbol: str, as_of: str | None, points: list[dict[str, Any]]) -> dict[str, Any]:
     out = ensure_run(output_root, symbol, as_of)
     context = build_context(output_root, symbol, as_of)
@@ -691,6 +730,9 @@ def cmd_extract_blackrock(args: argparse.Namespace) -> None:
     output_root = Path(args.output_root).resolve()
     ensure_run(output_root, symbol, args.as_of)
     payload = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
+    mismatches = validate_blackrock_product_identity(payload, symbol)
+    if mismatches:
+        die(f"BlackRock/iShares payload identity mismatch: {'; '.join(mismatches)}")
     fund_header = payload.get("fundHeader") if isinstance(payload.get("fundHeader"), dict) else {}
     facts = payload.get("keyFundFacts") if isinstance(payload.get("keyFundFacts"), dict) else {}
     performance = payload.get("performance") if isinstance(payload.get("performance"), dict) else {}

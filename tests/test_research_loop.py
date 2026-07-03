@@ -103,9 +103,9 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "reports/" in producer
     assert "fresh Codex context" in validator
     assert "$market-research verifier reports/EWW/2026-06-01" in validator
-    assert "EWW-validator-skill-issues.md" in validator
+    assert "Write validator skill issues to `runtime/EWW/2026-06-01/EWW-validator-skill-issues.md`." in validator
     assert "Fix only open critical/moderate issues" in remediation
-    assert "EWW-market-research-skill-issues.md" in remediation
+    assert "Append any market-research skill improvements to `runtime/EWW/2026-06-01/EWW-market-research-skill-issues.md`." in remediation
     assert "Do not delete validator outputs" in remediation
 
 
@@ -125,11 +125,16 @@ def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
         "Use deterministic evidence first: `python3 market-research/shared/scripts/deterministic_research_collector.py fetch "
         "AAPL --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`."
     ) in producer
-    assert "Use the deterministic bundle under `data/AAPL/YYYY-MM-DD/` as evidence." in producer
+    assert "Use the deterministic bundle under `data/AAPL/2026-06-16/` as evidence." in producer
+    assert (
+        "producer_self_check.py reports/AAPL/2026-06-16 --data-dir data/AAPL/2026-06-16 "
+        "--runtime-dir runtime/AAPL/2026-06-16 --fix-safe"
+    ) in producer
     assert "Write final research markdown and JSON under `reports/AAPL/2026-06-16`." in producer
     assert "Attempt best-effort PDF generation for the final markdown" in producer
     assert "Write producer skill issues to `runtime/AAPL/2026-06-16/AAPL-market-research-issues.md`." in producer
     assert "$market-research verifier reports/AAPL/2026-06-16" in validator
+    assert "Write validator skill issues to `runtime/AAPL/2026-06-16/AAPL-validator-skill-issues.md`." in validator
 
 
 def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp_path):
@@ -160,6 +165,10 @@ def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_p
     producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
     assert f"Use `{run_dir}` for transient runtime notes, prompts, logs, and issue files." in producer
     assert f"Write producer skill issues to `{run_dir}/AAPL-market-research-issues.md`." in producer
+    validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
+    remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
+    assert f"Write validator skill issues to `{run_dir}/AAPL-validator-skill-issues.md`." in validator
+    assert f"Append any market-research skill improvements to `{run_dir}/AAPL-market-research-skill-issues.md`." in remediation
 
 
 def test_loop_prompt_maps_absolute_reports_dir_to_sibling_runtime_dir(tmp_path):
@@ -175,6 +184,10 @@ def test_loop_prompt_maps_absolute_reports_dir_to_sibling_runtime_dir(tmp_path):
     assert f"Write final research markdown and JSON under `{absolute_run_dir}`." in producer
     assert f"Use `{expected_runtime_dir}` for transient runtime notes, prompts, logs, and issue files." in producer
     assert f"Write producer skill issues to `{expected_runtime_dir / 'AAPL-market-research-issues.md'}`." in producer
+    validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
+    remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
+    assert f"Write validator skill issues to `{expected_runtime_dir / 'AAPL-validator-skill-issues.md'}`." in validator
+    assert f"Append any market-research skill improvements to `{expected_runtime_dir / 'AAPL-market-research-skill-issues.md'}`." in remediation
 
 
 def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_path):
@@ -187,6 +200,7 @@ def test_write_prompts_default_validator_output_uses_reports_placeholder(tmp_pat
     validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
     assert "$market-research verifier runtime/EWW" in validator
     assert "Write validation markdown and JSON artifacts under `reports/EWW/YYYY-MM-DD`." in validator
+    assert "Write validator skill issues to `runtime/EWW/EWW-validator-skill-issues.md`." in validator
     assert "Write validation markdown and JSON artifacts under `runtime/EWW`." not in validator
 
 
@@ -251,6 +265,8 @@ def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
     assert "Market Snapshot And Technical Analysis" in prompt
     assert "support/resistance" in prompt
     assert "Data Issues And Discrepancies" in prompt
+    assert str(run_a / "skill-improvement-feedback.md") in prompt
+    assert str(run_b / "skill-improvement-feedback.md") in prompt
 
 
 def test_self_improve_defaults_to_docs_superpowers_plans(tmp_path, monkeypatch):
@@ -430,6 +446,149 @@ def test_sync_runtime_sources_rewrites_local_artifacts_to_report_bundle(tmp_path
     assert (report_dir / "source_bundle" / "qtup_prospectus.pdf").read_bytes() == b"prospectus"
 
 
+def test_sync_runtime_sources_to_report_merges_report_source_records(tmp_path):
+    spec = importlib.util.spec_from_file_location("research_loop", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["research_loop"] = module
+    spec.loader.exec_module(module)
+    runtime_dir = tmp_path / "runtime" / "batch" / "ECH" / "2026-07-02"
+    report_dir = tmp_path / "reports" / "ECH" / "2026-07-02"
+    runtime_dir.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    (runtime_dir / "sources.json").write_text(json.dumps({"sources": [{"id": "issuer_page"}]}), encoding="utf-8")
+    (report_dir / "sources.json").write_text(json.dumps({"sources": [{"id": "deterministic_gaps"}]}), encoding="utf-8")
+
+    module.sync_runtime_sources_to_report(runtime_dir, report_dir)
+
+    sources = json.loads((report_dir / "sources.json").read_text(encoding="utf-8"))["sources"]
+    assert {source["id"] for source in sources} == {"issuer_page", "deterministic_gaps"}
+
+
+def test_sync_runtime_sources_rewrites_preserved_report_source_records(tmp_path):
+    spec = importlib.util.spec_from_file_location("research_loop", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["research_loop"] = module
+    spec.loader.exec_module(module)
+    runtime_dir = tmp_path / "runtime" / "batch" / "EWW" / "2026-07-02"
+    report_dir = tmp_path / "reports" / "EWW" / "2026-07-02"
+    runtime_bundle = runtime_dir / "source_bundle"
+    runtime_bundle.mkdir(parents=True)
+    (runtime_bundle / "issuer.html").write_text("issuer", encoding="utf-8")
+    report_bundle = report_dir / "source_bundle"
+    report_bundle.mkdir(parents=True)
+    (report_bundle / "issuer.html").write_text("issuer", encoding="utf-8")
+    (runtime_dir / "sources.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (report_dir / "sources.json").write_text(
+        json.dumps({"sources": [{"id": "issuer_page", "local_artifact": str(runtime_bundle / "issuer.html")}]}),
+        encoding="utf-8",
+    )
+
+    module.sync_runtime_sources_to_report(runtime_dir, report_dir)
+
+    sources = json.loads((report_dir / "sources.json").read_text(encoding="utf-8"))["sources"]
+    assert sources == [{"id": "issuer_page", "local_artifact": str(report_bundle / "issuer.html")}]
+
+
+def test_sync_runtime_sources_rewrites_markdown_source_bundle_paths(tmp_path):
+    spec = importlib.util.spec_from_file_location("research_loop", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["research_loop"] = module
+    spec.loader.exec_module(module)
+    runtime_dir = tmp_path / "runtime" / "batch" / "ECH" / "2026-07-02"
+    report_dir = tmp_path / "reports" / "ECH" / "2026-07-02"
+    source_bundle = runtime_dir / "source_bundle"
+    source_bundle.mkdir(parents=True)
+    (source_bundle / "issuer.html").write_text("issuer", encoding="utf-8")
+    report_dir.mkdir(parents=True)
+    (report_dir / "ECH-research.md").write_text(
+        f"""# ECH Research
+
+## Sources And Evidence
+
+| Source | Evidence |
+| --- | --- |
+| issuer | {runtime_dir}/source_bundle/issuer.html |
+
+## Data Issues And Discrepancies
+
+The saved source is {runtime_dir}/source_bundle/issuer.html.
+""",
+        encoding="utf-8",
+    )
+
+    module.sync_runtime_sources_to_report(runtime_dir, report_dir)
+
+    text = (report_dir / "ECH-research.md").read_text(encoding="utf-8")
+    assert f"| issuer | {report_dir}/source_bundle/issuer.html |" in text
+    assert f"The saved source is {report_dir}/source_bundle/issuer.html." in text
+    assert f"{runtime_dir}/source_bundle/issuer.html" not in text
+
+
+def test_sync_runtime_sources_rewrites_json_source_bundle_paths(tmp_path):
+    spec = importlib.util.spec_from_file_location("research_loop", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["research_loop"] = module
+    spec.loader.exec_module(module)
+    runtime_dir = tmp_path / "runtime" / "batch" / "QUBT" / "2026-07-02"
+    report_dir = tmp_path / "reports" / "QUBT" / "2026-07-02"
+    source_bundle = runtime_dir / "source_bundle"
+    source_bundle.mkdir(parents=True)
+    (source_bundle / "issuer.html").write_text("issuer", encoding="utf-8")
+    (source_bundle / "extracted.json").write_text(
+        json.dumps({"source_file": str(source_bundle / "issuer.html")}),
+        encoding="utf-8",
+    )
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True)
+    (runtime_dir / "sources.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (runtime_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "source_bundle_file": str(source_bundle / "issuer.html"),
+                "source_bundle": str(source_bundle),
+                "runtime_dir": str(runtime_dir),
+            }
+        ),
+        encoding="utf-8",
+    )
+    (runtime_dir / "research_context.json").write_text(
+        json.dumps({"sources": [{"local_artifact": str(source_bundle / "issuer.html")}]}),
+        encoding="utf-8",
+    )
+    (report_dir / "QUBT-research.json").write_text(
+        json.dumps(
+            {
+                "input_artifacts": [str(source_bundle / "issuer.html")],
+                "audit": {"runtime_dir": str(runtime_dir)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    module.sync_runtime_sources_to_report(runtime_dir, report_dir)
+
+    report_artifact = str(report_dir / "source_bundle" / "issuer.html")
+    assert json.loads((report_dir / "run_manifest.json").read_text(encoding="utf-8")) == {
+        "runtime_dir": str(runtime_dir),
+        "source_bundle": str(report_dir / "source_bundle"),
+        "source_bundle_file": report_artifact,
+    }
+    assert json.loads((report_dir / "research_context.json").read_text(encoding="utf-8")) == {
+        "sources": [{"local_artifact": report_artifact}]
+    }
+    assert json.loads((report_dir / "QUBT-research.json").read_text(encoding="utf-8")) == {
+        "audit": {"runtime_dir": str(runtime_dir)},
+        "input_artifacts": [report_artifact],
+    }
+    assert json.loads((report_dir / "source_bundle" / "extracted.json").read_text(encoding="utf-8")) == {
+        "source_file": report_artifact
+    }
+
+
 def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
     root = tmp_path / "runs"
     good = root / "EWW" / "iteration-01"
@@ -455,6 +614,65 @@ def test_summarize_batch_counts_pass_fail_and_skill_issue_files(tmp_path):
         str(bad / "validation-skill-issues.md"),
         str(good / "skill-issues.md"),
     ]
+
+
+def test_summarize_reports_feedback_package_freshness(tmp_path):
+    root = tmp_path / "batch"
+    root.mkdir()
+    feedback = {
+        "issue_file_count": 2,
+        "researcher_comment_count": 1,
+        "supporting_artifact_count": 3,
+    }
+    feedback_path = root / "skill-improvement-feedback.json"
+    feedback_path.write_text(json.dumps(feedback), encoding="utf-8")
+
+    result = run_harness("summarize", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["feedback_package"]["path"] == str(feedback_path)
+    assert payload["feedback_package"]["issue_file_count"] == 2
+    assert payload["feedback_package"]["researcher_comment_count"] == 1
+    assert payload["feedback_package"]["supporting_artifact_count"] == 3
+    assert payload["feedback_package"]["modified_at"]
+
+
+def test_refresh_summary_records_post_loop_validation(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "ECH" / "2026-07-02"
+    report_dir = tmp_path / "reports" / "ECH" / "2026-07-02"
+    runtime_symbol.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    summary_path = root / "research-loop-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "symbols": {
+                    "ECH": {
+                        "status": "failed_blocking_issues",
+                        "iterations": 4,
+                        "run_dir": str(runtime_symbol),
+                        "artifact_run_dir": str(report_dir),
+                        "validation_json": str(report_dir / "ECH-validation.json"),
+                        "open_blocking_issue_ids": ["ECH-V-001"],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "ECH-validation.json").write_text(json.dumps({"final_pass": True, "blocking_issue_count": 0, "issues": []}), encoding="utf-8")
+
+    result = run_harness("refresh-summary", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    symbol = payload["symbols"]["ECH"]
+    assert symbol["status"] == "passed"
+    assert symbol["historical_status"] == "failed_blocking_issues"
+    assert symbol["post_loop_refresh"]["validation_json"] == str(report_dir / "ECH-validation.json")
+    assert symbol["open_blocking_issue_ids"] == []
 
 
 def test_summarize_finds_validation_json_in_sibling_reports_tree(tmp_path):
@@ -562,6 +780,107 @@ def test_run_batch_does_not_execute_or_plan_self_improvement(tmp_path):
     assert "self_improvement" not in payload
     assert not (root / "prompts" / "self-improvement.md").exists()
     assert not (root / "self-improvement").exists()
+
+
+def test_run_batch_uses_producer_self_check_before_validator(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-07-01"
+    reports_bundle = tmp_path / "reports" / "QTUM" / as_of
+    data_bundle = tmp_path / "data" / "QTUM" / as_of
+    validator_marker = tmp_path / "validator-used"
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; import json; "
+        f"report_dir = Path(r'{reports_bundle}'); data_dir = Path(r'{data_bundle}'); "
+        "report_dir.mkdir(parents=True, exist_ok=True); (data_dir / 'normalized').mkdir(parents=True, exist_ok=True); "
+        "(data_dir / 'research_input_pack.md').write_text('pack', encoding='utf-8'); "
+        "(data_dir / 'manifest.json').write_text(json.dumps({'symbol':'QTUM','asset_type':'etf'}), encoding='utf-8'); "
+        "(data_dir / 'source_manifest.json').write_text(json.dumps({'sources':[]}), encoding='utf-8'); "
+        "(data_dir / 'gaps.json').write_text(json.dumps({'gaps':[]}), encoding='utf-8'); "
+        "(data_dir / 'deterministic_data_usage.json').write_text(json.dumps({'datapoints':[{'field_path':'identity.asset_type','field_name':'asset_type','materiality':'required'}]}), encoding='utf-8'); "
+        "(report_dir / 'QTUM-research.md').write_text('# QTUM Research', encoding='utf-8'); "
+        "payload = {'symbol':'QTUM','security_type':'etf','as_of_date':'2026-07-01','deterministic_bundle':{'bundle_dir':str(data_dir)},'material_claims':[],'data_gaps':[],'technical_analysis':{},'valuation_or_performance':{},'decision_factors':{},'risks':[],'catalysts':[],'source_coverage':{},'calculation_audit':[]}; "
+        "(report_dir / 'QTUM-research.json').write_text(json.dumps(payload), encoding='utf-8'); "
+        "(report_dir / 'sources.json').write_text(json.dumps({'sources':[]}), encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"Path(r'{validator_marker}').write_text('used', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "QTUM",
+        "--run-root",
+        str(root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+        "--max-remediation-loops",
+        "0",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    result_payload = payload["symbols"]["QTUM"]
+    assert result_payload["status"] == "failed_producer_self_check"
+    assert "deterministic-usage-missing-required-identity-asset_type" in result_payload["open_blocking_issue_ids"]
+    assert not validator_marker.exists()
+    assert (root / "QTUM" / as_of / "producer-self-check.json").exists()
+
+
+def test_run_batch_moves_intermediate_validation_scaffolds_to_runtime(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    reports_bundle = tmp_path / "reports" / "EWW" / as_of
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{validation_output_dir}'); "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8'); "
+        "(run_dir / '{symbol}-validation-scaffold.md').write_text('canonical', encoding='utf-8'); "
+        "(run_dir / '{symbol}-validation-scaffold.json').write_text('{{}}', encoding='utf-8'); "
+        "(run_dir / '{symbol}-remediation-validation-scaffold.md').write_text('intermediate', encoding='utf-8'); "
+        "(run_dir / '{symbol}-remediation-validation-scaffold.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    runtime_dir = root / "EWW" / as_of
+    assert (reports_bundle / "EWW-validation-scaffold.md").exists()
+    assert (reports_bundle / "EWW-validation-scaffold.json").exists()
+    assert not (reports_bundle / "EWW-remediation-validation-scaffold.md").exists()
+    assert not (reports_bundle / "EWW-remediation-validation-scaffold.json").exists()
+    assert (runtime_dir / "validation_scaffolds" / "EWW-remediation-validation-scaffold.md").read_text(encoding="utf-8") == "intermediate"
+    assert (runtime_dir / "validation_scaffolds" / "EWW-remediation-validation-scaffold.json").exists()
 
 
 def test_run_batch_dry_run_quotes_path_placeholders(tmp_path):
@@ -1067,6 +1386,8 @@ def test_collect_feedback_writes_manual_improvement_package(tmp_path):
     symbol_dir = root / "EWW"
     symbol_dir.mkdir(parents=True)
     (symbol_dir / "EWW-market-research-skill-issues.md").write_text("# Producer Issues\n\n- Improve ETF extraction.\n", encoding="utf-8")
+    (symbol_dir / "EWW-market-research-issues.md").write_text("# Researcher Issues\n\n- Capture source fallback better.\n", encoding="utf-8")
+    (symbol_dir / "EWW-researcher-comments.md").write_text("# Researcher Comments\n\n- Avoid CYA language.\n", encoding="utf-8")
     (symbol_dir / "EWW-validator-skill-issues.md").write_text("# Validator Issues\n\n- Check checksums.\n", encoding="utf-8")
     (root / "loop-skill-issues.md").write_text("# Loop Skill Issues\n\n- Tune timeout.\n", encoding="utf-8")
     (root / "operator-notes.md").write_text("# Operator Notes\n\n## Future User-Requested Changes\n\n- Add PDF output later.\n", encoding="utf-8")
@@ -1075,7 +1396,7 @@ def test_collect_feedback_writes_manual_improvement_package(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["issue_file_count"] == 3
+    assert payload["issue_file_count"] == 5
     feedback_md = root / "skill-improvement-feedback.md"
     feedback_json = root / "skill-improvement-feedback.json"
     assert feedback_md.exists()
@@ -1083,6 +1404,83 @@ def test_collect_feedback_writes_manual_improvement_package(tmp_path):
     text = feedback_md.read_text(encoding="utf-8")
     assert "Manual Skill Improvement Package" in text
     assert "Add PDF output later" in text
+    assert "Capture source fallback better" in text
+    assert "Avoid CYA language" in text
+
+
+def test_collect_feedback_includes_report_side_issues_and_researcher_comments(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "EWW" / "2026-07-02"
+    report_dir = tmp_path / "reports" / "EWW" / "2026-07-02"
+    runtime_symbol.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    (root / "research-loop-summary.json").write_text(
+        json.dumps(
+            {
+                "symbols": {
+                    "EWW": {
+                        "artifact_run_dir": str(report_dir),
+                        "run_dir": str(runtime_symbol),
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "EWW-market-research-skill-issues.md").write_text(
+        "# EWW Skill Issues\n\n- Promotion overwrote fixed report sources from stale runtime sources.\n",
+        encoding="utf-8",
+    )
+    (report_dir / "EWW-research.md").write_text(
+        "Clean line.\n"
+        "Use the sponsor's <@researcher: stop citing the sponsor in narrative; state the fact plainly> data.\n"
+        "Typo marker <@reasearcher: typo marker should still be harvested>.\n",
+        encoding="utf-8",
+    )
+
+    result = run_harness("collect-feedback", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert str(report_dir / "EWW-market-research-skill-issues.md") in payload["issue_files"]
+    assert payload["researcher_comment_count"] == 2
+    feedback_md = root / "skill-improvement-feedback.md"
+    text = feedback_md.read_text(encoding="utf-8")
+    assert "Promotion overwrote fixed report sources from stale runtime sources" in text
+    assert "stop citing the sponsor in narrative; state the fact plainly" in text
+    assert "typo marker should still be harvested" in text
+
+
+def test_self_improve_generates_runtime_feedback_package_and_references_it(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    report_dir = tmp_path / "reports" / "EWW" / "2026-07-02"
+    output_root = tmp_path / "docs" / "self-improvement"
+    report_dir.mkdir(parents=True)
+    root.mkdir(parents=True)
+    (root / "research-loop-summary.json").write_text(
+        json.dumps({"symbols": {"EWW": {"artifact_run_dir": str(report_dir)}}}),
+        encoding="utf-8",
+    )
+    (report_dir / "EWW-market-research-skill-issues.md").write_text(
+        "# Issues\n\n- Capture report-side issues for self improvement.\n",
+        encoding="utf-8",
+    )
+    (report_dir / "EWW-research.md").write_text(
+        "Report text <@researcher: avoid CYA provenance in the investment narrative>.\n",
+        encoding="utf-8",
+    )
+
+    result = run_harness("self-improve", str(root), "--output-root", str(output_root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    feedback_md = root / "skill-improvement-feedback.md"
+    assert feedback_md.exists()
+    assert payload["feedback_packages"] == [str(feedback_md)]
+    prompt = Path(payload["prompt"]).read_text(encoding="utf-8")
+    assert str(feedback_md) in prompt
+    assert "Capture report-side issues for self improvement" in feedback_md.read_text(encoding="utf-8")
+    assert "avoid CYA provenance in the investment narrative" in feedback_md.read_text(encoding="utf-8")
 
 
 def test_collect_feedback_includes_json_skill_issue_sidecars(tmp_path):
@@ -1112,3 +1510,19 @@ def test_collect_feedback_includes_json_skill_issue_sidecars(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert str(issue) in payload["issue_files"]
+
+
+def test_collect_feedback_references_runtime_validation_scaffolds(tmp_path):
+    root = tmp_path / "batch"
+    scaffold = root / "EWW" / "2026-07-02" / "validation_scaffolds" / "EWW-remediation-validation-scaffold.md"
+    scaffold.parent.mkdir(parents=True)
+    scaffold.write_text("# Scaffold\n\nBlocking issues: 1\n", encoding="utf-8")
+
+    result = run_harness("collect-feedback", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["supporting_artifact_count"] == 1
+    assert str(scaffold) in payload["supporting_artifacts"]
+    feedback_md = root / "skill-improvement-feedback.md"
+    assert str(scaffold) in feedback_md.read_text(encoding="utf-8")

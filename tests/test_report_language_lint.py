@@ -347,6 +347,111 @@ Creation/redemption, authorized participant, securities lending, premium/discoun
     assert any(finding.get("id") == "etf-missing-portfolio-companies-snapshot" for finding in findings)
 
 
+def test_report_quality_lint_flags_unsupported_etf_holding_business_context(tmp_path):
+    module = load_module()
+    report = tmp_path / "reports" / "QTUM" / "2026-07-02" / "QTUM-research.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        """# QTUM Research
+
+## Portfolio Companies Snapshot
+
+| Holding | Weight | Sector / Industry | Business And Outlook |
+| --- | ---: | --- | --- |
+| Horizon Quantum | 2.47% | Quantum software | Pure-play quantum exposure. |
+""",
+        encoding="utf-8",
+    )
+    report_json = {
+        "security_type": "etf",
+        "etf_holdings": {
+            "top25": [
+                {
+                    "name": "Horizon Quantum",
+                    "weight": "2.47%",
+                    "sector_or_industry": "Quantum software",
+                    "business_outlook": "Pure-play quantum exposure.",
+                }
+            ],
+            "source_ids": ["sponsor_full_holdings"],
+        },
+    }
+
+    findings = module.lint_report_quality(report.read_text(encoding="utf-8"), report_json, report)
+
+    assert any(
+        finding.get("id") == "etf-holding-company-context-unsupported"
+        and finding.get("severity") == "moderate"
+        for finding in findings
+    )
+
+
+def test_report_quality_lint_accepts_cited_etf_holding_classification_context(tmp_path):
+    module = load_module()
+    report = tmp_path / "reports" / "QTUM" / "2026-07-02" / "QTUM-research.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        """# QTUM Research
+
+## Portfolio Companies Snapshot
+
+| Holding | Weight | Sector / Industry | Business And Outlook |
+| --- | ---: | --- | --- |
+| Horizon Quantum | 2.47% | Quantum software | Pure-play quantum exposure. |
+""",
+        encoding="utf-8",
+    )
+    report_json = {
+        "security_type": "etf",
+        "etf_holdings": {
+            "top25": [
+                {
+                    "name": "Horizon Quantum",
+                    "weight": "2.47%",
+                    "sector_or_industry": "Quantum software",
+                    "business_outlook": "Pure-play quantum exposure.",
+                    "source_ids": ["holdings_classification"],
+                }
+            ]
+        },
+    }
+
+    findings = module.lint_report_quality(report.read_text(encoding="utf-8"), report_json, report)
+
+    assert not any(finding.get("id") == "etf-holding-company-context-unsupported" for finding in findings)
+
+
+def test_report_quality_lint_flags_thin_etf_holding_context(tmp_path):
+    module = load_module()
+    report = tmp_path / "reports" / "QTUM" / "2026-07-02" / "QTUM-research.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        """# QTUM Research
+
+## Portfolio Companies Snapshot
+
+| Holding | Weight |
+| --- | ---: |
+| Holding 1 | 2.47% |
+""",
+        encoding="utf-8",
+    )
+    report_json = {
+        "security_type": "etf",
+        "etf_holdings": {
+            "top25": [{"name": f"Holding {index}", "weight": "1.00%"} for index in range(25)]
+        },
+    }
+
+    findings = module.lint_report_quality(report.read_text(encoding="utf-8"), report_json, report)
+
+    assert any(
+        finding.get("id") == "etf-holding-company-context-too-thin"
+        and finding.get("severity") == "moderate"
+        for finding in findings
+    )
+
+
 def test_report_language_lint_cli_uses_report_json_for_etf_snapshot_check(tmp_path):
     report = tmp_path / "ECH-research.md"
     report_json = tmp_path / "ECH-research.json"
