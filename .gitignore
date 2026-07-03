@@ -22,6 +22,7 @@ secrets.json
 *credentials*.json
 *secrets*.json
 .venv/
+.venv-market-research/
 .worktrees/
 __pycache__/
 *.py[cod]

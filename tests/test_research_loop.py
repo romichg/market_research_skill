@@ -11,8 +11,8 @@ import pytest
 HARNESS = Path(__file__).resolve().parents[1] / "market-research" / "batch-supervisor" / "scripts" / "research_loop.py"
 
 
-def run_harness(*args):
-    return subprocess.run([sys.executable, str(HARNESS), *args], text=True, capture_output=True, check=False)
+def run_harness(*args, env=None):
+    return subprocess.run([sys.executable, str(HARNESS), *args], text=True, capture_output=True, check=False, env=env)
 
 
 def test_validation_gate_passes_only_without_open_critical_or_moderate(tmp_path):
@@ -638,6 +638,43 @@ def test_summarize_reports_feedback_package_freshness(tmp_path):
     assert payload["feedback_package"]["modified_at"]
 
 
+def test_summarize_ignores_prompt_scaffold_directory(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "ECH" / "2026-07-03"
+    prompts = root / "prompts" / "ECH"
+    report_dir = tmp_path / "reports" / "ECH" / "2026-07-03"
+    runtime_symbol.mkdir(parents=True)
+    prompts.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    (root / "research-loop-config.json").write_text(json.dumps({"symbols": ["ECH"]}), encoding="utf-8")
+    (report_dir / "ECH-validation.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
+
+    result = run_harness("summarize", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols_total"] == 1
+    assert payload["passed"] == ["ECH"]
+    assert payload["failed"] == []
+
+
+def test_summarize_uses_reports_dir_environment_fallback(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "ECH" / "2026-07-03"
+    report_dir = tmp_path / "custom-reports" / "ECH" / "2026-07-03"
+    runtime_symbol.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    (report_dir / "ECH-validation.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
+    env = {**os.environ, "RESEARCH_REPORTS_DIR": str(tmp_path / "custom-reports")}
+
+    result = run_harness("summarize", str(root), env=env)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["passed"] == ["ECH"]
+    assert payload["failed"] == []
+
+
 def test_refresh_summary_records_post_loop_validation(tmp_path):
     root = tmp_path / "runtime" / "batch"
     runtime_symbol = root / "ECH" / "2026-07-02"
@@ -931,6 +968,17 @@ def test_run_batch_defaults_to_supported_codex_exec_command(tmp_path):
     assert "--dangerously-bypass-approvals-and-sandbox" in commands["validator"]
     assert "--ask-for-approval" not in commands["producer"]
     assert "--ask-for-approval" not in commands["validator"]
+
+
+def test_run_batch_without_codex_requires_explicit_child_launcher(tmp_path):
+    root = tmp_path / "batch"
+    env = {**os.environ, "PATH": str(tmp_path / "empty-bin")}
+
+    result = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", "2026-06-16", env=env)
+
+    assert result.returncode != 0
+    assert "`codex` is not on PATH" in result.stderr
+    assert "agent-native" in result.stderr
 
 
 def test_run_batch_dry_run_uses_runtime_symbol_date_layout(tmp_path):
