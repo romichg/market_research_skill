@@ -29,7 +29,13 @@ FORBIDDEN_MAIN_BODY_PATTERNS = [
     "sources.json",
     "normalized/",
     "raw/",
-    "cache",
+    "cache/",
+    "cache file",
+    "cache directory",
+    "cached response",
+    "cache hit",
+    "cache miss",
+    "from cache",
     "provider",
 ]
 VENDOR_NAMES = [
@@ -255,6 +261,21 @@ def has_holdings(report_json: dict[str, Any] | None) -> bool:
     return False
 
 
+PEER_COMPARISON_TERMS = ["peer", "competitor", "comparable etf", "alternative etf"]
+
+
+def has_peer_comparison_or_disclosed_omission(sections: dict[str, str]) -> bool:
+    """Cheap structural check for the ETF peer/competitor comparison requirement.
+
+    Not a substitute for judgment validation: only confirms the report mentions a peer/competitor
+    ETF somewhere (a real comparison) or, in Data Issues And Discrepancies, explicitly discloses why
+    peer data was unavailable (which necessarily also uses one of these terms). A fresh-context
+    verifier pass should still judge whether the comparison itself is substantive.
+    """
+    full_text = "\n".join(sections.values()).lower()
+    return any(term in full_text for term in PEER_COMPARISON_TERMS)
+
+
 def etf_holding_rows(report_json: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(report_json, dict):
         return []
@@ -433,6 +454,15 @@ def lint_report_quality(text: str, report_json: dict[str, Any] | None = None, re
                 "id": "etf-missing-portfolio-companies-snapshot",
                 "section": "portfolio companies snapshot",
                 "message": "ETF reports should include a Portfolio Companies Snapshot when holdings are available.",
+            }
+        )
+    if security_type == "etf" and not has_peer_comparison_or_disclosed_omission(sections):
+        findings.append(
+            {
+                "severity": "minor",
+                "id": "etf-missing-peer-comparison",
+                "section": "valuation",
+                "message": "ETF reports should compare against an obvious peer/competitor ETF when public/free data exists, or explicitly disclose in Data Issues And Discrepancies why peer data is unavailable.",
             }
         )
     findings.extend(lint_etf_holding_context_support(text, report_json, report_path))

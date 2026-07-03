@@ -131,7 +131,43 @@ def cited_source_ids(report_dir: Path) -> set[str]:
     return ids
 
 
-def reconcile_report_sources(report_dir: Path, data_dir: Path | None = None, fix: bool = False) -> dict[str, Any]:
+def runtime_sources_path_for(report_dir: Path, runtime_dir: Path | None = None) -> Path:
+    """Locate runtime/sources.json for a report.
+
+    `runtime_dir` may already point at the dated SYMBOL/AS_OF directory (where sources.json
+    lives) or at the coarser SYMBOL-level directory (as producer_self_check.py's
+    `--runtime-dir` conventionally does), so both layouts are tried before falling back to
+    the default SYMBOL/AS_OF layout derived from `report_dir`.
+    """
+    candidates: list[Path] = []
+    if runtime_dir is not None:
+        candidates.append(runtime_dir / "sources.json")
+        candidates.append(runtime_dir / report_dir.name / "sources.json")
+    candidates.append(
+        report_dir.parent.parent.parent / "runtime" / report_dir.parent.name / report_dir.name / "sources.json"
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def unmirrored_runtime_source_ids(report_dir: Path, runtime_dir: Path | None = None) -> set[str]:
+    """Source ids captured procedurally in runtime/sources.json but never copied into the report-facing sources.json."""
+    runtime_sources_path = runtime_sources_path_for(report_dir, runtime_dir)
+    runtime_ids = load_registered_source_ids(runtime_sources_path)
+    if not runtime_ids:
+        return set()
+    report_ids = load_registered_source_ids(report_dir / "sources.json")
+    return runtime_ids - report_ids
+
+
+def reconcile_report_sources(
+    report_dir: Path,
+    data_dir: Path | None = None,
+    fix: bool = False,
+    runtime_dir: Path | None = None,
+) -> dict[str, Any]:
     data_dir = data_dir or report_dir.parent.parent.parent / "data" / report_dir.parent.name / report_dir.name
     sources_path = report_dir / "sources.json"
     registered = load_registered_source_ids(sources_path)
@@ -162,11 +198,12 @@ def reconcile_report_sources(report_dir: Path, data_dir: Path | None = None, fix
         "registered_ids": sorted(registered),
         "missing_ids": deterministic_missing,
         "added_ids": added,
+        "unmirrored_runtime_ids": sorted(unmirrored_runtime_source_ids(report_dir, runtime_dir)),
     }
 
 
-def source_registry_issues(report_dir: Path, data_dir: Path | None = None) -> list[dict[str, Any]]:
-    result = reconcile_report_sources(report_dir, data_dir, fix=False)
+def source_registry_issues(report_dir: Path, data_dir: Path | None = None, runtime_dir: Path | None = None) -> list[dict[str, Any]]:
+    result = reconcile_report_sources(report_dir, data_dir, fix=False, runtime_dir=runtime_dir)
     issues = []
     material_json_ids: set[str] = set()
     for json_path in sorted(report_dir.glob("*-research.json")):
@@ -183,18 +220,37 @@ def source_registry_issues(report_dir: Path, data_dir: Path | None = None) -> li
                 "description": f"Report cites deterministic source_id {source_id!r}, but final sources.json does not register it.",
             }
         )
+    for source_id in result["unmirrored_runtime_ids"]:
+        issues.append(
+            {
+                "id": f"source-registry-unmirrored-{source_id.replace('_', '-')}",
+                "severity": "minor",
+                "status": "open",
+                "description": f"Source_id {source_id!r} is registered in runtime/sources.json but was never mirrored into the report-facing sources.json.",
+            }
+        )
     return issues
 
 
 def cmd_check(args: argparse.Namespace) -> None:
-    result = reconcile_report_sources(Path(args.report_dir), Path(args.data_dir) if args.data_dir else None, fix=False)
+    result = reconcile_report_sources(
+        Path(args.report_dir),
+        Path(args.data_dir) if args.data_dir else None,
+        fix=False,
+        runtime_dir=Path(args.runtime_dir) if args.runtime_dir else None,
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     if result["missing_ids"]:
         raise SystemExit(1)
 
 
 def cmd_fix(args: argparse.Namespace) -> None:
-    result = reconcile_report_sources(Path(args.report_dir), Path(args.data_dir) if args.data_dir else None, fix=True)
+    result = reconcile_report_sources(
+        Path(args.report_dir),
+        Path(args.data_dir) if args.data_dir else None,
+        fix=True,
+        runtime_dir=Path(args.runtime_dir) if args.runtime_dir else None,
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
@@ -205,6 +261,7 @@ def build_parser() -> argparse.ArgumentParser:
         command = sub.add_parser(name)
         command.add_argument("report_dir")
         command.add_argument("--data-dir")
+        command.add_argument("--runtime-dir")
         command.set_defaults(func=func)
     return parser
 

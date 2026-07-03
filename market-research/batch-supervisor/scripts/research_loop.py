@@ -27,6 +27,14 @@ DEFAULT_CODEX_COMMAND = (
     "--dangerously-bypass-approvals-and-sandbox - < {prompt_file}"
 )
 CONTROL_DIR_NAMES = {"prompts", "validation_scaffolds", "self-improvement", "logs"}
+DEFAULT_CLAUDE_COMMAND = (
+    "claude -p --dangerously-skip-permissions --no-session-persistence "
+    "--output-format text < {prompt_file}"
+)
+DEFAULT_COMMANDS_BY_AGENT_CLI = {
+    "codex": DEFAULT_CODEX_COMMAND,
+    "claude": DEFAULT_CLAUDE_COMMAND,
+}
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 1800
 DEFAULT_SELF_IMPROVEMENT_ROOT = Path("docs") / "superpowers" / "plans" / "self-improvement"
 LOOP_ISSUES_TEMPLATE = """# Loop Skill Issues
@@ -53,10 +61,26 @@ Add deferred feature requests here, for example browser/captcha handoff, alterna
 """
 
 
+RATE_LIMIT_SIGNATURES = [
+    "session limit",
+    "usage limit",
+    "rate limit",
+    "rate-limited",
+    "quota exceeded",
+    "quota exhausted",
+]
+
+
+def looks_rate_limited(*texts: str) -> bool:
+    combined = " ".join(texts).lower()
+    return any(signature in combined for signature in RATE_LIMIT_SIGNATURES)
+
+
 @dataclass(frozen=True)
 class CommandResult:
     returncode: int
     timed_out: bool = False
+    rate_limited: bool = False
 
 
 def die(message: str, code: int = 2) -> None:
@@ -145,15 +169,25 @@ def data_dir_for_prompt(symbol: str, run_dir: str) -> str:
     return dated_layout_dir("data", symbol, run_dir)
 
 
-def producer_initial_prompt(symbol: str, run_dir: str) -> str:
+def skill_invocation_line(agent_cli: str, mode: str, target: str) -> str:
+    if agent_cli == "claude":
+        return f"/market-research {mode} {target}"
+    return f"$market-research {mode} {target}"
+
+
+def fresh_context_description(agent_cli: str) -> str:
+    return "this fresh Codex context" if agent_cli != "claude" else "this fresh Claude Code session"
+
+
+def producer_initial_prompt(symbol: str, run_dir: str, agent_cli: str = "codex") -> str:
     report_dir = report_dir_for_prompt(symbol, run_dir)
     runtime_dir = runtime_dir_for_prompt(symbol, run_dir)
     data_dir = data_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
-            f"$market-research researcher {symbol}",
+            skill_invocation_line(agent_cli, "researcher", symbol),
             "",
-            "Run the market-research researcher workflow in this fresh Codex context.",
+            f"Run the market-research researcher workflow in {fresh_context_description(agent_cli)}.",
             f"Use deterministic evidence first: `python3 market-research/shared/scripts/deterministic_research_collector.py fetch {symbol} --data-dir ./data --reports-dir ./reports --as-of YYYY-MM-DD`.",
             f"Use the deterministic bundle under `{data_dir}/` as evidence.",
             f"Write final research markdown and JSON under `{report_dir}`.",
@@ -189,14 +223,15 @@ def validator_prompt(
     run_dir: str,
     validation_output_dir: str | None = None,
     skill_issue_dir: str | None = None,
+    agent_cli: str = "codex",
 ) -> str:
     output_dir = validation_output_dir or default_validation_output_dir(symbol, run_dir)
     issue_dir = skill_issue_dir or runtime_dir_for_prompt(symbol, run_dir)
     return "\n".join(
         [
-            f"$market-research verifier {run_dir}",
+            skill_invocation_line(agent_cli, "verifier", run_dir),
             "",
-            "Run the market-research verifier workflow in this fresh Codex context.",
+            f"Run the market-research verifier workflow in {fresh_context_description(agent_cli)}.",
             f"Validate the input artifacts in `{run_dir}`.",
             "Record validator skill issues separately.",
             f"Write validator skill issues to `{issue_dir}/{symbol}-validator-skill-issues.md`.",
@@ -232,8 +267,8 @@ def cmd_write_prompts(args: argparse.Namespace) -> None:
         "validator_prompt": out / f"{symbol}-validator.md",
         "producer_remediation_prompt": out / f"{symbol}-producer-remediation.md",
     }
-    paths["producer_initial_prompt"].write_text(producer_initial_prompt(symbol, run_dir), encoding="utf-8")
-    paths["validator_prompt"].write_text(validator_prompt(symbol, run_dir), encoding="utf-8")
+    paths["producer_initial_prompt"].write_text(producer_initial_prompt(symbol, run_dir, args.agent_cli), encoding="utf-8")
+    paths["validator_prompt"].write_text(validator_prompt(symbol, run_dir, agent_cli=args.agent_cli), encoding="utf-8")
     paths["producer_remediation_prompt"].write_text(remediation_prompt(symbol, run_dir), encoding="utf-8")
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2, sort_keys=True))
 
@@ -631,16 +666,17 @@ def summary_symbol_dirs(root: Path) -> list[Path]:
     ]
 
 
-def default_child_command(*, dry_run: bool) -> str | None:
-    if dry_run or shutil.which("codex") is not None:
-        return DEFAULT_CODEX_COMMAND
+def default_child_command(agent_cli: str, *, dry_run: bool) -> str | None:
+    default_command = DEFAULT_COMMANDS_BY_AGENT_CLI[agent_cli]
+    if dry_run or shutil.which(agent_cli) is not None:
+        return default_command
     return None
 
 
-def missing_child_launcher_message(missing: list[str]) -> str:
+def missing_child_launcher_message(missing: list[str], agent_cli: str) -> str:
     missing_list = ", ".join(missing)
     return (
-        f"Missing child launcher for {missing_list}: `codex` is not on PATH. "
+        f"Missing child launcher for {missing_list}: `{agent_cli}` is not on PATH. "
         "Pass explicit --producer-command/--validator-command/--remediation-command templates, "
         "or use the batch-supervisor agent-native workflow: write/init prompts, launch fresh child "
         "sessions with the current agent's subagent mechanism, then run self-check, validation, "
@@ -716,8 +752,8 @@ def cmd_init_batch(args: argparse.Namespace) -> None:
         symbol_run_dir = f"{root}/{symbol}/{args.as_of}"
         out = prompt_root / symbol
         out.mkdir(parents=True, exist_ok=True)
-        (out / f"{symbol}-producer-initial.md").write_text(producer_initial_prompt(symbol, symbol_run_dir), encoding="utf-8")
-        (out / f"{symbol}-validator.md").write_text(validator_prompt(symbol, symbol_run_dir), encoding="utf-8")
+        (out / f"{symbol}-producer-initial.md").write_text(producer_initial_prompt(symbol, symbol_run_dir, args.agent_cli), encoding="utf-8")
+        (out / f"{symbol}-validator.md").write_text(validator_prompt(symbol, symbol_run_dir, agent_cli=args.agent_cli), encoding="utf-8")
         (out / f"{symbol}-producer-remediation.md").write_text(remediation_prompt(symbol, symbol_run_dir), encoding="utf-8")
         prompt_paths[symbol] = str(out)
     print(json.dumps({"run_root": str(root), "config": str(root / "research-loop-config.json"), "prompt_dirs": prompt_paths, "improvement_notes": improvement_notes}, indent=2, sort_keys=True))
@@ -780,7 +816,7 @@ def run_shell_command(command: str, log_path: Path, *, timeout_seconds: int | No
         ),
         encoding="utf-8",
     )
-    return CommandResult(returncode=returncode, timed_out=timed_out)
+    return CommandResult(returncode=returncode, timed_out=timed_out, rate_limited=looks_rate_limited(stdout, stderr))
 
 
 def deterministic_bundle_exists(path: Path) -> bool:
@@ -1096,17 +1132,17 @@ def latest_validation_in_run_dir(run_dir: Path, symbol: str) -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def write_iteration_prompts(symbol: str, run_dir: Path, iteration_dir: Path, remediation: bool) -> dict[str, Path]:
+def write_iteration_prompts(symbol: str, run_dir: Path, iteration_dir: Path, remediation: bool, agent_cli: str = "codex") -> dict[str, Path]:
     iteration_dir.mkdir(parents=True, exist_ok=True)
     prompts = {
         "producer": iteration_dir / ("producer-remediation.prompt.md" if remediation else "producer-initial.prompt.md"),
         "validator": iteration_dir / "validator.prompt.md",
     }
     prompts["producer"].write_text(
-        remediation_prompt(symbol, str(run_dir), str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+        remediation_prompt(symbol, str(run_dir), str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir), agent_cli),
         encoding="utf-8",
     )
-    prompts["validator"].write_text(validator_prompt(symbol, str(run_dir)), encoding="utf-8")
+    prompts["validator"].write_text(validator_prompt(symbol, str(run_dir), agent_cli=agent_cli), encoding="utf-8")
     return prompts
 
 
@@ -1119,7 +1155,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
     max_loops = args.max_remediation_loops
     if args.dry_run:
         iteration_dir = symbol_dir / "iteration-01"
-        prompts = write_iteration_prompts(symbol, run_dir, iteration_dir, remediation=False)
+        prompts = write_iteration_prompts(symbol, run_dir, iteration_dir, remediation=False, agent_cli=args.agent_cli)
         commands = {
             "producer": render_command(args.producer_command, prompt_file=prompts["producer"], symbol=symbol, run_dir=run_dir, iteration_dir=iteration_dir),
             "validator": render_command(args.validator_command, prompt_file=prompts["validator"], symbol=symbol, run_dir=run_dir, iteration_dir=iteration_dir),
@@ -1135,7 +1171,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
     for iteration in range(1, max_loops + 2):
         remediation = iteration > 1
         iteration_dir = symbol_dir / f"iteration-{iteration:02d}" if not remediation else symbol_dir / f"iteration-{iteration:02d}-remediation"
-        prompts = write_iteration_prompts(symbol, run_dir, iteration_dir, remediation=remediation)
+        prompts = write_iteration_prompts(symbol, run_dir, iteration_dir, remediation=remediation, agent_cli=args.agent_cli)
         producer_template = args.remediation_command if remediation else args.producer_command
         if not producer_template:
             die("Missing remediation command template.")
@@ -1144,7 +1180,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         else:
             command_run_dir = run_dir
         prompts["producer"].write_text(
-            remediation_prompt(symbol, str(command_run_dir), str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir)),
+            remediation_prompt(symbol, str(command_run_dir), str(run_dir)) if remediation else producer_initial_prompt(symbol, str(run_dir), args.agent_cli),
             encoding="utf-8",
         )
         commands = {
@@ -1161,7 +1197,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         producer_complete = artifact_run_dir is not None
         if not producer_complete:
             return {
-                "status": "producer_failed",
+                "status": "producer_rate_limited" if producer_result.rate_limited else "producer_failed",
                 "iterations": iteration,
                 "run_dir": str(run_dir),
                 "exit_code": producer_result.returncode,
@@ -1187,7 +1223,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
             else effective_run_dir
         )
         prompts["validator"].write_text(
-            validator_prompt(symbol, str(effective_run_dir), str(validation_output_dir), str(run_dir)),
+            validator_prompt(symbol, str(effective_run_dir), str(validation_output_dir), str(run_dir), agent_cli=args.agent_cli),
             encoding="utf-8",
         )
         commands["validator"] = render_command(
@@ -1208,7 +1244,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
         validator_complete = validator_result.returncode == 0 or validation_path is not None
         if not validator_complete:
             return {
-                "status": "validator_failed",
+                "status": "validator_rate_limited" if validator_result.rate_limited else "validator_failed",
                 "iterations": iteration,
                 "run_dir": str(run_dir),
                 "exit_code": validator_result.returncode,
@@ -1236,7 +1272,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
 
 
 def cmd_run_batch(args: argparse.Namespace) -> None:
-    default_command = default_child_command(dry_run=args.dry_run)
+    default_command = default_child_command(args.agent_cli, dry_run=args.dry_run)
     missing_launchers: list[str] = []
     if not args.producer_command:
         if default_command is None:
@@ -1252,7 +1288,7 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
         if default_command is not None:
             args.remediation_command = default_command
     if missing_launchers:
-        die(missing_child_launcher_message(missing_launchers))
+        die(missing_child_launcher_message(missing_launchers, args.agent_cli))
     args.as_of = validate_as_of(args.as_of or date.today().isoformat())
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
     root = Path(args.run_root)
@@ -1284,6 +1320,7 @@ def build_parser() -> argparse.ArgumentParser:
     prompts.add_argument("symbol")
     prompts.add_argument("--run-dir")
     prompts.add_argument("--output-dir", required=True)
+    prompts.add_argument("--agent-cli", choices=sorted(DEFAULT_COMMANDS_BY_AGENT_CLI), default="codex", help="Which coding-agent CLI convention to use for the skill-invocation line in generated prompts.")
     prompts.set_defaults(func=cmd_write_prompts)
 
     summarize = sub.add_parser("summarize", help="Summarize final pass/fail state for a loop run root.")
@@ -1311,15 +1348,17 @@ def build_parser() -> argparse.ArgumentParser:
     init_batch.add_argument("--run-root", required=True)
     init_batch.add_argument("--as-of")
     init_batch.add_argument("--max-remediation-loops", type=int, default=3)
+    init_batch.add_argument("--agent-cli", choices=sorted(DEFAULT_COMMANDS_BY_AGENT_CLI), default="codex", help="Which coding-agent CLI convention to use for the skill-invocation line in generated prompts.")
     init_batch.set_defaults(func=cmd_init_batch)
 
     run_batch = sub.add_parser("run-batch", help="Run producer/validator/remediation subprocess loop for symbols.")
     run_batch.add_argument("symbols", nargs="+")
     run_batch.add_argument("--run-root", required=True)
     run_batch.add_argument("--as-of")
-    run_batch.add_argument("--producer-command", help="Shell template. Variables: {prompt_file}, {symbol}, {run_dir}, {iteration_dir}. Defaults to local codex exec.")
-    run_batch.add_argument("--validator-command", help="Shell template. Variables: {prompt_file}, {symbol}, {run_dir}, {iteration_dir}. Defaults to local codex exec.")
-    run_batch.add_argument("--remediation-command", help="Shell template used after blocking validation issues. Defaults to local codex exec.")
+    run_batch.add_argument("--agent-cli", choices=sorted(DEFAULT_COMMANDS_BY_AGENT_CLI), default="codex", help="Which local coding-agent CLI to use for child sessions when --producer/validator/remediation-command are not given. Also selects the skill-invocation syntax ($market-research vs /market-research) baked into generated prompts.")
+    run_batch.add_argument("--producer-command", help="Shell template. Variables: {prompt_file}, {symbol}, {run_dir}, {iteration_dir}. Defaults based on --agent-cli.")
+    run_batch.add_argument("--validator-command", help="Shell template. Variables: {prompt_file}, {symbol}, {run_dir}, {iteration_dir}. Defaults based on --agent-cli.")
+    run_batch.add_argument("--remediation-command", help="Shell template used after blocking validation issues. Defaults based on --agent-cli.")
     run_batch.add_argument("--max-remediation-loops", type=int, default=3)
     run_batch.add_argument("--command-timeout-seconds", type=int, default=DEFAULT_COMMAND_TIMEOUT_SECONDS)
     run_batch.add_argument("--dry-run", action="store_true")
