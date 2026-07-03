@@ -97,6 +97,15 @@ def ensure_canonical_report_dir_path(path: Path, symbol: str) -> None:
         die(FINAL_REPORT_LOCATION_MESSAGE)
 
 
+def sibling_report_json_for_data_bundle(run_dir: Path, symbol: str) -> Path | None:
+    repo_root = run_dir.parent.parent.parent
+    report_dir = repo_root / "reports" / symbol / run_dir.name
+    if not report_dir.is_dir():
+        return None
+    candidate = next(iter(sorted(report_dir.glob("*-research.json"))), None)
+    return candidate if candidate and candidate.exists() else None
+
+
 def deterministic_bundle_result(run_dir: Path) -> dict[str, Any]:
     manifest_path = run_dir / "manifest.json"
     manifest = read_json(manifest_path)
@@ -107,7 +116,7 @@ def deterministic_bundle_result(run_dir: Path) -> dict[str, Any]:
         "symbol": symbol,
         "run_dir": run_dir,
         "report_markdown": run_dir / "research_input_pack.md",
-        "report_json": None,
+        "report_json": sibling_report_json_for_data_bundle(run_dir, symbol),
         "manifest": manifest_path,
         "source_manifest": run_dir / "source_manifest.json",
         "gaps": run_dir / "gaps.json",

@@ -671,6 +671,39 @@ def test_validator_discovers_deterministic_bundle_without_research_json(tmp_path
     assert validation["data_gaps"] == [{"field": "short_interest", "status": "unavailable_free_source"}]
 
 
+def test_validator_data_bundle_uses_existing_sibling_report_json_for_usage_dispositions(tmp_path):
+    run_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    reports_dir = tmp_path / "reports" / "AAPL" / "2026-06-01"
+    normalized = run_dir / "normalized"
+    normalized.mkdir(parents=True)
+    reports_dir.mkdir(parents=True)
+    (run_dir / "research_input_pack.md").write_text("# AAPL Deterministic Research Input Pack\n", encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({"symbol": "AAPL", "asset_type": "equity"}), encoding="utf-8")
+    (run_dir / "source_manifest.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (run_dir / "gaps.json").write_text(json.dumps({"gaps": []}), encoding="utf-8")
+    (normalized / "identity.json").write_text(
+        json.dumps({"company_name": {"value": "Apple Inc", "provider": "sec", "raw_path": "", "source_url": ""}}),
+        encoding="utf-8",
+    )
+    (run_dir / "deterministic_data_usage.json").write_text(
+        json.dumps({"datapoints": [{"field_path": "identity.company_name", "materiality": "required"}]}),
+        encoding="utf-8",
+    )
+    payload = complete_research_payload("AAPL")
+    payload["deterministic_data_usage"] = [
+        {"field_path": "identity.company_name", "disposition": "used", "report_section": "Business Profile", "rationale": "Used directly in the business profile narrative."}
+    ]
+    (reports_dir / "AAPL-research.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_validator(str(run_dir))
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads((reports_dir / "AAPL-validation-scaffold.json").read_text(encoding="utf-8"))
+    assert validation["report_json"] == str(reports_dir / "AAPL-research.json")
+    dispositions = validation["deterministic_data_usage_dispositions"]
+    assert dispositions["missing_required"] == []
+
+
 def test_validator_accepts_data_dir_when_project_parent_is_named_runtime(tmp_path):
     project = tmp_path / "runtime" / "project"
     run_dir = project / "data" / "AAPL" / "2026-06-01"
