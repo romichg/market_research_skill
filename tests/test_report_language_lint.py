@@ -313,6 +313,34 @@ Trend, moving averages, volume, volatility, support, and resistance are discusse
     assert any(finding.get("id") == "technical-analysis-missing-drawdown" for finding in findings)
 
 
+def test_report_quality_lint_allows_cached_staleness_disclosure_in_main_body():
+    module = load_module()
+    text = """# ECH Research
+
+## Peer/Competitor Comparison
+
+COPX net assets are roughly $7.1 billion as of mid-2026; an earlier figure of $3.5 billion came from a cached January 2026 news article and understated current AUM.
+"""
+
+    findings = module.lint_report_quality(text, {})
+
+    assert not any(finding.get("id") == "main-body-internal-language" for finding in findings)
+
+
+def test_report_quality_lint_still_flags_cache_plumbing_jargon_in_main_body():
+    module = load_module()
+    text = """# ECH Research
+
+## Bottom Line
+
+The latest quote was read from the cache/ directory before falling back to a cached response.
+"""
+
+    findings = module.lint_report_quality(text, {})
+
+    assert any(finding.get("id") == "main-body-internal-language" for finding in findings)
+
+
 def test_report_quality_lint_flags_etf_risk_checklist_gaps():
     module = load_module()
     text = """# ECH Research
@@ -327,6 +355,59 @@ The main risks are country, currency, concentration, premium/discount, tracking,
 
     assert any(finding.get("id") == "etf-risk-missing-creation-redemption" for finding in findings)
     assert any(finding.get("id") == "etf-risk-missing-securities-lending" for finding in findings)
+
+
+def test_report_quality_lint_flags_missing_etf_peer_comparison():
+    module = load_module()
+    text = """# ECH Research
+
+## Valuation
+
+The fund trades near its net asset value with modest premium/discount swings.
+
+## Data Issues And Discrepancies
+
+Some holdings data was stale.
+"""
+    report_json = {"security_type": "etf"}
+
+    findings = module.lint_report_quality(text, report_json)
+
+    assert any(finding.get("id") == "etf-missing-peer-comparison" for finding in findings)
+
+
+def test_report_quality_lint_accepts_etf_peer_comparison_section():
+    module = load_module()
+    text = """# ECH Research
+
+## Valuation
+
+ECH trades at a discount to peer single-country ETFs; the closest competitor fund, EWZ, offers broader Latin American exposure at a lower expense ratio.
+"""
+    report_json = {"security_type": "etf"}
+
+    findings = module.lint_report_quality(text, report_json)
+
+    assert not any(finding.get("id") == "etf-missing-peer-comparison" for finding in findings)
+
+
+def test_report_quality_lint_accepts_disclosed_etf_peer_comparison_omission():
+    module = load_module()
+    text = """# ECH Research
+
+## Valuation
+
+The fund trades near its net asset value with modest premium/discount swings.
+
+## Data Issues And Discrepancies
+
+No public/free competitor comparison data was available for this single-country fund.
+"""
+    report_json = {"security_type": "etf"}
+
+    findings = module.lint_report_quality(text, report_json)
+
+    assert not any(finding.get("id") == "etf-missing-peer-comparison" for finding in findings)
 
 
 def test_report_quality_lint_requires_etf_portfolio_companies_snapshot_when_holdings_exist():

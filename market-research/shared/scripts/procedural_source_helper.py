@@ -254,13 +254,29 @@ def validate_artifact_type(path: Path, allow_type_mismatch: bool) -> None:
         die(f"Artifact {path} has .json extension but is not valid JSON; inspect the source or pass --allow-type-mismatch.")
 
 
+def find_existing_artifact_by_hash(bundle_dir: Path, digest: str, *, exclude: Path) -> Path | None:
+    if not bundle_dir.is_dir():
+        return None
+    for candidate in sorted(bundle_dir.iterdir()):
+        if not candidate.is_file() or candidate.resolve() == exclude.resolve():
+            continue
+        if sha256_file(candidate) == digest:
+            return candidate
+    return None
+
+
 def copy_source_artifact(out: Path, source_id: str, artifact: Path, allow_type_mismatch: bool) -> Path:
     if not artifact.exists() or not artifact.is_file():
         die(f"Source artifact not found: {artifact}")
     validate_artifact_type(artifact, allow_type_mismatch)
-    target = out / "source_bundle" / safe_artifact_name(source_id, artifact)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(artifact, target)
+    bundle_dir = out / "source_bundle"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    target = bundle_dir / safe_artifact_name(source_id, artifact)
+    if artifact.resolve() != target.resolve():
+        existing = find_existing_artifact_by_hash(bundle_dir, sha256_file(artifact), exclude=target)
+        if existing is not None:
+            return existing
+        shutil.copyfile(artifact, target)
     return target
 
 

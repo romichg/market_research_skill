@@ -242,6 +242,84 @@ def test_record_source_records_artifact_checksum(tmp_path):
     assert source["artifact_size_bytes"] == len(content)
 
 
+def test_record_source_accepts_artifact_already_at_destination_path(tmp_path):
+    run_helper("init-run", "ECH", "--output-root", str(tmp_path))
+    bundle_dir = tmp_path / "ECH" / "source_bundle"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    artifact = bundle_dir / "issuer_fact_sheet.pdf"
+    artifact.write_bytes(b"%PDF-1.7\nalready staged\n")
+    result = run_helper(
+        "record-source",
+        "ECH",
+        "--output-root",
+        str(tmp_path),
+        "--id",
+        "issuer_fact_sheet",
+        "--title",
+        "iShares ECH fact sheet",
+        "--url",
+        "https://example.com/fact-sheet.pdf",
+        "--kind",
+        "issuer_fact_sheet",
+        "--artifact",
+        str(artifact),
+    )
+    assert result.returncode == 0, result.stderr
+    source = json.loads(result.stdout)
+    assert Path(source["local_artifact"]) == artifact
+    assert artifact.read_bytes() == b"%PDF-1.7\nalready staged\n"
+
+
+def test_record_source_reuses_existing_artifact_with_identical_content_under_new_id(tmp_path):
+    run_helper("init-run", "ECH", "--output-root", str(tmp_path))
+    content = b"same page contents captured twice"
+    first_artifact = tmp_path / "stockanalysis_overview.html"
+    first_artifact.write_bytes(content)
+    first = run_helper(
+        "record-source",
+        "ECH",
+        "--output-root",
+        str(tmp_path),
+        "--id",
+        "stockanalysis_overview",
+        "--title",
+        "StockAnalysis overview",
+        "--url",
+        "https://stockanalysis.com/etf/ech",
+        "--kind",
+        "aggregator",
+        "--artifact",
+        str(first_artifact),
+    )
+    assert first.returncode == 0, first.stderr
+    first_source = json.loads(first.stdout)
+
+    second_artifact = tmp_path / "stockanalysis_ech_overview.html"
+    second_artifact.write_bytes(content)
+    second = run_helper(
+        "record-source",
+        "ECH",
+        "--output-root",
+        str(tmp_path),
+        "--id",
+        "stockanalysis_ech_overview",
+        "--title",
+        "StockAnalysis overview (retry)",
+        "--url",
+        "https://stockanalysis.com/etf/ech",
+        "--kind",
+        "aggregator",
+        "--artifact",
+        str(second_artifact),
+    )
+    assert second.returncode == 0, second.stderr
+    second_source = json.loads(second.stdout)
+
+    assert second_source["local_artifact"] == first_source["local_artifact"]
+    bundle_dir = tmp_path / "ECH" / "source_bundle"
+    assert len(list(bundle_dir.iterdir())) == 1
+
+
 def test_record_source_rejects_csv_artifact_that_contains_html(tmp_path):
     artifact = tmp_path / "holdings.csv"
     artifact.write_text("<!doctype html><html><body>not csv</body></html>", encoding="utf-8")
