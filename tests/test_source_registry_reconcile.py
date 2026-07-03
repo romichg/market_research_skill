@@ -175,6 +175,43 @@ def test_source_registry_reconcile_check_cli_exits_nonzero_for_missing_ids(tmp_p
     assert payload["missing_ids"] == ["det_prices_daily", "det_technical_signals"]
 
 
+def test_unmirrored_runtime_source_ids_flags_procedural_sources_missing_from_report(tmp_path):
+    module = load_module()
+    report_dir = tmp_path / "reports" / "ECH" / "2026-07-03"
+    report_dir.mkdir(parents=True)
+    (report_dir / "sources.json").write_text(
+        json.dumps({"sources": [{"id": "stockanalysis_overview"}]}), encoding="utf-8"
+    )
+    runtime_dated_dir = tmp_path / "runtime" / "ECH" / "2026-07-03"
+    runtime_dated_dir.mkdir(parents=True)
+    (runtime_dated_dir / "sources.json").write_text(
+        json.dumps({"sources": [{"id": "stockanalysis_overview"}, {"id": "globalx_copx_product_page"}]}),
+        encoding="utf-8",
+    )
+
+    # Default lookup derives runtime/SYMBOL/AS_OF from report_dir.
+    assert module.unmirrored_runtime_source_ids(report_dir) == {"globalx_copx_product_page"}
+
+    # A coarser SYMBOL-level --runtime-dir (as producer_self_check.py conventionally passes) also resolves.
+    coarse_runtime_dir = tmp_path / "runtime" / "ECH"
+    assert module.unmirrored_runtime_source_ids(report_dir, coarse_runtime_dir) == {"globalx_copx_product_page"}
+
+
+def test_source_registry_issues_includes_unmirrored_runtime_sources(tmp_path):
+    report_dir, data_dir = write_report_and_data(tmp_path)
+    module = load_module()
+    runtime_dir = tmp_path / "runtime" / "EWW" / "2026-07-01"
+    runtime_dir.mkdir(parents=True)
+    (runtime_dir / "sources.json").write_text(
+        json.dumps({"sources": [{"id": "procedural_only_source"}]}), encoding="utf-8"
+    )
+
+    issues = module.source_registry_issues(report_dir, data_dir, runtime_dir=runtime_dir)
+
+    issue_ids = {issue["id"] for issue in issues}
+    assert "source-registry-unmirrored-procedural-only-source" in issue_ids
+
+
 def test_validator_surfaces_missing_source_registry_ids(tmp_path):
     report_dir, data_dir = write_report_and_data(tmp_path)
 

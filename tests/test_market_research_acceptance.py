@@ -313,6 +313,8 @@ def test_readme_presents_self_improve_as_batch_supervisor_mode():
 def test_readme_mentions_environment_preflight():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "preflight_environment.py" in text
+    assert "--ensure-python-prereqs" in text
+    assert ".venv-market-research" in text
     assert "jsonschema" in text
     assert "lmodern" in text
 

@@ -65,9 +65,9 @@ def run_self_check(report_dir: Path, data_dir: Path | None, runtime_dir: Path, f
 
     if isinstance(data_dir, Path) and data_dir.exists():
         if fix_safe:
-            reconcile = source_registry_reconcile.reconcile_report_sources(report_dir, data_dir, fix=True)
+            reconcile = source_registry_reconcile.reconcile_report_sources(report_dir, data_dir, fix=True, runtime_dir=runtime_dir)
             auto_fixed_ids.extend(reconcile["added_ids"])
-        issues.extend(source_registry_reconcile.source_registry_issues(report_dir, data_dir))
+        issues.extend(source_registry_reconcile.source_registry_issues(report_dir, data_dir, runtime_dir=runtime_dir))
 
     report_json_path = bundle.get("report_json")
     report = read_json(report_json_path) if isinstance(report_json_path, Path) else {}

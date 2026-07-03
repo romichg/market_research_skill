@@ -65,14 +65,29 @@ if [[ -f "${header_file}" ]]; then
   pandoc_args+=(-H "${header_file}")
 fi
 
-if pandoc "${pandoc_args[@]}"; then
+pandoc_stderr="$(mktemp)"
+trap 'rm -f "${pandoc_stderr}"' EXIT
+
+if pandoc "${pandoc_args[@]}" 2>"${pandoc_stderr}"; then
   echo "PDF generated: ${output}"
   emit_status true "generated"
   exit 0
 fi
 
+cat "${pandoc_stderr}" >&2
 echo "PDF not generated: pandoc failed for ${input}." >&2
-echo "If xelatex is installed but LaTeX reports missing lmodern.sty, install the missing package." >&2
-echo "Install a TeX distribution with lmodern support or disable PDF generation." >&2
-emit_status false "pandoc_failed"
+
+if grep -qi "lmodern.sty" "${pandoc_stderr}"; then
+  echo "LaTeX reports missing lmodern.sty; install the missing package." >&2
+  echo "Install a TeX distribution with lmodern support or disable PDF generation." >&2
+  emit_status false "pandoc_failed_missing_lmodern"
+elif grep -qiE "not loadable: Metric \(TFM\) file|mktextfm" "${pandoc_stderr}"; then
+  missing_font="$(grep -oiE '@font=[A-Za-z0-9_-]+' "${pandoc_stderr}" | head -n1 | cut -d= -f2)"
+  echo "LaTeX/xelatex is missing a font metric (TFM) file${missing_font:+ for '${missing_font}'} (commonly a dingbats/symbol font from texlive-fonts-extra), not lmodern." >&2
+  echo "Install the missing TeX font package (e.g. texlive-fonts-extra) or disable PDF generation." >&2
+  emit_status false "pandoc_failed_missing_font_metric"
+else
+  echo "See captured pandoc/xelatex output above for the underlying LaTeX error." >&2
+  emit_status false "pandoc_failed"
+fi
 exit 0

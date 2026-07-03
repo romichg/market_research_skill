@@ -11,8 +11,17 @@ import pytest
 HARNESS = Path(__file__).resolve().parents[1] / "market-research" / "batch-supervisor" / "scripts" / "research_loop.py"
 
 
-def run_harness(*args):
-    return subprocess.run([sys.executable, str(HARNESS), *args], text=True, capture_output=True, check=False)
+def run_harness(*args, env=None):
+    return subprocess.run([sys.executable, str(HARNESS), *args], text=True, capture_output=True, check=False, env=env)
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("research_loop", HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_validation_gate_passes_only_without_open_critical_or_moderate(tmp_path):
@@ -107,6 +116,57 @@ def test_prompt_generation_mentions_fresh_contexts_and_artifact_contract(tmp_pat
     assert "Fix only open critical/moderate issues" in remediation
     assert "Append any market-research skill improvements to `runtime/EWW/2026-06-01/EWW-market-research-skill-issues.md`." in remediation
     assert "Do not delete validator outputs" in remediation
+
+
+def test_write_prompts_agent_cli_claude_uses_slash_invocation(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness(
+        "write-prompts",
+        "EWW",
+        "--run-dir",
+        "reports/EWW/2026-06-01",
+        "--output-dir",
+        str(out_dir),
+        "--agent-cli",
+        "claude",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    validator = Path(payload["validator_prompt"]).read_text(encoding="utf-8")
+    assert producer.startswith("/market-research researcher EWW")
+    assert "$market-research" not in producer
+    assert "fresh Claude Code session" in producer
+    assert validator.startswith("/market-research verifier reports/EWW/2026-06-01")
+    assert "$market-research" not in validator
+    assert "fresh Claude Code session" in validator
+
+
+def test_run_batch_defaults_to_claude_command_and_prompts_when_agent_cli_is_claude(tmp_path):
+    module = load_module()
+    runtime_root = tmp_path / "runtime" / "batch"
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--as-of",
+        "2026-07-03",
+        "--agent-cli",
+        "claude",
+        "--dry-run",
+    )
+
+    assert result.returncode == 0, result.stderr
+    commands = json.loads((runtime_root / "EWW" / "2026-07-03" / "iteration-01" / "commands.json").read_text(encoding="utf-8"))
+    assert commands["producer"].startswith("claude -p --dangerously-skip-permissions")
+    assert commands["validator"].startswith("claude -p --dangerously-skip-permissions")
+    producer_prompt = (runtime_root / "EWW" / "2026-07-03" / "iteration-01" / "producer-initial.prompt.md").read_text(encoding="utf-8")
+    assert producer_prompt.startswith("/market-research researcher EWW")
+    assert module.DEFAULT_COMMANDS_BY_AGENT_CLI["claude"] == module.DEFAULT_CLAUDE_COMMAND
 
 
 def test_loop_prompts_separate_data_reports_and_runtime(tmp_path):
@@ -638,6 +698,43 @@ def test_summarize_reports_feedback_package_freshness(tmp_path):
     assert payload["feedback_package"]["modified_at"]
 
 
+def test_summarize_ignores_prompt_scaffold_directory(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "ECH" / "2026-07-03"
+    prompts = root / "prompts" / "ECH"
+    report_dir = tmp_path / "reports" / "ECH" / "2026-07-03"
+    runtime_symbol.mkdir(parents=True)
+    prompts.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    (root / "research-loop-config.json").write_text(json.dumps({"symbols": ["ECH"]}), encoding="utf-8")
+    (report_dir / "ECH-validation.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
+
+    result = run_harness("summarize", str(root))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols_total"] == 1
+    assert payload["passed"] == ["ECH"]
+    assert payload["failed"] == []
+
+
+def test_summarize_uses_reports_dir_environment_fallback(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    runtime_symbol = root / "ECH" / "2026-07-03"
+    report_dir = tmp_path / "custom-reports" / "ECH" / "2026-07-03"
+    runtime_symbol.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    (report_dir / "ECH-validation.json").write_text(json.dumps({"issues": []}), encoding="utf-8")
+    env = {**os.environ, "RESEARCH_REPORTS_DIR": str(tmp_path / "custom-reports")}
+
+    result = run_harness("summarize", str(root), env=env)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["passed"] == ["ECH"]
+    assert payload["failed"] == []
+
+
 def test_refresh_summary_records_post_loop_validation(tmp_path):
     root = tmp_path / "runtime" / "batch"
     runtime_symbol = root / "ECH" / "2026-07-02"
@@ -933,6 +1030,38 @@ def test_run_batch_defaults_to_supported_codex_exec_command(tmp_path):
     assert "--ask-for-approval" not in commands["validator"]
 
 
+def test_run_batch_without_codex_requires_explicit_child_launcher(tmp_path):
+    root = tmp_path / "batch"
+    env = {**os.environ, "PATH": str(tmp_path / "empty-bin")}
+
+    result = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", "2026-06-16", env=env)
+
+    assert result.returncode != 0
+    assert "`codex` is not on PATH" in result.stderr
+    assert "agent-native" in result.stderr
+
+
+def test_run_batch_without_selected_agent_cli_requires_explicit_child_launcher(tmp_path):
+    root = tmp_path / "batch"
+    env = {**os.environ, "PATH": str(tmp_path / "empty-bin")}
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(root),
+        "--as-of",
+        "2026-07-03",
+        "--agent-cli",
+        "claude",
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "`claude` is not on PATH" in result.stderr
+    assert "agent-native" in result.stderr
+
+
 def test_run_batch_dry_run_uses_runtime_symbol_date_layout(tmp_path):
     root = tmp_path / "runtime"
 
@@ -1030,6 +1159,45 @@ def test_run_batch_failed_producer_does_not_use_stale_runtime_research_report(tm
     assert payload["symbols"]["EWW"]["status"] == "producer_failed"
     assert payload["symbols"]["EWW"]["exit_code"] == 7
     assert not validator_marker.exists()
+
+
+def test_run_batch_marks_producer_rate_limited_distinctly_from_generic_failure(tmp_path):
+    runtime_root = tmp_path / "runtime" / "batch"
+    as_of = "2026-07-03"
+    validator_marker = tmp_path / "validator-used"
+    producer = (
+        f"{sys.executable} -c \"import sys; "
+        "print(\\\"You've hit your session limit · resets 5:30am (America/New_York)\\\"); "
+        "sys.exit(1)\""
+    )
+    validator = f"{sys.executable} -c \"from pathlib import Path; Path(r'{validator_marker}').write_text('used', encoding='utf-8')\""
+
+    result = run_harness(
+        "run-batch",
+        "EWW",
+        "--run-root",
+        str(runtime_root),
+        "--as-of",
+        as_of,
+        "--producer-command",
+        producer,
+        "--validator-command",
+        validator,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["symbols"]["EWW"]["status"] == "producer_rate_limited"
+    assert payload["symbols"]["EWW"]["exit_code"] == 1
+    assert not validator_marker.exists()
+
+
+def test_looks_rate_limited_matches_known_signatures_only():
+    module = load_module()
+
+    assert module.looks_rate_limited("You've hit your session limit · resets 5:30am (America/New_York)", "")
+    assert module.looks_rate_limited("", "Error: rate limit exceeded, try again later")
+    assert not module.looks_rate_limited("Traceback (most recent call last): ValueError", "")
 
 
 def test_run_batch_ignores_nested_runtime_reports_and_data_dirs(tmp_path):

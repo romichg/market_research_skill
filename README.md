@@ -47,6 +47,15 @@ python3 market-research/shared/scripts/preflight_environment.py
 
 This reports optional `jsonschema`, `pandoc`, `xelatex`, and LaTeX package availability such as `lmodern`. Missing PDF tooling is non-fatal.
 
+To install missing Python prerequisites into a local venv instead of the system Python:
+
+```bash
+python3 market-research/shared/scripts/preflight_environment.py --ensure-python-prereqs
+.venv-market-research/bin/python market-research/shared/scripts/preflight_environment.py
+```
+
+The helper uses `.venv-market-research/` by default and reports the venv Python path. If network or `pip` is unavailable, it reports the install failure and leaves the normal fallback validation path available.
+
 ### Optional PDF Tooling
 
 Debian/Ubuntu:
@@ -170,6 +179,10 @@ python3 market-research/batch-supervisor/scripts/research_loop.py run-batch AAPL
   --as-of YYYY-MM-DD \
   --max-remediation-loops 3
 ```
+
+Direct `run-batch` uses local `codex exec` only when the `codex` CLI is available. If the supervising environment is OpenClaw, Claude Code, or another agent runtime without a local `codex` binary, use that agent's native fresh-child/subagent mechanism with the generated producer, verifier, and remediation prompts, or pass explicit command templates.
+
+Artifact roots default to `data/`, `reports/`, and `runtime/`. CLI arguments are authoritative; supported environment fallbacks are `RESEARCH_DATA_DIR`, `RESEARCH_REPORTS_DIR`, `RESEARCH_RUNTIME_DIR`, and `RESEARCH_CACHE_DIR`. `RESEARCH_CACHE_DIR` controls deterministic raw/cache reuse; batch artifact roots should still be passed explicitly when reproducibility matters.
 
 Summarize an existing loop run:
 
