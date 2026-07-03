@@ -16,9 +16,13 @@ Defaults launch child sessions with:
 codex exec -C {cwd} --dangerously-bypass-approvals-and-sandbox - < {prompt_file}
 ```
 
+This default is conditional on `codex` being available on PATH. If the current agent runtime does not provide a local `codex` CLI, do not assume the shell harness can launch children directly. Use the current agent's native fresh-child/subagent mechanism with the generated producer, verifier, and remediation prompts, or pass explicit `--producer-command`, `--validator-command`, and `--remediation-command` templates. `run-batch --dry-run` remains useful for writing prompt files and command plans without launching children.
+
 Use `--command-timeout-seconds` to tune the watchdog. If a child times out after producing expected artifacts, the harness logs the timeout and continues. When a producer writes a canonical deterministic bundle under `data/SYMBOL/YYYY-MM-DD/`, the harness passes that bundle as validator input and routes validation markdown/JSON to `reports/SYMBOL/YYYY-MM-DD/`. The input path is recorded as `artifact_run_dir` in `research-loop-summary.json`.
 
 Custom validator command templates can use `{run_dir}` for the input artifact path and `{validation_output_dir}` for the reports output path.
+
+CLI paths are authoritative. When defaults are used, the supervisor recognizes `RESEARCH_DATA_DIR`, `RESEARCH_REPORTS_DIR`, and `RESEARCH_RUNTIME_DIR` as artifact-root fallbacks, while `RESEARCH_CACHE_DIR` controls deterministic raw/cache behavior. Prefer explicit CLI roots for reproducible batch runs.
 
 Before launching a verifier for a completed report bundle, the harness runs the producer self-check with safe deterministic source-registry fixes enabled. If the self-check finds open critical or moderate issues, the harness skips the verifier for that iteration and sends the producer into remediation. This moves repeat mechanical findings such as missing deterministic usage dispositions or missing deterministic source records left into the producer loop.
 
@@ -30,6 +34,8 @@ Periodically inspect:
 find RUN_ROOT -name '*.log' -print
 python3 market-research/batch-supervisor/scripts/research_loop.py summarize RUN_ROOT
 ```
+
+Summary uses `research-loop-config.json` symbols when available and ignores scaffold/control directories such as `prompts/`.
 
 If manual post-loop remediation and fresh validation change current pass/fail state, refresh the persisted summary:
 

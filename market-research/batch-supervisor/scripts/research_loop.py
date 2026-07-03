@@ -5,6 +5,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import date, datetime
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -25,6 +26,7 @@ DEFAULT_CODEX_COMMAND = (
     "codex exec -C {cwd} "
     "--dangerously-bypass-approvals-and-sandbox - < {prompt_file}"
 )
+CONTROL_DIR_NAMES = {"prompts", "validation_scaffolds", "self-improvement", "logs"}
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 1800
 DEFAULT_SELF_IMPROVEMENT_ROOT = Path("docs") / "superpowers" / "plans" / "self-improvement"
 LOOP_ISSUES_TEMPLATE = """# Loop Skill Issues
@@ -112,9 +114,10 @@ def cmd_inspect_validation(args: argparse.Namespace) -> None:
 
 def dated_layout_dir(prefix: str, symbol: str, run_dir: str) -> str:
     path = Path(run_dir)
+    env_root = storage_root_from_env(prefix)
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name):
-        return f"{prefix}/{symbol}/{path.name}"
-    return f"{prefix}/{symbol}/YYYY-MM-DD"
+        return str((env_root or Path(prefix)) / symbol / path.name)
+    return str((env_root or Path(prefix)) / symbol / "YYYY-MM-DD")
 
 
 def report_dir_for_prompt(symbol: str, run_dir: str) -> str:
@@ -131,7 +134,8 @@ def runtime_dir_for_prompt(symbol: str, run_dir: str) -> str:
     if len(path.parts) >= 3 and path.parts[-3] == "runtime" and path.parts[-2].upper() == symbol:
         return run_dir
     if len(path.parts) >= 3 and path.parts[-3] == "reports" and path.parts[-2].upper() == symbol:
-        return str(path.parent.parent.parent / "runtime" / symbol / path.name)
+        runtime_root = storage_root_from_env("runtime") or path.parent.parent.parent / "runtime"
+        return str(runtime_root / symbol / path.name)
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and path.parent.name.upper() == symbol and "reports" not in path.parts:
         return run_dir
     return dated_layout_dir("runtime", symbol, run_dir)
@@ -544,7 +548,7 @@ def summarize_root(root: Path) -> dict[str, Any]:
     passed: list[str] = []
     failed: list[str] = []
     unresolved: dict[str, list[str]] = {}
-    for symbol_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+    for symbol_dir in summary_symbol_dirs(root):
         validation_path = latest_validation_for_symbol(symbol_dir, reports_root / symbol_dir.name)
         if validation_path is None:
             failed.append(symbol_dir.name)
@@ -585,6 +589,63 @@ def feedback_package_summary(root: Path) -> dict[str, Any]:
         "researcher_comment_count": payload.get("researcher_comment_count", 0) if isinstance(payload, dict) else 0,
         "supporting_artifact_count": payload.get("supporting_artifact_count", 0) if isinstance(payload, dict) else 0,
     }
+
+
+def storage_root_from_env(prefix: str) -> Path | None:
+    env_by_prefix = {
+        "data": "RESEARCH_DATA_DIR",
+        "reports": "RESEARCH_REPORTS_DIR",
+        "runtime": "RESEARCH_RUNTIME_DIR",
+    }
+    key = env_by_prefix.get(prefix)
+    value = os.environ.get(key, "").strip() if key else ""
+    return Path(value) if value else None
+
+
+def config_symbols(root: Path) -> list[str]:
+    config_path = root / "research-loop-config.json"
+    if not config_path.exists():
+        return []
+    try:
+        payload = read_json(config_path)
+    except SystemExit:
+        return []
+    symbols = payload.get("symbols", []) if isinstance(payload, dict) else []
+    out: list[str] = []
+    for symbol in symbols:
+        if isinstance(symbol, str) and re.fullmatch(r"(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}", symbol.upper()):
+            out.append(symbol.upper())
+    return sorted(dict.fromkeys(out))
+
+
+def summary_symbol_dirs(root: Path) -> list[Path]:
+    configured = config_symbols(root)
+    if configured:
+        return [root / symbol for symbol in configured]
+    return [
+        path
+        for path in sorted(root.iterdir())
+        if path.is_dir()
+        and path.name not in CONTROL_DIR_NAMES
+        and re.fullmatch(r"(?=.*[A-Z0-9])[A-Z0-9][A-Z0-9.\-]{0,11}", path.name.upper())
+    ]
+
+
+def default_child_command(*, dry_run: bool) -> str | None:
+    if dry_run or shutil.which("codex") is not None:
+        return DEFAULT_CODEX_COMMAND
+    return None
+
+
+def missing_child_launcher_message(missing: list[str]) -> str:
+    missing_list = ", ".join(missing)
+    return (
+        f"Missing child launcher for {missing_list}: `codex` is not on PATH. "
+        "Pass explicit --producer-command/--validator-command/--remediation-command templates, "
+        "or use the batch-supervisor agent-native workflow: write/init prompts, launch fresh child "
+        "sessions with the current agent's subagent mechanism, then run self-check, validation, "
+        "refresh-summary, and collect-feedback."
+    )
 
 
 def latest_validation_for_summary_result(result: dict[str, Any]) -> Path | None:
@@ -757,10 +818,16 @@ def loop_root_for_run_dir(run_dir: Path, symbol: str) -> Path:
 
 
 def reports_root_for_loop(root: Path) -> Path:
+    env_root = storage_root_from_env("reports")
+    if env_root:
+        return env_root
     return storage_base_for_loop(root) / "reports"
 
 
 def data_root_for_loop(root: Path) -> Path:
+    env_root = storage_root_from_env("data")
+    if env_root:
+        return env_root
     return storage_base_for_loop(root) / "data"
 
 
@@ -1169,9 +1236,23 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
 
 
 def cmd_run_batch(args: argparse.Namespace) -> None:
-    args.producer_command = args.producer_command or DEFAULT_CODEX_COMMAND
-    args.validator_command = args.validator_command or DEFAULT_CODEX_COMMAND
-    args.remediation_command = args.remediation_command or DEFAULT_CODEX_COMMAND
+    default_command = default_child_command(dry_run=args.dry_run)
+    missing_launchers: list[str] = []
+    if not args.producer_command:
+        if default_command is None:
+            missing_launchers.append("producer")
+        else:
+            args.producer_command = default_command
+    if not args.validator_command:
+        if default_command is None:
+            missing_launchers.append("validator")
+        else:
+            args.validator_command = default_command
+    if not args.remediation_command:
+        if default_command is not None:
+            args.remediation_command = default_command
+    if missing_launchers:
+        die(missing_child_launcher_message(missing_launchers))
     args.as_of = validate_as_of(args.as_of or date.today().isoformat())
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
     root = Path(args.run_root)

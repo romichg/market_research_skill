@@ -134,6 +134,8 @@ python3 {baseDir}/../shared/scripts/procedural_source_helper.py extract-blackroc
 
 The BlackRock/iShares extractor validates the payload identity against the requested ticker before promoting data. If a product ID resolves to the wrong fund, record a source gap instead of using the payload.
 
+When capturing BlackRock/iShares API payloads manually, save the complete response before previewing it. Avoid commands such as `tee payload.json | head`, which can terminate the pipe early and leave a truncated saved artifact. Inspect the saved file after capture with `jq`, `python3 -m json.tool`, or another non-truncating reader.
+
 ## Final Artifacts
 
 Working/procedural artifacts belong under runtime:

@@ -11,8 +11,11 @@ python3 market-research/shared/scripts/validate_market_research.py --help
 python3 market-research/batch-supervisor/scripts/research_loop.py --help
 bash market-research/shared/scripts/md-to-pdf.sh --help
 python3 market-research/shared/scripts/preflight_environment.py
+python3 market-research/shared/scripts/preflight_environment.py --ensure-python-prereqs
 python3 -m pytest tests
 ```
+
+`--ensure-python-prereqs` creates `.venv-market-research/` when Python packages such as `jsonschema` are missing. Use `.venv-market-research/bin/python -m pytest ...` for local verification when the system Python does not have development dependencies installed.
 
 For focused checks:
 
@@ -67,6 +70,10 @@ python3 market-research/batch-supervisor/scripts/research_loop.py run-batch AAPL
   --as-of YYYY-MM-DD \
   --max-remediation-loops 3
 ```
+
+The direct helper uses `codex exec` only when the local `codex` CLI is available. If the current agent runtime uses native subagents instead, generate prompts with `init-batch` or `run-batch --dry-run`, launch fresh child sessions with the agent-native mechanism, then run self-check, validation, summary refresh, and feedback collection.
+
+CLI artifact roots are preferred. When defaults are needed, `RESEARCH_DATA_DIR`, `RESEARCH_REPORTS_DIR`, and `RESEARCH_RUNTIME_DIR` are artifact-root fallbacks; `RESEARCH_CACHE_DIR` controls deterministic raw/cache reuse.
 
 Summarize a completed or running batch:
 
