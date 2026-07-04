@@ -1,6 +1,6 @@
 ---
 name: market-research-verifier
-description: Validate market research evidence bundles for equities, ADRs, and ETFs in a fresh Codex context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report.
+description: Validate market research evidence bundles for equities, ADRs, and ETFs in a fresh agent context; inspect cited artifacts and public sources; write validation markdown and JSON without editing the original report.
 ---
 
 # Validate Market Research
@@ -11,10 +11,10 @@ Hard rule: validate the produced report, source registry, deterministic bundle, 
 
 ## Required Reads
 
-1. Run `../shared/scripts/validate_market_research.py` first.
+1. Run `market-research/shared/scripts/validate_market_research.py` first.
 2. Read `references/verifier-workflow.md` for artifact handling, deterministic scaffold interpretation, issue classification, and output rules.
 3. Read `references/investment-validation.md` before judgment validation.
-4. Use `../shared/schemas/deterministic-bundle.schema.json` and `../shared/schemas/validation-output.schema.json` for schema contracts.
+4. Use `market-research/shared/schemas/deterministic-bundle.schema.json` and `market-research/shared/schemas/validation-output.schema.json` for schema contracts.
 
 If JSON Schema tooling is unavailable, use this fallback: run the repository validation helper and perform manual required-field checks against the schemas. Record the limitation in validation JSON under `validation_limitations`.
 
@@ -44,6 +44,6 @@ Avoid data recital. `Bottom Line` must be an executive summary; `Key Facts` shou
 
 ## Output
 
-Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`. If verifier skill issues are found, also write `<SYMBOL>-validator-skill-issues.md/json` matching `../shared/schemas/skill-issue.schema.json`.
+Write `<SYMBOL>-validation.md` and `<SYMBOL>-validation.json`. If verifier skill issues are found, also write `<SYMBOL>-validator-skill-issues.md/json` matching `market-research/shared/schemas/skill-issue.schema.json`.
 
 Classify every issue as `critical`, `moderate`, or `minor`. Mark unavailable public-data gaps as `unresolved_data_unavailable`, not `open`. Return validation artifact paths and the count of open critical/moderate issues.

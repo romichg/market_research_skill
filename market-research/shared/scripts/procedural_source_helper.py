@@ -13,25 +13,27 @@ import json
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from script_metrics import add_metrics_arg, start_timer, write_metrics
-from script_utils import normalize_symbol, read_json, sha256_file, validate_as_of, write_json
+from script_utils import (
+    die,
+    latest_companyfacts_usd_fact,
+    nested_get,
+    normalize_symbol,
+    read_json,
+    sha256_file,
+    utc_now,
+    validate_as_of,
+    write_json,
+)
 
 SOURCE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ETF_REQUIRED_FIELDS = ["fund_name", "expense_ratio", "benchmark", "holdings_summary"]
 EQUITY_REQUIRED_FIELDS = ["company_name", "latest_annual_filing", "revenue", "net_income"]
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def die(message: str, code: int = 2) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(code)
 
 
 def validate_source_date(value: str | None) -> str | None:
@@ -391,30 +393,6 @@ def latest_annual_filing_source(sources_payload: dict[str, Any]) -> dict[str, An
     return sorted(candidates, key=lambda source: str(source.get("source_date") or source.get("accessed_at") or ""))[-1]
 
 
-def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
-    facts = nested_get(companyfacts, "facts", "us-gaap")
-    if not isinstance(facts, dict):
-        return None
-    candidates: list[dict[str, Any]] = []
-    for name in names:
-        values = nested_get(facts, name, "units", "USD")
-        if not isinstance(values, list):
-            continue
-        annual = [item for item in values if isinstance(item, dict) and item.get("form") == "10-K" and item.get("fp") == "FY" and "val" in item]
-        candidates.extend({**item, "_tag": name} for item in annual)
-    if not candidates:
-        return None
-    item = sorted(candidates, key=lambda row: (int(row.get("fy") or 0), str(row.get("end") or ""), str(row.get("filed") or "")))[-1]
-    return {
-        "tag": item.get("_tag"),
-        "value": item.get("val"),
-        "fy": item.get("fy"),
-        "period_end": item.get("end"),
-        "filed": item.get("filed"),
-        "form": item.get("form"),
-    }
-
-
 def write_context_files(out: Path, context: dict[str, Any]) -> None:
     write_json(out / "research_context.json", context, atomic=True)
     lines = [
@@ -524,15 +502,6 @@ def normalize_gap_fill_payload(payload: Any, args: argparse.Namespace) -> dict[s
         "confidence": str(confidence),
         "note": "" if note is None else str(note),
     }
-
-
-def nested_get(payload: dict[str, Any], *keys: str) -> Any:
-    current: Any = payload
-    for key in keys:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(key)
-    return current
 
 
 def first_present(*values: Any) -> Any:
@@ -705,20 +674,12 @@ def validate_blackrock_product_identity(payload: dict[str, Any], symbol: str) ->
         ]
         if value
     }
-    names = [
-        str(value)
-        for value in [
-            payload.get("fundName"),
-            payload_path_value(payload, "fundHeader", "fundName"),
-            payload_path_value(payload, "FundHeaderV3", "fundName"),
-        ]
-        if value
-    ]
     mismatches: list[str] = []
+    # When the payload exposes any ticker, it is authoritative: a payload whose ticker does not match
+    # the requested symbol is the wrong fund regardless of its name. Payloads without a ticker cannot
+    # be ticker-verified here and are accepted; the caller still records provenance for later review.
     if tickers and expected not in tickers:
         mismatches.append(f"expected ticker {expected}, found {sorted(tickers)}")
-    if expected == "EWW" and any("germany" in name.lower() for name in names):
-        mismatches.append("EWW candidate resolved to a Germany fund payload")
     return mismatches
 
 
@@ -779,7 +740,7 @@ def cmd_extract_blackrock(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Procedural source registry and gap-fill helper for the Codex market-research skill.")
+    parser = argparse.ArgumentParser(description="Procedural source registry and gap-fill helper for the market-research skill.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_run_location(parser: argparse.ArgumentParser) -> None:

@@ -1,6 +1,6 @@
 ---
 name: market-research-researcher
-description: Research US-listed equities, ADRs, and ETFs from a ticker symbol using public/free sources; create cited markdown and JSON artifacts; use deterministic helper scripts when useful but gracefully fall back to procedural research when helpers fail or are sparse. Use when Codex is asked for investment, equity, stock, ADR, ETF, fund, issuer, holdings, valuation, risk, or market research on a symbol.
+description: Research US-listed equities, ADRs, and ETFs from a ticker symbol using public/free sources; create cited markdown and JSON artifacts; use deterministic helper scripts when useful but gracefully fall back to procedural research when helpers fail or are sparse. Use when the agent is asked for investment, equity, stock, ADR, ETF, fund, issuer, holdings, valuation, risk, or market research on a symbol.
 ---
 
 # Market Research Researcher
@@ -39,10 +39,10 @@ Keep final investor deliverables under `reports/`; keep intermediate work under 
 
 ## Workflow Summary
 
-1. Start with `../shared/scripts/deterministic_research_collector.py fetch SYMBOL --asset-type auto --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports` when provider keys or cached raw files are available. Use `doctor`, `--offline`, provider filters, endpoint filters, and `--max-provider-calls` as described in `references/researcher-workflow.md`.
+1. Start with `market-research/shared/scripts/deterministic_research_collector.py fetch SYMBOL --asset-type auto --as-of YYYY-MM-DD --data-dir ./data --reports-dir ./reports` when provider keys or cached raw files are available. Use `doctor`, `--offline`, provider filters, endpoint filters, and `--max-provider-calls` as described in `references/researcher-workflow.md`.
 2. Inspect the deterministic bundle before drafting. Every normalized value must carry provider, source URL, raw path, and status. Missing data must remain a structured gap with only attempted providers listed.
 3. Inspect `data/SYMBOL/AS_OF/deterministic_data_usage.json`. Required and review datapoints must be used in the report or explicitly dispositioned in the report JSON. Required datapoint rationales must be field-specific and explain investor relevance, duplication by better evidence, or reason for omission.
-4. Use `../shared/scripts/procedural_source_helper.py` only for classification, source recording, source gaps, compact context preparation, targeted gap fills, and supported issuer payload promotion. Do not let procedural gap filling become open-ended browsing; search for named missing fields only.
+4. Use `market-research/shared/scripts/procedural_source_helper.py` only for classification, source recording, source gaps, compact context preparation, targeted gap fills, and supported issuer payload promotion. Do not let procedural gap filling become open-ended browsing; search for named missing fields only.
 5. Use targeted procedural research when the deterministic bundle does not explain the business well enough for an investor. For operating companies, fill business-profile gaps on what the product does, business model, technology explanation in plain language, who pays, revenue model, customer or government/commercial exposure, acquisition contribution, current commercial traction, valuation context, current technical setup, and practical demand drivers.
 6. For event-driven issuer news dated on or after the as-of date, perform a same-day SEC freshness check against the issuer filings page or SEC company browse results, especially for 8-K, 10-Q, 10-K, S-3, S-1, 13D/G, and proxy filings. If deterministic SEC submissions lag, capture the filing procedurally, cite the filing date, and disclose the deterministic omission in `Data Issues And Discrepancies`.
 7. Write final artifacts under `reports/SYMBOL/AS_OF/`: `SYMBOL-research.md`, `SYMBOL-research.json`, and best-effort `SYMBOL-research.pdf` when local PDF tooling is available.
@@ -52,7 +52,7 @@ Keep final investor deliverables under `reports/`; keep intermediate work under 
 
 The Markdown report must follow `references/report-template.md` and read like investor-grade research, not a validation transcript or artifact inventory. Lead with thesis, variant view, what matters, what can go wrong, what would change the view, and what to monitor.
 
-The JSON sidecar must satisfy `../shared/schemas/research-output.schema.json`, including `technical_analysis`, `valuation_or_performance`, `decision_factors`, `risks`, `catalysts`, `source_coverage`, and `calculation_audit`. When a deterministic bundle exists, include `deterministic_bundle` and field-level `deterministic_data_usage` entries for all required/review datapoints that were used or intentionally omitted.
+The JSON sidecar must satisfy `market-research/shared/schemas/research-output.schema.json`, including `technical_analysis`, `valuation_or_performance`, `decision_factors`, `risks`, `catalysts`, `source_coverage`, and `calculation_audit`. When a deterministic bundle exists, include `deterministic_bundle` and field-level `deterministic_data_usage` entries for all required/review datapoints that were used or intentionally omitted.
 
 When provider endpoints are rate-limited, plan-gated, protected, unavailable, or otherwise incomplete, include provider-limit impact mapping in the report JSON and, when material, in the data-quality discussion. Map each limitation to its affected analysis area. Examples: unavailable short interest affects crowding/squeeze analysis; unavailable forward estimates affects valuation; unavailable insider statistics affects dilution/governance analysis; unavailable filing sections affects direct risk-factor and MD&A validation.
 

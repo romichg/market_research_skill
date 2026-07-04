@@ -74,7 +74,8 @@ sudo dnf install -y pandoc texlive-xetex google-noto-sans-fonts
 macOS with Homebrew:
 
 ```bash
-brew install pandoc --cask mactex-no-gui
+brew install pandoc
+brew install --cask mactex-no-gui
 ```
 
 ### Optional Headed Browser Tooling
@@ -196,7 +197,7 @@ Create a prompt-only self-improvement review over one or more completed batch ro
 $market-research batch-supervisor self-improve runtime/market-research-batch-20260620 runtime/market-research-batch-20260621
 ```
 
-The batch-supervisor self-improve mode writes a central prompt under `docs/superpowers/plans/self-improvement/TIMESTAMP/` by default so durable improvement prompts, ideas, plans, and JSON survive `runtime/` cleanup. Run that prompt inside Codex when you want to consolidate lessons and plan skill improvements.
+The batch-supervisor self-improve mode writes a central prompt under `docs/superpowers/plans/self-improvement/TIMESTAMP/` by default so improvement prompts, ideas, plans, and JSON survive `runtime/` cleanup. These outputs may be committed on active work branches to preserve the review trail, but remove completed generated outputs once their durable conclusions are represented in canonical docs, maintainer notes, skill files, or tests.
 
 The underlying helper can also be run directly from the repository root for debugging or custom output roots:
 

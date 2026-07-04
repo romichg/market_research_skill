@@ -1,11 +1,11 @@
 ---
 name: market-research-batch-supervisor
-description: Use when running supervised market research batches that need fresh Codex contexts for research, validation, remediation, or later skill-improvement feedback collection.
+description: Use when running supervised market research batches that need fresh agent contexts for research, validation, remediation, or later skill-improvement feedback collection.
 ---
 
 # Market Research Batch Supervisor
 
-Use this skill from a supervised Codex session to orchestrate `market-research researcher` and `market-research verifier` child sessions. The batch supervisor owns subprocess execution, pass/fail gating, remediation retries, logs, summaries, and skill-improvement feedback collection.
+Use this skill from a supervised agent session to orchestrate `market-research researcher` and `market-research verifier` child sessions. The batch supervisor owns subprocess execution, pass/fail gating, remediation retries, logs, summaries, and skill-improvement feedback collection.
 
 Core rule: keep research, validation, remediation, and skill improvement separate.
 

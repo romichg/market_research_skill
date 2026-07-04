@@ -14,30 +14,34 @@ ALLOWED_PROVENANCE_SECTIONS = {
     "evidence appendix",
     "appendix",
 }
-FORBIDDEN_MAIN_BODY_PATTERNS = [
-    "saved",
-    "deterministic",
-    "artifact",
-    "deterministic bundle",
-    "runtime/",
-    "data/",
-    "local path",
-    "normalized",
-    "source_manifest.json",
-    "manifest.json",
-    "gaps.json",
-    "sources.json",
-    "normalized/",
-    "raw/",
-    "cache/",
-    "cache file",
-    "cache directory",
-    "cached response",
-    "cache hit",
-    "cache miss",
-    "from cache",
-    "provider",
-]
+# Skill-internal provenance language that should not leak into main investor sections. Patterns are
+# word-boundary / context-scoped regexes so ordinary investor prose ("healthcare provider", "saved
+# costs", "normalized earnings", "data-driven") does not trip the lint; the dict key is the
+# human-readable label surfaced as the finding pattern.
+_FORBIDDEN_MAIN_BODY_REGEX = {
+    "deterministic": r"\bdeterministic\b",
+    "deterministic bundle": r"\bdeterministic bundle\b",
+    "artifact": r"\bartifacts?\b",
+    "normalized": r"\bnormalized(?:/| (?:artifact|value|bundle|data|output|json|prices))",
+    "runtime/": r"\bruntime/",
+    "data/": r"(?<![\w-])data/[A-Za-z0-9_.\-]+/",
+    "raw/": r"\braw/",
+    "cache/": r"\bcache/",
+    "local path": r"\blocal path",
+    "source_manifest.json": r"\bsource_manifest\.json",
+    "manifest.json": r"\bmanifest\.json",
+    "gaps.json": r"\bgaps\.json",
+    "sources.json": r"\bsources\.json",
+    "cache file": r"\bcache file",
+    "cache directory": r"\bcache director",
+    "cached response": r"\bcached response",
+    "cache hit": r"\bcache hit",
+    "cache miss": r"\bcache miss",
+    "from cache": r"\bfrom cache\b",
+    "provider": r"\b(?:data|price|news|fundamentals?)\s+providers?\b|\bproviders?\s+(?:mechanic|attribution|name|conflict|prioriti|plumbing)",
+}
+FORBIDDEN_MAIN_BODY_PATTERNS = list(_FORBIDDEN_MAIN_BODY_REGEX)
+_FORBIDDEN_MAIN_BODY_COMPILED = [(label, re.compile(pattern, re.IGNORECASE)) for label, pattern in _FORBIDDEN_MAIN_BODY_REGEX.items()]
 VENDOR_NAMES = [
     "alpha vantage",
     "fmp",
@@ -97,12 +101,12 @@ def lint_report_language(text: str) -> list[dict[str, str]]:
         if section_allows_provenance(heading):
             continue
         body = section_text.lower()
-        for pattern in FORBIDDEN_MAIN_BODY_PATTERNS:
-            if pattern in body:
+        for label, regex in _FORBIDDEN_MAIN_BODY_COMPILED:
+            if regex.search(section_text):
                 findings.append(
                     {
                         "severity": "minor",
-                        "pattern": pattern,
+                        "pattern": label,
                         "section": heading,
                         "message": INTERNAL_PROVENANCE_MESSAGE,
                     }

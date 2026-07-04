@@ -211,7 +211,7 @@ This report is research support and is not personalized financial advice.
       "materiality": "required",
       "disposition": "used",
       "rationale": "Latest close anchors market snapshot and valuation context.",
-      "report_section": "Market Snapshot Or Lifecycle Context",
+      "report_section": "Market Snapshot And Technical Analysis",
       "source_artifact": "data/AAPL/2026-05-29/normalized/market_snapshot.json"
     },
     {

@@ -18,7 +18,7 @@ import re
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "scripts"))
 import producer_self_check
 from script_metrics import add_metrics_arg, start_timer, write_metrics
-from script_utils import normalize_symbol, read_json, validate_as_of, write_json
+from script_utils import die, normalize_symbol, read_json, validate_as_of, write_json
 
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
@@ -43,7 +43,7 @@ Use this file for issues with the supervised orchestration skill itself, not inv
 
 ## Harness Orchestration Issues
 
-## Child Codex Command Issues
+## Child Agent Command Issues
 
 ## Timeout Or Artifact-Contract Issues
 
@@ -71,8 +71,15 @@ RATE_LIMIT_SIGNATURES = [
 ]
 
 
-def looks_rate_limited(*texts: str) -> bool:
-    combined = " ".join(texts).lower()
+def looks_rate_limited(stdout: str, stderr: str, tail_lines: int = 40) -> bool:
+    """Detect a child rate-limit signature without false-positiving on mid-run prose.
+
+    Research children legitimately describe provider "rate limit" budgets in their narration, so the
+    scan is scoped to stderr plus the tail of stdout (where a launcher prints its terminal error).
+    Callers should additionally gate on a non-zero child exit before treating this as a rate limit.
+    """
+    stdout_tail = "\n".join(stdout.splitlines()[-tail_lines:])
+    combined = f"{stderr}\n{stdout_tail}".lower()
     return any(signature in combined for signature in RATE_LIMIT_SIGNATURES)
 
 
@@ -81,11 +88,6 @@ class CommandResult:
     returncode: int
     timed_out: bool = False
     rate_limited: bool = False
-
-
-def die(message: str, code: int = 2) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(code)
 
 
 def write_if_missing(path: Path, text: str) -> None:
@@ -522,7 +524,7 @@ def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path, feedba
         [
             "$superpowers",
             "",
-            "Run a self-improvement review for completed market-research batches in this Codex session.",
+            "Run a self-improvement review for completed market-research batches in this session.",
             "",
             "Goal: analyze the listed runs, their reports, validation artifacts, skill issue notes, prior plans/specs, and recent code changes. Write improvement ideas and an implementation plan. Do not edit production skill files in this pass.",
             "",
@@ -548,6 +550,9 @@ def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path, feedba
             "- Evaluate field-level freshness: which fields required a fresh/latest-available query, which durable filed/source-dated evidence could be reused, and whether missing or stale data changed investor interpretation.",
             "- Do not recommend main-body cache mechanics disclosure unless stale or unavailable data changes investor interpretation. Cache/provider mechanics belong in references, appendices, sidecars, or validation artifacts.",
             "- Did validator/remediation behavior surface the right problems with enough specificity?",
+            "- Validate collector runtime behavior from bundle manifests and fetch metrics: exactly one live price fetch per run (or an accurate `No live price fetch this run` warning), accurate `price_fetch_suppressed` entries, budget skip/limit warnings consistent with reusable cached endpoints still being normalized, and no bundle silently missing a price series after a failed live price fetch (see `AGENTS.md` Collector Runtime Behavior And Watchpoints).",
+            "- Spot-check `deterministic_data_usage.json` dispositions for audit mis-scoring: values the report legitimately references in humanized or comma-grouped phrasing scored `not_referenced`, or coincidental numbers scored `narrative_used`. Recurring mismatches should become matcher fixes or tests.",
+            "- Confirm short-history symbols (fields with `available_history` status) are presented as available-history ranges in reports, not implied full 52-week ranges.",
             "- Which recurring failures should become deterministic checks, prompt requirements, helper scripts, or tests?",
             "",
             "Write outputs under:",
@@ -830,7 +835,11 @@ def run_shell_command(command: str, log_path: Path, *, timeout_seconds: int | No
         ),
         encoding="utf-8",
     )
-    return CommandResult(returncode=returncode, timed_out=timed_out, rate_limited=looks_rate_limited(stdout, stderr))
+    return CommandResult(
+        returncode=returncode,
+        timed_out=timed_out,
+        rate_limited=returncode != 0 and looks_rate_limited(stdout, stderr),
+    )
 
 
 def deterministic_bundle_exists(path: Path) -> bool:

@@ -268,14 +268,62 @@ def report_reference_corpus(md_path: Path | None, json_path: Path | None, report
     return "\n".join(parts).lower()
 
 
-def value_tokens(value: Any) -> list[str]:
-    if value is None:
-        return []
-    tokens = [str(value)]
-    if isinstance(value, float):
-        tokens.append(f"{value:g}")
-        tokens.append(f"{value:.2f}")
+HUMANIZED_SCALE_UNITS = (
+    (1_000_000_000_000, r"(?:trillion|tn|trn|t)"),
+    (1_000_000_000, r"(?:billion|bn|b)"),
+    (1_000_000, r"(?:million|mm|m)"),
+)
+
+
+def humanized_scaled_tokens(value: float) -> list[tuple[str, str]]:
+    """Conservative humanized-number tokens for a large numeric value.
+
+    A memo that (correctly) writes "$391.0 billion" for a 391035000000 revenue should still count as
+    a value reference. Scale the value to millions/billions/trillions and render one-decimal,
+    two-decimal, and rounded-integer forms, but return the unit pattern with each token so matching
+    requires an adjacent magnitude word/suffix. That keeps "$391 billion" recognizable without
+    treating a bare "20.0%" or "8000 employees" as a large-dollar value reference.
+    """
+    tokens: list[tuple[str, str]] = []
+    magnitude = abs(value)
+    for scale, unit_pattern in HUMANIZED_SCALE_UNITS:
+        if magnitude >= scale:
+            scaled = value / scale
+            for token in {f"{scaled:.1f}", f"{scaled:.2f}", str(round(scaled))}:
+                tokens.append((token, unit_pattern))
+    return tokens
+
+
+def numeric_value_tokens(value: float) -> list[str]:
+    tokens: list[str] = []
+    if float(value).is_integer():
+        tokens.append(str(int(value)))
+    tokens.append(f"{value:g}")
+    tokens.append(f"{value:.2f}")
     return [token.lower() for token in tokens if token]
+
+
+def value_referenced_in_corpus(value: Any, corpus: str) -> bool:
+    """Whether a DataPoint value appears in the report corpus.
+
+    Numeric values are matched with digit boundaries so a bare "8" does not match inside "1985" or
+    "38.2"; non-numeric string values keep plain substring containment (G4).
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        # Digit boundaries so a bare "8" does not match inside "1985" or "38.2", while still allowing a
+        # decimal quoted at a sentence end ("123.45."). Reject only an adjacent digit, or a "." that
+        # introduces further digits (i.e. the token is part of a larger number), not sentence punctuation.
+        for token in numeric_value_tokens(float(value)):
+            if re.search(rf"(?<!\d)(?<!\d\.){re.escape(token)}(?!\d)(?!\.\d)", corpus):
+                return True
+        for token, unit_pattern in humanized_scaled_tokens(float(value)):
+            if re.search(rf"(?<!\d)(?<!\d\.){re.escape(token.lower())}\s*{unit_pattern}\b", corpus):
+                return True
+        return False
+    text = str(value).strip().lower()
+    return bool(text) and text in corpus
 
 
 def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[str]:
@@ -286,7 +334,7 @@ def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[
         ("source_url", datapoint.get("source_url")),
     ]
     reasons = [reason for reason, value in checks if isinstance(value, str) and value and value.lower() in corpus]
-    if any(token in corpus for token in value_tokens(datapoint.get("value"))):
+    if value_referenced_in_corpus(datapoint.get("value"), corpus):
         reasons.append("value")
     return sorted(set(reasons))
 

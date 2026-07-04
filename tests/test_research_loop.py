@@ -370,6 +370,10 @@ def test_self_improve_writes_central_prompt_for_multiple_run_roots(tmp_path):
     assert "Market Snapshot And Technical Analysis" in prompt
     assert "support/resistance" in prompt
     assert "Data Issues And Discrepancies" in prompt
+    assert "Validate collector runtime behavior from bundle manifests and fetch metrics" in prompt
+    assert "`price_fetch_suppressed`" in prompt
+    assert "audit mis-scoring" in prompt
+    assert "available_history" in prompt
     assert str(run_a / "skill-improvement-feedback.md") in prompt
     assert str(run_b / "skill-improvement-feedback.md") in prompt
 
@@ -1332,6 +1336,10 @@ def test_looks_rate_limited_matches_known_signatures_only():
     assert module.looks_rate_limited("You've hit your session limit · resets 5:30am (America/New_York)", "")
     assert module.looks_rate_limited("", "Error: rate limit exceeded, try again later")
     assert not module.looks_rate_limited("Traceback (most recent call last): ValueError", "")
+    # A rate-limit phrase buried far above the output tail (e.g. narration about provider budgets)
+    # must not be treated as a child rate-limit failure.
+    narration = "The provider rate limit is 20 calls/day.\n" + "\n".join(f"progress line {i}" for i in range(60))
+    assert not module.looks_rate_limited(narration, "")
 
 
 def test_run_batch_ignores_nested_runtime_reports_and_data_dirs(tmp_path):

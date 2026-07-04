@@ -69,7 +69,7 @@ The helper can also be run directly:
 python3 market-research/batch-supervisor/scripts/research_loop.py self-improve RUN_ROOT [RUN_ROOT ...]
 ```
 
-This first refreshes each run root's runtime `skill-improvement-feedback.md` and `.json` package, collecting loop notes, operator notes, report-side skill issue files, inline report comments such as `<@researcher: ...>`, and supporting intermediate validation scaffold paths under `validation_scaffolds/`. It then writes `docs/superpowers/plans/self-improvement/TIMESTAMP/self-improvement.md` by default so durable prompts, ideas, plans, and JSON survive `runtime/` cleanup. Open that prompt in Codex and run the review in the current session. The prompt asks for `self-improvement-ideas.md`, `self-improvement-plan.md`, and `self-improvement.json` under the same central output directory.
+This first refreshes each run root's runtime `skill-improvement-feedback.md` and `.json` package, collecting loop notes, operator notes, report-side skill issue files, inline report comments such as `<@researcher: ...>`, and supporting intermediate validation scaffold paths under `validation_scaffolds/`. It then writes `docs/superpowers/plans/self-improvement/TIMESTAMP/self-improvement.md` by default so durable prompts, ideas, plans, and JSON survive `runtime/` cleanup. Open that prompt in your agent session and run the review there. The prompt asks for `self-improvement-ideas.md`, `self-improvement-plan.md`, and `self-improvement.json` under the same central output directory.
 
 The generated prompt should evaluate deterministic data usage, investor-grade memo quality, omitted risks or data gaps, validator specificity, and recurring failures that should become checks, prompt requirements, helper scripts, or tests.
 

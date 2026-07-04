@@ -300,6 +300,57 @@ def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     assert calls == ["tiingo"]
 
 
+def test_zero_budget_provider_keeps_reusable_cached_endpoints_in_bundle(tmp_path, monkeypatch):
+    # J2: budget 0 prevents live fetches, but reusable cached endpoints still cost no calls and
+    # should remain in the effective endpoint plan for normalization.
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "fundamentals",
+        {},
+        {"General": {"Name": "Cached EODHD Name", "MarketCapitalization": 123}},
+        source_url="https://eodhd.example/fundamentals/AAPL.US",
+    )
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(cache),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd,tiingo",
+            "provider_endpoints": ["tiingo=prices"],
+            "max_provider_calls": ["eodhd=0"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    bundle_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+
+    assert calls == [("tiingo", ("prices",))]
+    assert manifest["endpoint_plan"]["eodhd"] == ["fundamentals", "prices"]
+    assert identity["company_name"]["value"] == "Cached EODHD Name"
+
+
 def test_fetch_trims_provider_to_affordable_endpoints_when_estimated_cost_exceeds_budget(tmp_path, monkeypatch):
     module = load_module()
     calls = []
@@ -336,6 +387,9 @@ def test_fetch_trims_provider_to_affordable_endpoints_when_estimated_cost_exceed
 
 
 def test_budget_trimmed_endpoint_plan_controls_bundle_outputs(tmp_path, monkeypatch):
+    # A reusable cached "fundamentals" (cost 10) is served free under G1, so budget 1 retains it and
+    # spends the whole budget on the next affordable uncached endpoint (news); the uncached
+    # historical_market_cap and prices stay out of the plan, controlling what the bundle normalizes.
     module = load_module()
     cache = tmp_path / "cache"
     module.write_raw(
@@ -349,7 +403,7 @@ def test_budget_trimmed_endpoint_plan_controls_bundle_outputs(tmp_path, monkeypa
     )
 
     def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
-        if provider == "eodhd" and endpoints == {"news"}:
+        if provider == "eodhd" and "news" in (endpoints or set()):
             return [
                 module.write_raw(
                     cache_root,
@@ -389,9 +443,500 @@ def test_budget_trimmed_endpoint_plan_controls_bundle_outputs(tmp_path, monkeypa
     source_manifest = json.loads((bundle_dir / "source_manifest.json").read_text(encoding="utf-8"))
     identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
 
-    assert manifest["endpoint_plan"]["eodhd"] == ["news"]
-    assert [source["endpoint"] for source in source_manifest["sources"]] == ["news"]
-    assert "company_name" not in identity
+    assert manifest["endpoint_plan"]["eodhd"] == ["fundamentals", "news"]
+    assert sorted(source["endpoint"] for source in source_manifest["sources"]) == ["fundamentals", "news"]
+    # The retained cached fundamentals is now used for normalization (G1), while the uncached,
+    # over-budget endpoints are excluded.
+    assert identity["company_name"]["value"] == "Stale EODHD Name"
+
+
+def test_suppressed_price_endpoint_is_excluded_from_budget_trim_before_cost_estimation(tmp_path, monkeypatch):
+    # F1: alphavantage's "prices" endpoint is suppressed (tiingo is the live price fetcher), and
+    # ENDPOINT_BUDGET_PRIORITY lists "prices" first for alphavantage. Before the fix, the budget
+    # trimmer spent alphavantage's whole budget on the never-fetched "prices" endpoint and it fetched
+    # nothing; after the fix it spends that budget on the next affordable endpoint instead.
+    module = load_module()
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,alphavantage",
+            "max_provider_calls": ["alphavantage=1"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    by_provider = dict(calls)
+    assert "prices" in by_provider["tiingo"]
+    assert by_provider["alphavantage"] == ("earnings",)
+
+
+def test_plan_fetch_excludes_suppressed_prices_from_cost_and_would_fetch(tmp_path):
+    # F1 for plan-fetch: the reported estimated_call_cost/would_fetch_endpoints for a suppressed
+    # provider must not be skewed by a "prices" call that will never be made.
+    module = load_module()
+
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,alphavantage",
+        "--max-provider-calls",
+        "alphavantage=1",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    by_provider = {item["provider"]: item for item in payload["providers"]}
+
+    assert by_provider["alphavantage"]["price_fetch_suppressed"] is True
+    assert by_provider["alphavantage"]["estimated_call_cost"] == 10 + 5 + 5 + 5 + 1 + 1 + 1
+    assert by_provider["alphavantage"]["would_fetch_endpoints"] == ["earnings"]
+
+
+def test_zero_budget_price_provider_promotes_next_configured_price_provider(tmp_path, monkeypatch):
+    # F2: tiingo (top priority) has no budget, so eodhd (next in PRICE_PROVIDER_PRIORITY) should be
+    # promoted to live-fetch prices instead of everyone silently suppressing on a provider that
+    # will never actually fetch.
+    module = load_module()
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,eodhd",
+            "max_provider_calls": ["tiingo=0"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    by_provider = dict(calls)
+    assert "tiingo" not in by_provider
+    assert "prices" in by_provider["eodhd"]
+
+
+def test_no_budget_anywhere_warns_instead_of_misleading_suppression_message(tmp_path, monkeypatch):
+    # F2: when no configured price provider can actually afford a "prices" call and no cache covers
+    # it, the manifest should say so plainly rather than claim some provider "already covers prices".
+    module = load_module()
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,eodhd",
+            "max_provider_calls": ["tiingo=0", "eodhd=1"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    manifest = json.loads((tmp_path / "data" / "AAPL" / "2026-06-01" / "manifest.json").read_text(encoding="utf-8"))
+    assert any("No live price fetch this run" in warning for warning in manifest["warnings"])
+    assert not any("already covers prices" in warning for warning in manifest["warnings"])
+
+
+def test_plan_fetch_warns_when_no_live_price_fetch_or_cache_is_available(tmp_path):
+    # J4: plan-fetch should surface the same no-price-fetch condition as fetch so dry runs catch
+    # mis-budgeted price coverage.
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,eodhd",
+        "--max-provider-calls",
+        "tiingo=0",
+        "--max-provider-calls",
+        "eodhd=1",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["price_fetch_provider"] is None
+    assert any("No live price fetch this run" in warning for warning in payload["warnings"])
+
+
+def test_plan_fetch_reports_selected_price_fetch_provider_without_warning(tmp_path):
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,eodhd",
+        "--max-provider-calls",
+        "tiingo=0",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["price_fetch_provider"] == "eodhd"
+    assert payload["warnings"] == []
+
+
+def test_explicit_provider_endpoints_prices_opts_in_lower_priority_provider(tmp_path, monkeypatch):
+    # F3: an explicit `--provider-endpoints eodhd=prices` request should not be silently suppressed
+    # just because tiingo (higher priority) is also configured and covers prices by default.
+    module = load_module()
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,eodhd",
+            "provider_endpoints": ["eodhd=prices"],
+            "max_provider_calls": None,
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    by_provider = dict(calls)
+    assert "prices" in by_provider["tiingo"]
+    assert by_provider["eodhd"] == ("prices",)
+
+
+def test_plan_fetch_excludes_cached_endpoint_but_includes_newly_affordable_ones(tmp_path):
+    # G1 for plan-fetch: a reusable cached "overview" must not be charged against the budget, so
+    # would_fetch_endpoints drops the cached endpoint yet gains the uncached endpoints now affordable.
+    module = load_module()
+    module.write_raw(
+        tmp_path / "cache",
+        "AAPL",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "AAPL"},
+        {"Symbol": "AAPL", "MarketCapitalization": "123"},
+        source_url="https://www.alphavantage.co/query",
+    )
+
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,alphavantage",
+        "--max-provider-calls",
+        "alphavantage=10",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    by_provider = {item["provider"]: item for item in payload["providers"]}
+    alphavantage = by_provider["alphavantage"]
+    assert alphavantage["cached_endpoints"] == ["overview"]
+    assert alphavantage["would_fetch_endpoints"] == ["balance_sheet", "income_statement"]
+    assert alphavantage["price_fetch_suppressed"] is True
+
+
+def test_provider_endpoints_filter_naming_out_of_run_provider_exits(tmp_path, monkeypatch, capsys):
+    # G2: a --provider-endpoints filter naming a provider outside the run's --providers list must be a
+    # hard error, not silently added to the plan where it could win price-fetch selection and fetch
+    # nothing.
+    module = load_module()
+    monkeypatch.setattr(module, "fetch_provider", lambda *a, **k: [])
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd",
+            "provider_endpoints": ["tiingo=prices"],
+            "max_provider_calls": None,
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    with pytest.raises(SystemExit) as exc:
+        module.cmd_fetch(args)
+
+    assert exc.value.code == 2
+    message = capsys.readouterr().err
+    assert "Unknown provider in endpoint filter: tiingo" in message
+    assert "run providers: eodhd" in message
+
+
+def test_plan_fetch_provider_endpoints_filter_out_of_run_provider_exits(tmp_path):
+    # G2 for plan-fetch: same guard on the plan path.
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "eodhd",
+        "--provider-endpoints",
+        "tiingo=prices",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 2
+    assert "Unknown provider in endpoint filter: tiingo" in result.stderr
+
+
+def test_provider_endpoints_filter_in_run_provider_still_works(tmp_path, monkeypatch):
+    # G2: naming a provider that IS in the run keeps working.
+    module = load_module()
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd,tiingo",
+            "provider_endpoints": ["tiingo=prices"],
+            "max_provider_calls": None,
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    by_provider = dict(calls)
+    assert by_provider["tiingo"] == ("prices",)
+
+
+def test_zero_budget_metrics_entry_records_real_estimated_cost(tmp_path, monkeypatch):
+    # G5: the budget-zero branch must record what the provider would have cost, matching the
+    # budget-skipped branch, instead of a misleading estimated_call_cost of 0.
+    module = load_module()
+    captured = {}
+
+    def capture_write_metrics(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(module, "fetch_provider", lambda *a, **k: [])
+    monkeypatch.setattr(module, "write_metrics", capture_write_metrics)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd,tiingo",
+            "provider_endpoints": ["tiingo=prices"],
+            "max_provider_calls": ["eodhd=0"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+            "metrics_json": None,
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    eodhd_metrics = next(item for item in captured["provider_metrics"] if item["provider"] == "eodhd")
+    assert eodhd_metrics["budget"] == 0
+    assert eodhd_metrics["fetch_attempted"] is False
+    # eodhd default endpoints: fundamentals(10) + news(1) + historical_market_cap(1), no live prices.
+    assert eodhd_metrics["estimated_call_cost"] == 12
+    assert captured["provider_call_estimate"] == 1
+
+
+def test_fetch_suppression_reporting_matches_plan_fetch_when_provider_has_own_price_cache(tmp_path, monkeypatch):
+    # J3: if a provider's own reusable cache covers prices, fetch should not report that provider's
+    # price endpoint as suppressed by another provider. That matches plan-fetch's own-cache guard.
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "prices",
+        {"from": "2025-06-01", "to": "2026-06-01"},
+        [{"date": "2026-06-01", "adjusted_close": 100}],
+        source_url="https://eodhd.example/eod/AAPL.US",
+    )
+    captured = {}
+
+    def capture_write_metrics(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(module, "fetch_provider", lambda *a, **k: [])
+    monkeypatch.setattr(module, "write_metrics", capture_write_metrics)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(cache),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,eodhd",
+            "max_provider_calls": None,
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+            "metrics_json": None,
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    eodhd_metrics = next(item for item in captured["provider_metrics"] if item["provider"] == "eodhd")
+    manifest = json.loads((tmp_path / "data" / "AAPL" / "2026-06-01" / "manifest.json").read_text(encoding="utf-8"))
+    plan = module.provider_fetch_plan(
+        cache,
+        "AAPL",
+        "eodhd",
+        module.provider_call_budget("eodhd", {}),
+        False,
+        module.default_endpoint_plan(["eodhd"])["eodhd"],
+        suppress_prices=True,
+    )
+
+    assert eodhd_metrics["price_fetch_suppressed"] is False
+    assert plan["price_fetch_suppressed"] is False
+    assert not any("Skipped live daily-price fetch for eodhd" in warning for warning in manifest["warnings"])
+
+
+def test_read_raw_json_memo_reparses_after_file_content_changes(tmp_path):
+    # G6: the raw-payload memo is transparent — the same mtime returns the cached parse, but a
+    # rewrite (new mtime) is re-read so a refreshed fetch never serves stale content.
+    module = load_module()
+    path = tmp_path / "raw.json"
+    module.write_json(path, {"provider_result": {"status": "ok"}, "data": {"v": 1}})
+    first = module.read_raw_json(path)
+    assert first["data"]["v"] == 1
+    # Unchanged file → memoized identical object.
+    assert module.read_raw_json(path) is first
+    module.write_json(path, {"provider_result": {"status": "ok"}, "data": {"v": 2}})
+    # Force a distinct mtime so the assertion does not depend on filesystem timestamp granularity.
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+    refreshed = module.read_raw_json(path)
+    assert refreshed["data"]["v"] == 2
 
 
 def test_storage_paths_default_to_data_reports_runtime(tmp_path):
@@ -1560,9 +2105,14 @@ def test_sec_companyfacts_promote_equity_fundamentals_without_extra_provider(tmp
     result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["sec"], offline=True)
 
     fundamentals = json.loads((Path(result["bundle_dir"]) / "normalized" / "equity_fundamentals.json").read_text(encoding="utf-8"))
-    assert fundamentals["revenue"]["value"]["value"] == 416161000000
+    assert fundamentals["revenue"]["value"] == 416161000000
     assert fundamentals["revenue"]["provider"] == "sec"
-    assert fundamentals["net_income"]["value"]["value"] == 112010000000
+    assert fundamentals["revenue"]["unit"] == "USD"
+    assert fundamentals["revenue"]["tag"] == "RevenueFromContractWithCustomerExcludingAssessedTax"
+    assert fundamentals["revenue"]["period_end"] == "2025-09-27"
+    assert fundamentals["revenue"]["fiscal_year"] == 2025
+    assert fundamentals["revenue"]["form"] == "10-K"
+    assert fundamentals["net_income"]["value"] == 112010000000
 
 
 def test_gaps_record_only_attempted_providers(tmp_path):
@@ -2103,6 +2653,232 @@ def test_emit_sec_filings_index_handles_wrapped_submissions(tmp_path):
     assert filing["report_date"] == "2026-03-31"
     assert filing["primary_document_url"].endswith("/qubt-20260331.htm")
     assert filing["raw_path"] == str(submissions_raw)
+
+
+def test_auth_failure_message_includes_offline_recovery(capsys):
+    module = load_module()
+    statuses = [
+        {"provider": "fmp", "status": "unauthorized", "ok_files": 0},
+        {"provider": "tiingo", "status": "ok", "ok_files": 2},
+    ]
+    recovery = "python3 market-research/shared/scripts/deterministic_research_collector.py fetch AAPL --offline --providers tiingo --as-of 2026-06-16 --data-dir ./data --reports-dir ./reports"
+    with pytest.raises(SystemExit):
+        module.raise_for_auth_failures(statuses, recovery_command=recovery)
+    err = capsys.readouterr().err
+    assert "Authentication failed for provider(s): fmp" in err
+    assert "--offline --providers tiingo" in err
+
+
+def test_build_bundle_emits_sec_filings_index_from_submissions(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "submissions",
+        {"cik": "0000320193"},
+        {
+            "name": "APPLE INC",
+            "cik": "320193",
+            "sic": "3571",
+            "exchanges": ["Nasdaq"],
+            "filings": {
+                "recent": {
+                    "accessionNumber": ["0000320193-25-000079"],
+                    "form": ["10-K"],
+                    "filingDate": ["2025-10-31"],
+                    "reportDate": ["2025-09-27"],
+                    "primaryDocument": ["aapl-20250927.htm"],
+                }
+            },
+        },
+        source_url="https://data.sec.gov/submissions/CIK0000320193.json",
+    )
+
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["sec"], offline=True)
+    bundle_dir = Path(result["bundle_dir"])
+
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+    assert identity["cik"]["value"] == "320193"
+    assert identity["cik"]["provider"] == "sec"
+
+    index_path = bundle_dir / "normalized" / "sec_filings_index.json"
+    assert index_path.exists()
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    assert index["filings"][0]["form"] == "10-K"
+    assert index["filings"][0]["primary_document_url"].endswith("/aapl-20250927.htm")
+
+
+def test_normalize_identity_cik_falls_back_to_company_tickers(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "company_tickers",
+        {},
+        {"0": {"ticker": "AAPL", "cik_str": 320193}},
+        source_url="https://www.sec.gov/files/company_tickers.json",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "submissions",
+        {"cik": "0000320193"},
+        {"name": "APPLE INC", "filings": {"recent": {"form": ["10-K"]}}},
+        source_url="https://data.sec.gov/submissions/CIK0000320193.json",
+    )
+
+    identity = module.normalize_identity(cache, "AAPL", providers=["sec"])
+
+    assert identity["cik"]["value"] == "320193"
+    assert identity["cik"]["provider"] == "sec"
+    assert identity["cik"]["endpoint"] == "company_tickers"
+
+
+def test_build_bundle_truncates_prices_after_as_of(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    prices = [
+        {"date": "2026-06-10", "open": 100, "high": 101, "low": 99, "close": 100, "adjClose": 100, "volume": 1000},
+        {"date": "2026-06-15", "open": 105, "high": 106, "low": 104, "close": 110, "adjClose": 110, "volume": 1100},
+        {"date": "2026-06-20", "open": 120, "high": 131, "low": 119, "close": 130, "adjClose": 130, "volume": 1200},
+    ]
+    module.write_raw(
+        cache,
+        "AAPL",
+        "tiingo",
+        "prices",
+        {"startDate": "2021-01-01", "endDate": "2026-06-16"},
+        prices,
+        source_url="https://api.tiingo.com/tiingo/daily/AAPL/prices",
+    )
+
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["tiingo"], offline=True)
+    bundle_dir = Path(result["bundle_dir"])
+
+    prices_daily = json.loads((bundle_dir / "normalized" / "prices_daily.json").read_text(encoding="utf-8"))
+    assert [row["date"] for row in prices_daily["prices"]] == ["2026-06-10", "2026-06-15"]
+
+    snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
+    assert snapshot["latest_close"]["value"] == 110
+    assert snapshot["latest_close"]["as_of"] == "2026-06-15"
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert any("Dropped 1 cached price row" in warning for warning in manifest["warnings"])
+    assert any("price_history_ends_before_as_of" in warning for warning in manifest["warnings"])
+
+
+def test_sec_403_error_body_is_read_once_and_preserved(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    class DrainingHTTPError(HTTPError):
+        def __init__(self, body):
+            super().__init__(
+                url="https://data.sec.gov/submissions/CIK0000320193.json",
+                code=403,
+                msg="Forbidden",
+                hdrs={"content-type": "text/html"},
+                fp=None,
+            )
+            self._body = body
+            self._drained = False
+
+        def read(self, amt=None):
+            if self._drained:
+                return b""
+            self._drained = True
+            return self._body if amt is None else self._body[:amt]
+
+    def fake_urlopen(request, timeout=20):
+        raise DrainingHTTPError(b"<html><title>SEC.gov | Request Rate Threshold Exceeded</title></html>")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    try:
+        path = module.fetch_with_cache(
+            cache,
+            "AAPL",
+            "sec",
+            "submissions",
+            {"cik": "0000320193"},
+            "https://data.sec.gov/submissions/CIK0000320193.json",
+            "https://data.sec.gov/submissions/CIK0000320193.json",
+            config,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/126.0 Safari/537.36"},
+            refresh=True,
+        )
+    finally:
+        monkeypatch.undo()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    provider_result = saved["provider_result"]
+    assert provider_result["status"] == "rate_limited"
+    assert "Request Rate Threshold Exceeded" in provider_result["error_body_snippet"]
+
+
+def test_sec_403_with_descriptive_user_agent_retries_and_preserves_final_classification(tmp_path):
+    # F7: with a descriptive SEC User-Agent, should_retry() returns True for a 403 rate-threshold
+    # response, so http_json retries up to the sec retry policy's max_attempts. Once retries are
+    # exhausted, the raw artifact saved by fetch_with_cache must still classify the final error as
+    # rate_limited and preserve the body snippet, not lose it to a drained/re-read stream.
+    module = load_module()
+    cache = tmp_path / "cache"
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+    calls = {"count": 0}
+
+    class DrainingHTTPError(HTTPError):
+        def __init__(self, body):
+            super().__init__(
+                url="https://data.sec.gov/submissions/CIK0000320193.json",
+                code=403,
+                msg="Forbidden",
+                hdrs={"content-type": "text/html"},
+                fp=None,
+            )
+            self._body = body
+            self._drained = False
+
+        def read(self, amt=None):
+            if self._drained:
+                return b""
+            self._drained = True
+            return self._body if amt is None else self._body[:amt]
+
+    def fake_urlopen(request, timeout=20):
+        calls["count"] += 1
+        raise DrainingHTTPError(b"<html><title>SEC.gov | Request Rate Threshold Exceeded</title></html>")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    try:
+        path = module.fetch_with_cache(
+            cache,
+            "AAPL",
+            "sec",
+            "submissions",
+            {"cik": "0000320193"},
+            "https://data.sec.gov/submissions/CIK0000320193.json",
+            "https://data.sec.gov/submissions/CIK0000320193.json",
+            config,
+            headers={"User-Agent": module.DEFAULT_SEC_USER_AGENT},
+            refresh=True,
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert calls["count"] == module.retry_policy_for_provider("sec").max_attempts
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    provider_result = saved["provider_result"]
+    assert provider_result["status"] == "rate_limited"
+    assert "Request Rate Threshold Exceeded" in provider_result["error_body_snippet"]
 
 
 def test_analysis_limitations_map_provider_status_to_investor_impact():

@@ -19,4 +19,4 @@ Use this single, portable Agent Skills-format skill for all market research work
 - Final reports, best-effort PDFs, validation scaffolds, and completed validations belong under `reports/SYMBOL/YYYY-MM-DD/`.
 - Prompts, logs, source workspaces, remediation notes, and other transient artifacts belong under `runtime/SYMBOL/YYYY-MM-DD/`.
 
-Do not write new artifacts to the retired run-root name used before this rework. Invoke `$market-research` with the `researcher`, `verifier`, or `batch-supervisor` mode.
+Write new artifacts only under the canonical `data/`, `reports/`, and `runtime/` roots above. Invoke `$market-research` with the `researcher`, `verifier`, or `batch-supervisor` mode.

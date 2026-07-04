@@ -9,7 +9,7 @@ This directory contains active documentation for the market-research skill repos
 - `docs/operations.md`: development commands, preflight checks, research and validation workflows, batch supervision, self-improvement prompt generation, and generated-artifact handling.
 - `docs/maintainer-notes/`: curated handoff notes and implementation lessons that are useful to future maintainers but too run-specific for canonical docs.
 
-There are currently no active implementation plans or design specs. New human-reviewed plans/specs may live under `docs/superpowers/` while actively guiding work, then should be deleted once implemented and summarized in canonical docs, maintainer notes, or tests. Generated self-improvement prompt outputs under `docs/superpowers/plans/self-improvement/` are local-only.
+Human-reviewed plans/specs and generated self-improvement prompt outputs under `docs/superpowers/` may be committed on active work branches while they guide or document the work, then should be deleted once implemented and summarized in canonical docs, maintainer notes, or tests.
 
 ## Generated Material Policy
 

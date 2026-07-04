@@ -60,13 +60,13 @@ The investment case depends on contract conversion.
     assert findings == []
 
 
-def test_report_language_lint_rejects_saved_deterministic_artifact_language_in_main_body():
+def test_report_language_lint_rejects_deterministic_artifact_language_in_main_body():
     module = load_module()
     text = """# QUBT Research
 
 ## Bottom Line
 
-The latest saved 10-Q and deterministic artifact show the company has cash.
+The latest 10-Q and deterministic artifact show the company has cash.
 
 ## Data Issues And Discrepancies
 
@@ -80,9 +80,28 @@ Local artifacts are listed here.
     findings = module.lint_report_language(text)
 
     patterns = {finding["pattern"] for finding in findings}
-    assert "saved" in patterns
     assert "deterministic" in patterns
     assert "artifact" in patterns
+
+
+def test_report_language_lint_allows_benign_business_prose():
+    module = load_module()
+    text = """# NVDA Research
+
+## Bottom Line
+
+NVDA is the leading provider of data-center GPUs. Management saved costs by consolidating suppliers,
+and normalized earnings improved as the largest healthcare provider and cloud service providers
+scaled adoption. Big data/analytics demand is a durable driver.
+
+## Business Profile
+
+The company sells to hyperscale cloud providers and enterprise data centers.
+"""
+
+    findings = module.lint_report_language(text)
+
+    assert findings == []
 
 
 def test_report_language_lint_rejects_routine_vendor_names_in_main_body():

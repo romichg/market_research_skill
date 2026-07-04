@@ -18,7 +18,22 @@ def test_generated_artifact_roots_are_ignored():
     ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
     ignored = {line.strip() for line in ignore_text.splitlines() if line.strip() and not line.startswith("#")}
 
-    assert {"data/", "reports/", "runtime/", "docs/superpowers/plans/self-improvement/"} <= ignored
+    assert {"data/", "reports/", "runtime/"} <= ignored
+    assert "docs/superpowers/plans/self-improvement/" not in ignored
+
+
+def test_self_improvement_plan_history_policy_is_documented():
+    docs = "\n".join(
+        [
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "README.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "operations.md").read_text(encoding="utf-8"),
+        ]
+    )
+
+    assert "ignored local-only" not in docs
+    assert "Generated self-improvement prompt outputs under `docs/superpowers/plans/self-improvement/` are local-only" not in docs
+    assert "may be committed on active work branches" in docs
 
 
 def test_active_files_do_not_reference_old_skill_paths():
@@ -70,9 +85,11 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/quality-bar.md"),
         Path("docs/maintainer-notes/README.md"),
         Path("docs/maintainer-notes/20260702-producer-self-check-and-validator-loops.md"),
+        Path("docs/maintainer-notes/20260703-price-fetch-suppression-and-plan-normalize-split.md"),
     }
     transient_active_roots = [
         Path("docs/superpowers/plans/self-improvement"),
+        Path("docs/superpowers/specs"),
     ]
     actual_active_docs = set()
     for path in (ROOT / "docs").rglob("*"):

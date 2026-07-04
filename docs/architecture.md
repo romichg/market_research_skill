@@ -19,6 +19,8 @@ The top-level `market-research/SKILL.md` routes users to the mode-specific skill
 
 Generated `data/`, `reports/`, and `runtime/` outputs are not committed.
 
+The `data/`, `reports/`, and `runtime/` roots are expected to be siblings under one repository/workspace root. The validation and source-reconciliation helpers pair a `data/SYMBOL/YYYY-MM-DD/` bundle with its `reports/SYMBOL/YYYY-MM-DD/` and `runtime/SYMBOL/YYYY-MM-DD/` counterparts by walking up to that shared parent. If `RESEARCH_DATA_DIR`, `RESEARCH_REPORTS_DIR`, or `RESEARCH_RUNTIME_DIR` point at non-sibling locations, pass the matching `--data-dir`/`--runtime-dir` (and validator `--report-md`/`--report-json`) explicitly so the helpers do not infer the wrong sibling directory.
+
 ## Evidence Roles
 
 Deterministic helper output is evidence, not authority. Researchers should use it aggressively, but final reports must synthesize material facts into an investor-readable memo. Procedural source bundles fill targeted gaps and preserve source dates, URLs, local artifact metadata, and confidence notes.
