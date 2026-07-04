@@ -740,7 +740,7 @@ def cmd_extract_blackrock(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Procedural source registry and gap-fill helper for the Codex market-research skill.")
+    parser = argparse.ArgumentParser(description="Procedural source registry and gap-fill helper for the market-research skill.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_run_location(parser: argparse.ArgumentParser) -> None:

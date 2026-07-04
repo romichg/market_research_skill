@@ -173,3 +173,112 @@ def test_usage_audit_does_not_treat_raw_path_only_as_narrative_use(tmp_path):
     item = audit["datapoints"][0]
     assert item["usage_status"] == "evidence_only_reference"
     assert "raw_path" in item["reference_reasons"]
+
+
+def test_usage_audit_recognizes_scalar_companyfacts_revenue_value(tmp_path):
+    # F7 / M5: a companyfacts DataPoint is a scalar "value" with sibling tag/fiscal_year/period_end/
+    # filed_date/form keys (see companyfacts_point() in deterministic_research_collector.py). The
+    # usage audit must still recognize that scalar value when the report corpus quotes it verbatim.
+    module = load_module()
+    normalized = tmp_path / "normalized"
+    normalized.mkdir()
+    (normalized / "equity_fundamentals.json").write_text(
+        json.dumps(
+            {
+                "revenue": {
+                    "value": 391035000000,
+                    "provider": "sec",
+                    "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+                    "raw_path": "data/AAPL/2026-06-22/raw/sec/companyfacts.json",
+                    "status": "ok",
+                    "unit": "USD",
+                    "as_of": "2025-09-27",
+                    "period": "2025-09-27",
+                    "tag": "Revenues",
+                    "fiscal_year": 2025,
+                    "period_end": "2025-09-27",
+                    "filed_date": "2025-11-01",
+                    "form": "10-K",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    report_md = tmp_path / "report.md"
+    report_md.write_text("Fiscal 2025 revenue was 391035000000 per the 10-K filed with the SEC.", encoding="utf-8")
+
+    audit = module.deterministic_data_usage_audit(
+        {"normalized": normalized, "report_markdown": report_md, "report_json": None},
+        {},
+    )
+
+    item = audit["datapoints"][0]
+    assert item["field_path"] == "equity_fundamentals.revenue"
+    assert "value" in item["reference_reasons"]
+    assert item["usage_status"] == "narrative_used"
+
+
+def test_usage_audit_single_digit_value_not_matched_by_coincidental_digit(tmp_path):
+    # G4 over-match: a datapoint value of 8 must not match the 8 inside "1985" or "38.2"; a corpus
+    # without a standalone 8 leaves the datapoint not_referenced so the audit keeps its teeth.
+    module = load_module()
+    normalized = tmp_path / "normalized"
+    normalized.mkdir()
+    (normalized / "equity_fundamentals.json").write_text(
+        json.dumps(
+            {
+                "analyst_rating_hold": {
+                    "value": 8,
+                    "provider": "fmp",
+                    "source_url": "https://example.test/ratings",
+                    "raw_path": "data/AAPL/2026-06-22/raw/fmp/ratings.json",
+                    "status": "ok",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    report_md = tmp_path / "report.md"
+    report_md.write_text("Founded in 1985, the stock trades at a 38.2% premium.", encoding="utf-8")
+
+    audit = module.deterministic_data_usage_audit(
+        {"normalized": normalized, "report_markdown": report_md, "report_json": None},
+        {},
+    )
+
+    item = audit["datapoints"][0]
+    assert "value" not in item["reference_reasons"]
+    assert item["usage_status"] == "not_referenced"
+
+
+def test_usage_audit_matches_humanized_billion_revenue(tmp_path):
+    # G4 under-match: a memo that writes "$391.0 billion" for a 391035000000 revenue must count as a
+    # value reference via the humanized scaled token, not be scored not_referenced.
+    module = load_module()
+    normalized = tmp_path / "normalized"
+    normalized.mkdir()
+    (normalized / "equity_fundamentals.json").write_text(
+        json.dumps(
+            {
+                "revenue": {
+                    "value": 391035000000,
+                    "provider": "sec",
+                    "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+                    "raw_path": "data/AAPL/2026-06-22/raw/sec/companyfacts.json",
+                    "status": "ok",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    report_md = tmp_path / "report.md"
+    report_md.write_text("Apple reported fiscal 2025 revenue of $391.0 billion.", encoding="utf-8")
+
+    audit = module.deterministic_data_usage_audit(
+        {"normalized": normalized, "report_markdown": report_md, "report_json": None},
+        {},
+    )
+
+    item = audit["datapoints"][0]
+    assert "value" in item["reference_reasons"]
+    assert item["usage_status"] == "narrative_used"

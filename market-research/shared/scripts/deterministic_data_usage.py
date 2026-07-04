@@ -268,14 +268,55 @@ def report_reference_corpus(md_path: Path | None, json_path: Path | None, report
     return "\n".join(parts).lower()
 
 
-def value_tokens(value: Any) -> list[str]:
-    if value is None:
-        return []
-    tokens = [str(value)]
-    if isinstance(value, float):
-        tokens.append(f"{value:g}")
-        tokens.append(f"{value:.2f}")
+def humanized_scaled_tokens(value: float) -> list[str]:
+    """Conservative humanized-number tokens for a large numeric value.
+
+    A memo that (correctly) writes "$391.0 billion" for a 391035000000 revenue should still count as
+    a value reference. Scale the value to millions/billions/trillions and render one- and two-decimal
+    forms; the scaled decimal is specific enough to avoid coincidental matches. The integer form is
+    added only when the scaled value is a whole number of at least 10, so a bare single-digit token
+    (e.g. "5" from a 5M value) never matches unrelated text (G4).
+    """
+    tokens: list[str] = []
+    magnitude = abs(value)
+    for scale in (1_000_000_000_000, 1_000_000_000, 1_000_000):
+        if magnitude >= scale:
+            scaled = value / scale
+            tokens.append(f"{scaled:.1f}")
+            tokens.append(f"{scaled:.2f}")
+            if scaled == int(scaled) and abs(scaled) >= 10:
+                tokens.append(str(int(scaled)))
+    return tokens
+
+
+def numeric_value_tokens(value: float) -> list[str]:
+    tokens: list[str] = []
+    if float(value).is_integer():
+        tokens.append(str(int(value)))
+    tokens.append(f"{value:g}")
+    tokens.append(f"{value:.2f}")
+    tokens.extend(humanized_scaled_tokens(value))
     return [token.lower() for token in tokens if token]
+
+
+def value_referenced_in_corpus(value: Any, corpus: str) -> bool:
+    """Whether a DataPoint value appears in the report corpus.
+
+    Numeric values are matched with digit boundaries so a bare "8" does not match inside "1985" or
+    "38.2"; non-numeric string values keep plain substring containment (G4).
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        # Digit boundaries so a bare "8" does not match inside "1985" or "38.2", while still allowing a
+        # decimal quoted at a sentence end ("123.45."). Reject only an adjacent digit, or a "." that
+        # introduces further digits (i.e. the token is part of a larger number), not sentence punctuation.
+        for token in numeric_value_tokens(float(value)):
+            if re.search(rf"(?<!\d)(?<!\d\.){re.escape(token)}(?!\d)(?!\.\d)", corpus):
+                return True
+        return False
+    text = str(value).strip().lower()
+    return bool(text) and text in corpus
 
 
 def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[str]:
@@ -286,7 +327,7 @@ def datapoint_reference_reasons(datapoint: dict[str, Any], corpus: str) -> list[
         ("source_url", datapoint.get("source_url")),
     ]
     reasons = [reason for reason, value in checks if isinstance(value, str) and value and value.lower() in corpus]
-    if any(token in corpus for token in value_tokens(datapoint.get("value"))):
+    if value_referenced_in_corpus(datapoint.get("value"), corpus):
         reasons.append("value")
     return sorted(set(reasons))
 

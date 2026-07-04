@@ -5,7 +5,6 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,16 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deterministic_data_usage as usage_contract
 import report_language_lint
 import source_registry_reconcile
-from script_utils import read_json, write_json
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def die(message: str, code: int = 2) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(code)
+from script_utils import die, read_json, utc_now, write_json
 
 
 def is_deterministic_bundle(path: Path) -> bool:

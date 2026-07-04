@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +13,7 @@ import deterministic_data_usage
 import report_language_lint
 import source_registry_reconcile
 import validate_market_research
-from script_utils import read_json, write_json
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from script_utils import read_json, utc_now, write_json
 
 
 def issue_from_lint(finding: dict[str, str]) -> dict[str, Any]:

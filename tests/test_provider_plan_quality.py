@@ -1,5 +1,6 @@
 from pathlib import Path
 import importlib.util
+import json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,3 +98,64 @@ def test_fetch_suppresses_duplicate_live_price_calls(tmp_path, monkeypatch):
     assert any("/tiingo/daily/AAPL/prices" in url for url in calls)
     assert not any("/eod/AAPL.US" in url for url in calls)
     assert not any("TIME_SERIES_DAILY_ADJUSTED" in url for url in calls)
+
+
+def _seed_reusable_overview(c, cache_root):
+    c.write_raw(
+        cache_root,
+        "AAPL",
+        "alphavantage",
+        "overview",
+        {"function": "OVERVIEW", "symbol": "AAPL"},
+        {"Symbol": "AAPL", "MarketCapitalization": "123"},
+        source_url="https://www.alphavantage.co/query",
+    )
+
+
+def test_endpoints_within_budget_keeps_cached_endpoint_free_of_charge(tmp_path):
+    # G1: a reusable cached endpoint must stay in the plan without consuming budget, so an expensive
+    # cached endpoint early in ENDPOINT_BUDGET_PRIORITY (overview, cost 10) no longer eats the whole
+    # budget on a call that never happens. Budget 10 then also buys the next affordable uncached ones.
+    c = load_module()
+    _seed_reusable_overview(c, tmp_path)
+    endpoints = {"overview", "income_statement", "balance_sheet", "cash_flow", "earnings", "etf_profile", "news_sentiment"}
+    allowed = c.endpoints_within_budget(tmp_path, "AAPL", "alphavantage", 10, endpoints=endpoints)
+    assert allowed == {"overview", "income_statement", "balance_sheet"}
+
+
+def test_fetch_trims_to_cached_plus_affordable_uncached_endpoints(tmp_path, monkeypatch):
+    # G1 end-to-end: cached overview + suppressed prices + budget 10 → alphavantage "fetches" the
+    # cached overview (served from cache) plus the highest-priority uncached endpoints within budget.
+    c = load_module()
+    _seed_reusable_overview(c, tmp_path / "cache")
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(c, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(tmp_path / "cache"),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,alphavantage",
+            "max_provider_calls": ["alphavantage=10"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    c.cmd_fetch(args)
+
+    by_provider = dict(calls)
+    assert by_provider["alphavantage"] == ("balance_sheet", "income_statement", "overview")
+    manifest = json.loads((tmp_path / "data" / "AAPL" / "2026-06-01" / "manifest.json").read_text(encoding="utf-8"))
+    assert any("Limited alphavantage" in warning for warning in manifest["warnings"])

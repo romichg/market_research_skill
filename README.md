@@ -197,7 +197,7 @@ Create a prompt-only self-improvement review over one or more completed batch ro
 $market-research batch-supervisor self-improve runtime/market-research-batch-20260620 runtime/market-research-batch-20260621
 ```
 
-The batch-supervisor self-improve mode writes a central prompt under `docs/superpowers/plans/self-improvement/TIMESTAMP/` by default so durable improvement prompts, ideas, plans, and JSON survive `runtime/` cleanup. Run that prompt inside Codex when you want to consolidate lessons and plan skill improvements.
+The batch-supervisor self-improve mode writes a central prompt under `docs/superpowers/plans/self-improvement/TIMESTAMP/` by default so durable improvement prompts, ideas, plans, and JSON survive `runtime/` cleanup. Run that prompt inside your agent session when you want to consolidate lessons and plan skill improvements.
 
 The underlying helper can also be run directly from the repository root for debugging or custom output roots:
 

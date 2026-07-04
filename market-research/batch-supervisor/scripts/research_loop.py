@@ -18,7 +18,7 @@ import re
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared" / "scripts"))
 import producer_self_check
 from script_metrics import add_metrics_arg, start_timer, write_metrics
-from script_utils import normalize_symbol, read_json, validate_as_of, write_json
+from script_utils import die, normalize_symbol, read_json, validate_as_of, write_json
 
 BLOCKING_SEVERITIES = {"critical", "moderate"}
 OPEN_STATUSES = {"open", "new", "unresolved"}
@@ -43,7 +43,7 @@ Use this file for issues with the supervised orchestration skill itself, not inv
 
 ## Harness Orchestration Issues
 
-## Child Codex Command Issues
+## Child Agent Command Issues
 
 ## Timeout Or Artifact-Contract Issues
 
@@ -88,11 +88,6 @@ class CommandResult:
     returncode: int
     timed_out: bool = False
     rate_limited: bool = False
-
-
-def die(message: str, code: int = 2) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(code)
 
 
 def write_if_missing(path: Path, text: str) -> None:
@@ -529,7 +524,7 @@ def self_improvement_runs_prompt(run_roots: list[Path], output_dir: Path, feedba
         [
             "$superpowers",
             "",
-            "Run a self-improvement review for completed market-research batches in this Codex session.",
+            "Run a self-improvement review for completed market-research batches in this session.",
             "",
             "Goal: analyze the listed runs, their reports, validation artifacts, skill issue notes, prior plans/specs, and recent code changes. Write improvement ideas and an implementation plan. Do not edit production skill files in this pass.",
             "",

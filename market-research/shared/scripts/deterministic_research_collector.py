@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -528,13 +529,34 @@ def classify_http_error(provider: str, code: int, body: str) -> tuple[str, str]:
     return "error", f"HTTP {code}" if not title else f"HTTP {code}: {title}"
 
 
+_RAW_PAYLOAD_MEMO: dict[tuple[str, int], Any] = {}
+
+
+def read_raw_json(path: Path) -> Any:
+    """Parse a raw cache JSON file, memoized by ``(resolved path, st_mtime_ns)``.
+
+    A single fetch run reads each raw payload many times (status collection, the manifest, the raw
+    copy, and every ``normalize_*`` pass); re-parsing multi-megabyte SEC companyfacts each time is
+    pure waste. Memoize on the file mtime — writes go through ``write_json``'s atomic replace, which
+    yields a new mtime and transparently invalidates the entry (G6). Callers must treat the returned
+    object as read-only; ``copy_raw_files`` copies the small ``provider_result`` before mutating it.
+    """
+    try:
+        key = (str(path.resolve()), path.stat().st_mtime_ns)
+    except OSError:
+        return read_json(path)
+    if key not in _RAW_PAYLOAD_MEMO:
+        _RAW_PAYLOAD_MEMO[key] = read_json(path)
+    return _RAW_PAYLOAD_MEMO[key]
+
+
 def read_raw_latest(cache_root: Path, symbol: str, provider: str, endpoint: str) -> tuple[Path, dict[str, Any]] | None:
     root = cache_root / cache_symbol_for_endpoint(symbol, provider, endpoint) / provider
     files = sorted(root.glob(f"{provider}_{endpoint}_*.json"), key=lambda path: (path.stat().st_mtime, path.name))
     if not files:
         return None
     path = files[-1]
-    return path, read_json(path)
+    return path, read_raw_json(path)
 
 
 def reusable_cached_raw(cache_root: Path, symbol: str, provider: str, endpoint: str, refresh: bool = False) -> Path | None:
@@ -861,21 +883,58 @@ def default_endpoint_plan(providers: list[str]) -> dict[str, set[str]]:
     return plan
 
 
-def price_provider_to_live_fetch(cache_root: Path, symbol: str, endpoint_plan: dict[str, set[str]], refresh: bool = False) -> str | None:
+def price_provider_to_live_fetch(
+    cache_root: Path,
+    symbol: str,
+    endpoint_plan: dict[str, set[str]],
+    refresh: bool = False,
+    budgets: dict[str, int] | None = None,
+) -> str | None:
     """Pick the one price provider that should live-fetch daily prices.
 
     Prices stay plan-eligible for every configured price provider so normalization can fall back to
     any cached price series, but only the highest-priority provider without reusable cache needs a
     live daily-price call. This avoids pulling duplicate daily history from every provider on a broad
     fresh run while keeping cache-based fallback intact.
+
+    When ``budgets`` is given, a candidate whose own call budget cannot actually cover a ``prices``
+    call is skipped in favor of the next planned price provider, instead of being selected and then
+    silently fetching nothing (see F2 in the 2026-07-04 follow-up review).
     """
     for provider in PRICE_PROVIDER_PRIORITY:
         if "prices" not in endpoint_plan.get(provider, set()):
             continue
         if not refresh and reusable_cached_raw(cache_root, symbol, provider, "prices", refresh=refresh):
             return None
-        return provider
+        if budgets is None:
+            return provider
+        budget = provider_call_budget(provider, budgets)
+        if budget <= 0:
+            continue
+        endpoints = endpoint_plan.get(provider, set())
+        if estimated_provider_call_cost(cache_root, symbol, provider, refresh=refresh, endpoints=endpoints) <= budget:
+            return provider
+        if "prices" in endpoints_within_budget(cache_root, symbol, provider, budget, refresh=refresh, endpoints=endpoints):
+            return provider
     return None
+
+
+def explicit_price_opt_ins(items: list[str] | None) -> set[str]:
+    """Providers whose explicit ``--provider-endpoints PROVIDER=...`` filter names ``prices``.
+
+    An explicit request for a provider's ``prices`` endpoint opts that provider into live price
+    fetching alongside the default priority selection, even if a higher-priority provider is also
+    fetching prices (F3 in the 2026-07-04 follow-up review).
+    """
+    opted_in = set()
+    for item in items or []:
+        if "=" not in item:
+            continue
+        provider, value = item.split("=", 1)
+        requested = {part.strip() for part in value.split(",") if part.strip()}
+        if "prices" in requested:
+            opted_in.add(provider.strip())
+    return opted_in
 
 
 def parse_provider_endpoints(items: list[str] | None, providers: list[str]) -> dict[str, set[str]]:
@@ -885,6 +944,14 @@ def parse_provider_endpoints(items: list[str] | None, providers: list[str]) -> d
             die(f"Invalid provider endpoint filter {item!r}; expected PROVIDER=ENDPOINT[,ENDPOINT]")
         provider, value = item.split("=", 1)
         provider = provider.strip()
+        # An endpoint filter naming a provider outside the run's --providers list would otherwise be
+        # silently added to the plan, letting a phantom provider win price-fetch selection while
+        # never actually fetching (G2 in the 2026-07-04 review). Reject it like an unknown endpoint.
+        if provider not in providers:
+            die(
+                f"Unknown provider in endpoint filter: {provider} "
+                f"(run providers: {', '.join(providers)}). Add it to --providers or drop the filter."
+            )
         requested = {part.strip() for part in value.split(",") if part.strip()}
         unknown = requested - set(PROVIDER_ENDPOINT_COSTS.get(provider, {}))
         if unknown:
@@ -918,6 +985,13 @@ def endpoints_within_budget(cache_root: Path, symbol: str, provider: str, budget
     allowed: set[str] = set()
     remaining = budget
     for endpoint in ordered:
+        # A reusable cached endpoint is served from cache without a live call, so it must stay in the
+        # returned set (fetch_provider reuses its cache and normalization needs it) but must not
+        # consume budget — otherwise an expensive cached endpoint early in ENDPOINT_BUDGET_PRIORITY
+        # would spend the whole budget on a call that never happens (G1 in the 2026-07-04 review).
+        if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh):
+            allowed.add(endpoint)
+            continue
         endpoint_cost = endpoint_costs[endpoint]
         if endpoint_cost > remaining:
             continue
@@ -956,7 +1030,7 @@ def collect_provider_status(cache_root: Path, symbol: str, providers: list[str],
         files = sorted(set(files))
         raw_statuses = []
         for path in files:
-            payload = read_json(path)
+            payload = read_raw_json(path)
             endpoint = payload.get("provider_result", {}).get("endpoint")
             if endpoint and not provider_endpoint_enabled(endpoint_plan, provider, endpoint):
                 continue
@@ -1322,8 +1396,11 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
         latest = prices[-1]
         snapshot["latest_close"] = provenance(latest["adjusted_close"], price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
         closes = [row["adjusted_close"] for row in prices if row.get("adjusted_close") is not None]
-        snapshot["fifty_two_week_high"] = provenance(max(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
-        snapshot["fifty_two_week_low"] = provenance(min(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"])
+        # Mirror technicals_from_prices: with fewer than ~252 sessions the 52-week high/low reflect
+        # available history only, so label them rather than implying a full 52-week range (G3).
+        window_52w_status = "ok" if len(closes) >= 252 else "available_history"
+        snapshot["fifty_two_week_high"] = provenance(max(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"], status=window_52w_status)
+        snapshot["fifty_two_week_low"] = provenance(min(closes[-252:]), price_provider, price_url, "prices", price_raw or Path(""), as_of=latest["date"], status=window_52w_status)
     quote = read_raw_latest(cache_root, symbol, "twelve_data", "quote") if provider_enabled(providers, "twelve_data") and provider_endpoint_enabled(endpoint_plan, "twelve_data", "quote") else None
     if quote:
         raw, payload = quote
@@ -1622,7 +1699,7 @@ def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: l
             files.extend(root.glob("*.json"))
     seen_targets: set[Path] = set()
     for path in sorted(files):
-        payload = read_json(path)
+        payload = read_raw_json(path)
         provider = payload.get("provider_result", {}).get("provider", path.parent.name)
         endpoint = payload.get("provider_result", {}).get("endpoint")
         if endpoint and not provider_endpoint_enabled(endpoint_plan, provider, endpoint):
@@ -1652,10 +1729,14 @@ def copy_raw_files(cache_root: Path, symbol: str, bundle_dir: Path, providers: l
         seen_targets.add(target)
         semantic_status, semantic_error = classify_provider_payload(provider, payload.get("data"))
         if isinstance(payload.get("provider_result"), dict):
-            payload["provider_result"]["raw_path"] = str(target)
+            # Copy the small provider_result before rewriting its raw_path/status so the shared,
+            # possibly multi-megabyte memoized payload (its "data") is neither copied nor mutated.
+            result = dict(payload["provider_result"])
+            result["raw_path"] = str(target)
             if semantic_status != "ok":
-                payload["provider_result"]["status"] = semantic_status
-                payload["provider_result"]["error"] = semantic_error
+                result["status"] = semantic_status
+                result["error"] = semantic_error
+            payload = {**payload, "provider_result": result}
         write_json(target, payload)
         path_map[str(path)] = str(target)
         entries.append({
@@ -2284,23 +2365,48 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
     effective_endpoint_plan = {provider: set(endpoints) for provider, endpoints in endpoint_plan.items()}
     budgets = parse_budgets(args.max_provider_calls)
+    explicit_price_providers = explicit_price_opt_ins(getattr(args, "provider_endpoints", None))
     warnings: list[str] = []
     provider_metrics: list[dict[str, Any]] = []
-    price_fetch_provider = price_provider_to_live_fetch(cache_root, symbol, endpoint_plan, refresh=args.refresh)
+    price_fetch_provider = price_provider_to_live_fetch(cache_root, symbol, endpoint_plan, refresh=args.refresh, budgets=budgets)
+    price_candidates = [provider for provider in PRICE_PROVIDER_PRIORITY if provider in providers and "prices" in endpoint_plan.get(provider, set())]
+    price_covered_by_cache = price_fetch_provider is None and any(
+        reusable_cached_raw(cache_root, symbol, provider, "prices", refresh=args.refresh) for provider in price_candidates
+    )
     if not args.offline:
+        if price_candidates and price_fetch_provider is None and not price_covered_by_cache:
+            warnings.append(
+                "No live price fetch this run: no configured price provider has remaining budget to fetch "
+                "prices, and no cached price series is available as a fallback."
+            )
         for provider in providers:
             budget = provider_call_budget(provider, budgets)
             provider_root = cache_root / symbol / provider
             before = len(list(provider_root.glob("*.json"))) if provider_root.exists() else 0
+            endpoints = endpoint_plan.get(provider, set())
+            price_suppressed = (
+                "prices" in endpoints
+                and provider in PRICE_PROVIDER_PRIORITY
+                and provider != price_fetch_provider
+                and provider not in explicit_price_providers
+                and (price_fetch_provider is not None or price_covered_by_cache)
+            )
+            chargeable_endpoints = set(endpoints)
+            if price_suppressed:
+                chargeable_endpoints.discard("prices")
+            # Compute the estimate before the budget gate so the budget-zero branch reports what the
+            # provider would have cost, matching the budget-skipped branch below (G5).
+            estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=chargeable_endpoints)
             if budget <= 0:
                 warnings.append(f"Skipped {provider}: provider call budget is {budget}.")
-                effective_endpoint_plan[provider] = set()
+                effective_endpoint_plan[provider] = {"prices"} if price_suppressed else set()
                 provider_metrics.append(
                     {
                         "provider": provider,
                         "budget": budget,
-                        "estimated_call_cost": 0,
+                        "estimated_call_cost": estimated_cost,
                         "endpoints": [],
+                        "price_fetch_suppressed": price_suppressed,
                         "fetch_attempted": False,
                         "cache_files_before": before,
                         "cache_files_after": before,
@@ -2308,25 +2414,31 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                     }
                 )
                 continue
-            endpoints = endpoint_plan.get(provider, set())
-            estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=endpoints)
             if estimated_cost > budget:
-                budgeted_endpoints = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=args.refresh, endpoints=endpoints)
+                budgeted_endpoints = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=args.refresh, endpoints=chargeable_endpoints)
                 if not budgeted_endpoints:
                     warnings.append(f"Skipped {provider}: estimated call cost {estimated_cost} exceeds budget {budget}.")
-                    effective_endpoint_plan[provider] = set()
+                    effective_endpoint_plan[provider] = {"prices"} if price_suppressed else set()
+                    provider_metrics.append(
+                        {
+                            "provider": provider,
+                            "budget": budget,
+                            "estimated_call_cost": estimated_cost,
+                            "endpoints": [],
+                            "price_fetch_suppressed": price_suppressed,
+                            "fetch_attempted": False,
+                            "cache_files_before": before,
+                            "cache_files_after": before,
+                            "new_cache_files": 0,
+                        }
+                    )
                     continue
                 warnings.append(f"Limited {provider}: estimated call cost {estimated_cost} exceeds budget {budget}; fetching {', '.join(sorted(budgeted_endpoints))}.")
-                endpoints = budgeted_endpoints
-            effective_endpoint_plan[provider] = set(endpoints)
-            fetch_endpoints = set(endpoints)
-            price_suppressed = (
-                "prices" in fetch_endpoints
-                and provider in PRICE_PROVIDER_PRIORITY
-                and provider != price_fetch_provider
-            )
+                fetch_endpoints = budgeted_endpoints
+            else:
+                fetch_endpoints = chargeable_endpoints
+            effective_endpoint_plan[provider] = set(fetch_endpoints) | ({"prices"} if price_suppressed else set())
             if price_suppressed:
-                fetch_endpoints.discard("prices")
                 warnings.append(
                     f"Skipped live daily-price fetch for {provider}: "
                     f"{price_fetch_provider or 'a cached price series'} already covers prices; "
@@ -2359,6 +2471,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                     "budget": provider_call_budget(provider, budgets),
                     "estimated_call_cost": 0,
                     "endpoints": sorted(endpoint_plan.get(provider, set())),
+                    "price_fetch_suppressed": False,
                     "fetch_attempted": False,
                     "cache_files_before": before,
                     "cache_files_after": before,
@@ -2369,11 +2482,26 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     usable_providers = [str(item["provider"]) for item in statuses if item.get("ok_files")]
     recovery_command = None
     if usable_providers:
-        recovery_command = (
-            "python3 market-research/shared/scripts/deterministic_research_collector.py fetch "
-            f"{symbol} --offline --providers {','.join(usable_providers)} --as-of {as_of} "
-            f"--data-dir {output_root} --reports-dir {paths['reports_dir']}"
-        )
+        recovery_parts = [
+            "python3",
+            "market-research/shared/scripts/deterministic_research_collector.py",
+            "fetch",
+            symbol,
+            "--offline",
+            "--providers",
+            ",".join(usable_providers),
+            "--as-of",
+            as_of,
+            "--data-dir",
+            str(output_root),
+            "--reports-dir",
+            str(paths["reports_dir"]),
+        ]
+        if getattr(args, "cache_dir", None):
+            recovery_parts += ["--cache-dir", str(paths["cache_dir"])]
+        if getattr(args, "runtime_dir", None):
+            recovery_parts += ["--runtime-dir", str(paths["runtime_dir"])]
+        recovery_command = " ".join(shlex.quote(part) for part in recovery_parts)
     raise_for_auth_failures(statuses, recovery_command=recovery_command)
     warnings.extend(provider_status_warnings(statuses))
     result = build_bundle(symbol, as_of, cache_root, output_root, providers=providers, offline=args.offline, config=config, command=" ".join(sys.argv), asset_type=getattr(args, "asset_type", "auto"), warnings=warnings, endpoint_plan=effective_endpoint_plan)
@@ -2397,17 +2525,21 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 def provider_fetch_plan(cache_root: Path, symbol: str, provider: str, budget: int, refresh: bool, endpoints: set[str], suppress_prices: bool = False) -> dict[str, Any]:
     selected = endpoints_for_provider(provider, endpoints)
     cached_endpoints = sorted(endpoint for endpoint in selected if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh))
-    estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=refresh, endpoints=selected)
+    # A provider whose own cache already covers "prices" isn't being suppressed by anyone else;
+    # only treat it as suppressed (and exclude it from cost/budget math below) when another
+    # provider's live fetch or cache is what covers it.
+    price_fetch_suppressed = suppress_prices and "prices" in selected and "prices" not in cached_endpoints
+    chargeable = set(selected)
+    if price_fetch_suppressed:
+        chargeable.discard("prices")
+    estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=refresh, endpoints=chargeable)
     if budget <= 0:
         would_fetch: set[str] = set()
     elif estimated_cost <= budget:
-        would_fetch = {endpoint for endpoint in selected if endpoint not in set(cached_endpoints)}
+        would_fetch = {endpoint for endpoint in chargeable if endpoint not in set(cached_endpoints)}
     else:
-        budgeted = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=refresh, endpoints=selected)
+        budgeted = endpoints_within_budget(cache_root, symbol, provider, budget, refresh=refresh, endpoints=chargeable)
         would_fetch = {endpoint for endpoint in budgeted if endpoint not in set(cached_endpoints)}
-    price_fetch_suppressed = suppress_prices and "prices" in would_fetch
-    if price_fetch_suppressed:
-        would_fetch.discard("prices")
     return {
         "provider": provider,
         "budget": budget,
@@ -2439,7 +2571,12 @@ def cmd_plan_fetch(args: argparse.Namespace) -> None:
     providers = parse_provider_list(args.providers, config)
     endpoint_plan = parse_provider_endpoints(getattr(args, "provider_endpoints", None), providers)
     budgets = parse_budgets(args.max_provider_calls)
-    price_fetch_provider = price_provider_to_live_fetch(cache_root, symbol, endpoint_plan, refresh=args.refresh)
+    explicit_price_providers = explicit_price_opt_ins(getattr(args, "provider_endpoints", None))
+    price_fetch_provider = price_provider_to_live_fetch(cache_root, symbol, endpoint_plan, refresh=args.refresh, budgets=budgets)
+    price_candidates = [provider for provider in PRICE_PROVIDER_PRIORITY if provider in providers and "prices" in endpoint_plan.get(provider, set())]
+    price_covered_by_cache = price_fetch_provider is None and any(
+        reusable_cached_raw(cache_root, symbol, provider, "prices", refresh=args.refresh) for provider in price_candidates
+    )
     provider_plans = [
         provider_fetch_plan(
             cache_root,
@@ -2448,7 +2585,12 @@ def cmd_plan_fetch(args: argparse.Namespace) -> None:
             provider_call_budget(provider, budgets),
             args.refresh,
             endpoint_plan.get(provider, set()),
-            suppress_prices=provider in PRICE_PROVIDER_PRIORITY and provider != price_fetch_provider,
+            suppress_prices=(
+                provider in PRICE_PROVIDER_PRIORITY
+                and provider != price_fetch_provider
+                and provider not in explicit_price_providers
+                and (price_fetch_provider is not None or price_covered_by_cache)
+            ),
         )
         for provider in providers
     ]
