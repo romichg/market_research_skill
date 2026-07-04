@@ -1284,6 +1284,13 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
     }
 
 
+def existing_iteration_conflict(root: Path, symbol: str, as_of: str) -> Path | None:
+    iteration_dir = root / symbol / as_of / "iteration-01"
+    if (iteration_dir / "producer.log").exists() or (iteration_dir / "commands.json").exists():
+        return iteration_dir
+    return None
+
+
 def cmd_run_batch(args: argparse.Namespace) -> None:
     default_command = default_child_command(args.agent_cli, dry_run=args.dry_run)
     missing_launchers: list[str] = []
@@ -1306,6 +1313,16 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
     root = Path(args.run_root)
     root.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run and not args.resume:
+        for symbol in symbols:
+            conflict = existing_iteration_conflict(root, symbol, args.as_of)
+            if conflict is not None:
+                die(
+                    f"Refusing to overwrite existing run at {conflict}: this run-root/symbol/as-of already has "
+                    "iteration-01 logs from a prior run-batch invocation. Use a new --run-root (for example, one "
+                    "with a time-of-day suffix) for a fresh run, or pass --resume to continue writing into this "
+                    "run-root."
+                )
     improvement_notes = ensure_improvement_note_files(root)
     results = {symbol: execute_symbol_loop(args, symbol) for symbol in symbols}
     summary = {
@@ -1375,6 +1392,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_batch.add_argument("--max-remediation-loops", type=int, default=3)
     run_batch.add_argument("--command-timeout-seconds", type=int, default=DEFAULT_COMMAND_TIMEOUT_SECONDS)
     run_batch.add_argument("--dry-run", action="store_true")
+    run_batch.add_argument("--resume", action="store_true", help="Allow reusing an existing --run-root/SYMBOL/AS_OF directory that already has iteration-01 logs, instead of refusing to avoid silently overwriting a prior run's logs.")
     run_batch.set_defaults(func=cmd_run_batch)
 
     return parser

@@ -1009,6 +1009,59 @@ def test_run_batch_moves_intermediate_validation_scaffolds_to_runtime(tmp_path):
     assert (runtime_dir / "validation_scaffolds" / "EWW-remediation-validation-scaffold.json").exists()
 
 
+def test_run_batch_refuses_to_reuse_run_root_with_existing_iteration_logs(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    reports_bundle = tmp_path / "reports" / "EWW" / as_of
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{validation_output_dir}'); "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+    first = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator,
+    )
+    assert first.returncode == 0, first.stderr
+
+    second = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator,
+    )
+
+    assert second.returncode != 0
+    assert "Refusing to overwrite existing run" in second.stderr
+    assert "--resume" in second.stderr
+
+    resumed = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator, "--resume",
+    )
+    assert resumed.returncode == 0, resumed.stderr
+
+
+def test_run_batch_dry_run_does_not_trigger_reuse_guard(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+
+    first = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", as_of, "--dry-run")
+    assert first.returncode == 0, first.stderr
+
+    second = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", as_of, "--dry-run")
+    assert second.returncode == 0, second.stderr
+
+
 def test_run_batch_dry_run_quotes_path_placeholders(tmp_path):
     root = tmp_path / "mr loop review;echo injected"
     as_of = "2026-06-16"
