@@ -6,7 +6,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,43 @@ AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 def die(message: str, code: int = 2) -> None:
     print(message, file=sys.stderr)
     raise SystemExit(code)
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def nested_get(payload: dict[str, Any], *keys: str) -> Any:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    facts = nested_get(companyfacts, "facts", "us-gaap")
+    if not isinstance(facts, dict):
+        return None
+    candidates: list[dict[str, Any]] = []
+    for name in names:
+        values = nested_get(facts, name, "units", "USD")
+        if not isinstance(values, list):
+            continue
+        annual = [item for item in values if isinstance(item, dict) and item.get("form") == "10-K" and item.get("fp") == "FY" and "val" in item]
+        candidates.extend({**item, "_tag": name} for item in annual)
+    if not candidates:
+        return None
+    item = sorted(candidates, key=lambda row: (int(row.get("fy") or 0), str(row.get("end") or ""), str(row.get("filed") or "")))[-1]
+    return {
+        "tag": item.get("_tag"),
+        "value": item.get("val"),
+        "fy": item.get("fy"),
+        "period_end": item.get("end"),
+        "filed": item.get("filed"),
+        "form": item.get("form"),
+    }
 
 
 def normalize_symbol(symbol: str) -> str:

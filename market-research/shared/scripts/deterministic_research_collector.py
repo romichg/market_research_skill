@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -25,7 +25,17 @@ from urllib.request import Request, urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deterministic_data_usage import build_usage_requirements
 from script_metrics import add_metrics_arg, start_timer, write_metrics
-from script_utils import normalize_symbol, read_json, sha256_file, validate_as_of, write_json
+from script_utils import (
+    die,
+    latest_companyfacts_usd_fact,
+    nested_get,
+    normalize_symbol,
+    read_json,
+    sha256_file,
+    utc_now,
+    validate_as_of,
+    write_json,
+)
 
 
 SECRET_NAMES = {
@@ -158,15 +168,6 @@ class RetryPolicy:
         self.backoff_multiplier = backoff_multiplier
         self.retry_http_statuses = retry_http_statuses
         self.retry_url_errors = retry_url_errors
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def die(message: str, code: int = 2) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(code)
 
 
 def parse_key_value_line(line: str) -> tuple[str, str] | None:
@@ -348,7 +349,11 @@ def write_env_example(repo_root: Path | str, config: ProviderConfig | None = Non
         }
         default = defaults.get(key, "")
         lines.append(f"{key}={default}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    content = "\n".join(lines) + "\n"
+    # Only touch the tracked template when its content actually changes so a diagnostic run of
+    # `doctor` does not dirty the working tree or clobber intentional local edits.
+    if not path.exists() or path.read_text(encoding="utf-8") != content:
+        path.write_text(content, encoding="utf-8")
     return path
 
 
@@ -1546,39 +1551,6 @@ def normalize_fmp_fundamentals(cache_root: Path, symbol: str, endpoint_plan: dic
             if value is not None:
                 fundamentals[out_key] = provenance(value, "fmp", url, "ratios_ttm", raw)
     return fundamentals
-
-
-def nested_get(payload: dict[str, Any], *keys: str) -> Any:
-    current: Any = payload
-    for key in keys:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(key)
-    return current
-
-
-def latest_companyfacts_usd_fact(companyfacts: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
-    facts = nested_get(companyfacts, "facts", "us-gaap")
-    if not isinstance(facts, dict):
-        return None
-    candidates: list[dict[str, Any]] = []
-    for name in names:
-        values = nested_get(facts, name, "units", "USD")
-        if not isinstance(values, list):
-            continue
-        annual = [item for item in values if isinstance(item, dict) and item.get("form") == "10-K" and item.get("fp") == "FY" and "val" in item]
-        candidates.extend({**item, "_tag": name} for item in annual)
-    if not candidates:
-        return None
-    item = sorted(candidates, key=lambda row: (int(row.get("fy") or 0), str(row.get("end") or ""), str(row.get("filed") or "")))[-1]
-    return {
-        "tag": item.get("_tag"),
-        "value": item.get("val"),
-        "fy": item.get("fy"),
-        "period_end": item.get("end"),
-        "filed": item.get("filed"),
-        "form": item.get("form"),
-    }
 
 
 def default_gaps(identity: dict[str, Any], snapshot: dict[str, Any], fundamentals: dict[str, Any], attempted_providers: list[str]) -> list[dict[str, Any]]:
