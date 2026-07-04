@@ -169,6 +169,15 @@ def data_dir_for_prompt(symbol: str, run_dir: str) -> str:
     return dated_layout_dir("data", symbol, run_dir)
 
 
+def procedural_output_root_for_prompt(symbol: str, runtime_dir: str) -> str:
+    path = Path(runtime_dir)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and path.parent.name.upper() == symbol.upper():
+        return str(path.parent.parent)
+    if path.name.upper() == symbol.upper():
+        return str(path.parent)
+    return str(path.parent)
+
+
 def skill_invocation_line(agent_cli: str, mode: str, target: str) -> str:
     if agent_cli == "claude":
         return f"/market-research {mode} {target}"
@@ -183,6 +192,7 @@ def producer_initial_prompt(symbol: str, run_dir: str, agent_cli: str = "codex")
     report_dir = report_dir_for_prompt(symbol, run_dir)
     runtime_dir = runtime_dir_for_prompt(symbol, run_dir)
     data_dir = data_dir_for_prompt(symbol, run_dir)
+    procedural_output_root = procedural_output_root_for_prompt(symbol, runtime_dir)
     return "\n".join(
         [
             skill_invocation_line(agent_cli, "researcher", symbol),
@@ -197,6 +207,7 @@ def producer_initial_prompt(symbol: str, run_dir: str, agent_cli: str = "codex")
             "If report JSON material claims cite deterministic_* source IDs, ensure the final report directory source registry includes matching source entries or use source IDs already present in the final registry.",
             "For ETF reports with holdings, include `Portfolio Companies Snapshot`: cover all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight, with compact business, outlook, and price/technical context when available.",
             "For ETF risks, explicitly address authorized participant and creation/redemption mechanics, securities lending, premium/discount, tracking, tax/withholding, liquidity, closure/AUM, and concentration risks when material.",
+            f"When running `procedural_source_helper.py` commands from the researcher workflow reference, pass `--output-root {procedural_output_root} --as-of YYYY-MM-DD` so procedural runtime artifacts (source_bundle/, run_manifest.json, sources.json, research_context.*) land under `{runtime_dir}` instead of the reference doc's literal `./runtime` example path.",
             f"Before verifier handoff, run `python3 market-research/shared/scripts/producer_self_check.py {report_dir} --data-dir {data_dir} --runtime-dir {runtime_dir} --fix-safe` and fix open critical/moderate self-check findings.",
             f"Attempt best-effort PDF generation for the final markdown with `bash market-research/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
             f"Use `{runtime_dir}` for transient runtime notes, prompts, logs, and issue files.",
@@ -243,6 +254,7 @@ def validator_prompt(
 
 def remediation_prompt(symbol: str, run_dir: str, skill_issue_dir: str | None = None) -> str:
     issue_dir = skill_issue_dir or runtime_dir_for_prompt(symbol, run_dir)
+    procedural_output_root = procedural_output_root_for_prompt(symbol, issue_dir)
     return "\n".join(
         [
             f"The validator or producer self-check found blocking issues in `{run_dir}`.",
@@ -250,6 +262,7 @@ def remediation_prompt(symbol: str, run_dir: str, skill_issue_dir: str | None = 
             "Fix only open critical/moderate issues reported by the validation markdown/JSON.",
             "Verify each finding against frozen artifacts before editing.",
             "Update affected report, context, source registry, and manifest artifacts consistently.",
+            f"If further `procedural_source_helper.py` capture is needed, pass `--output-root {procedural_output_root} --as-of YYYY-MM-DD` so runtime artifacts land under `{issue_dir}` rather than the reference doc's literal `./runtime` example path.",
             f"Append any market-research skill improvements to `{issue_dir}/{symbol}-market-research-skill-issues.md`.",
             "Do not delete validator outputs.",
             "",

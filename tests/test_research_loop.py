@@ -214,6 +214,35 @@ def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp
     assert "securities lending" in producer
 
 
+def test_producer_prompt_points_procedural_helper_output_root_at_plain_runtime_dir(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness("write-prompts", "AAPL", "--run-dir", "reports/AAPL/2026-06-16", "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert "procedural_source_helper.py` commands" in producer
+    assert "pass `--output-root runtime --as-of YYYY-MM-DD`" in producer
+    remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime --as-of YYYY-MM-DD`" in remediation
+
+
+def test_producer_prompt_points_procedural_helper_output_root_at_batch_run_root(tmp_path):
+    out_dir = tmp_path / "prompts"
+    run_dir = "runtime/market-research-batch-20260703/ECH/2026-07-03"
+
+    result = run_harness("write-prompts", "ECH", "--run-dir", run_dir, "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime/market-research-batch-20260703 --as-of YYYY-MM-DD`" in producer
+    assert f"land under `{run_dir}`" in producer
+    remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime/market-research-batch-20260703 --as-of YYYY-MM-DD`" in remediation
+
+
 def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):
     out_dir = tmp_path / "prompts"
     run_dir = "runtime/market-research-loop-20260620/AAPL/2026-06-16"
