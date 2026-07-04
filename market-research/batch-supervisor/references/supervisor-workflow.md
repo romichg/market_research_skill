@@ -5,8 +5,10 @@
 From the repo root:
 
 ```bash
-python3 market-research/batch-supervisor/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-batch-YYYYMMDD --as-of YYYY-MM-DD --max-remediation-loops 3
+python3 market-research/batch-supervisor/scripts/research_loop.py run-batch SYMBOL ... --run-root runtime/market-research-batch-YYYYMMDD-HHMMSS --as-of YYYY-MM-DD --max-remediation-loops 3
 ```
+
+Use a time-of-day suffix (`HHMMSS`) in `--run-root`, not just the date, so a second same-day invocation for the same symbols gets its own run-root instead of colliding with an earlier run's iteration logs. `run-batch` refuses to run (non-`--dry-run`) if `RUN_ROOT/SYMBOL/AS_OF/iteration-01` already has producer/validator logs from a prior invocation, to avoid silently overwriting them; pass `--resume` to intentionally continue writing into an existing run-root.
 
 If `--as-of` is omitted, the harness uses today's date. Runtime prompts, logs, skill issue files, intermediate validation scaffold snapshots, self-improvement feedback packages, and loop summaries stay under `runtime/SYMBOL/AS_OF/` or the configured runtime `RUN_ROOT/SYMBOL/AS_OF/`; deterministic data bundles belong under `data/SYMBOL/AS_OF/`; polished research and validation artifacts plus the canonical `SYMBOL-validation-scaffold.md/json` belong under `reports/SYMBOL/AS_OF/`.
 
@@ -50,6 +52,7 @@ Failure handling:
 - `producer_failed`: inspect `producer.log`; if canonical `reports/SYMBOL/YYYY-MM-DD/` or `data/SYMBOL/YYYY-MM-DD/` artifacts exist, check whether the artifact-complete fallback should have applied.
 - `validator_failed`: inspect `validator.log`; check for partial validation JSON.
 - `failed_blocking_issues`: inspect the latest validation JSON, then either let the loop run another remediation if budget remains or report unresolved blocking IDs.
+- Native child tooling failure: if a fresh child session fails after writing partial `data/` or `runtime/` evidence, preserve the child status in runtime issue notes, inspect the partial artifacts, and either complete the producer artifacts in the supervisor session or relaunch a clean child with the existing evidence paths. Do not proceed to verifier until final report Markdown/JSON and producer self-check are complete.
 - Repeated harness failures: append concrete details to `loop-skill-issues.md`.
 
 ## Feedback Collection

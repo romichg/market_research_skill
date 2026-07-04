@@ -169,6 +169,14 @@ def data_dir_for_prompt(symbol: str, run_dir: str) -> str:
     return dated_layout_dir("data", symbol, run_dir)
 
 
+def procedural_output_root_for_prompt(symbol: str, runtime_dir: str) -> str:
+    path = Path(runtime_dir)
+    dated_name = re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) or path.name == "YYYY-MM-DD"
+    if dated_name and path.parent.name.upper() == symbol.upper():
+        return str(path.parent.parent)
+    return str(path.parent)
+
+
 def skill_invocation_line(agent_cli: str, mode: str, target: str) -> str:
     if agent_cli == "claude":
         return f"/market-research {mode} {target}"
@@ -183,6 +191,7 @@ def producer_initial_prompt(symbol: str, run_dir: str, agent_cli: str = "codex")
     report_dir = report_dir_for_prompt(symbol, run_dir)
     runtime_dir = runtime_dir_for_prompt(symbol, run_dir)
     data_dir = data_dir_for_prompt(symbol, run_dir)
+    procedural_output_root = procedural_output_root_for_prompt(symbol, runtime_dir)
     return "\n".join(
         [
             skill_invocation_line(agent_cli, "researcher", symbol),
@@ -196,7 +205,10 @@ def producer_initial_prompt(symbol: str, run_dir: str, agent_cli: str = "codex")
             "Do not include a Self-Check section in the final investor report.",
             "If report JSON material claims cite deterministic_* source IDs, ensure the final report directory source registry includes matching source entries or use source IDs already present in the final registry.",
             "For ETF reports with holdings, include `Portfolio Companies Snapshot`: cover all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight, with compact business, outlook, and price/technical context when available.",
+            "For ETF reports, include a peer/competitor ETF comparison when reproducible public/free evidence is available; otherwise explicitly disclose in Data Issues And Discrepancies why peer data was unavailable or out of scope.",
             "For ETF risks, explicitly address authorized participant and creation/redemption mechanics, securities lending, premium/discount, tracking, tax/withholding, liquidity, closure/AUM, and concentration risks when material.",
+            "In Market Snapshot And Technical Analysis, translate support/resistance, moving averages, volatility, drawdown, and momentum into decision-useful entry, sizing, confirmation, or invalidation implications.",
+            f"When running `procedural_source_helper.py` commands from the researcher workflow reference, pass `--output-root {procedural_output_root} --as-of YYYY-MM-DD` so procedural runtime artifacts (source_bundle/, run_manifest.json, sources.json, research_context.*) land under `{runtime_dir}` instead of the reference doc's literal `./runtime` example path.",
             f"Before verifier handoff, run `python3 market-research/shared/scripts/producer_self_check.py {report_dir} --data-dir {data_dir} --runtime-dir {runtime_dir} --fix-safe` and fix open critical/moderate self-check findings.",
             f"Attempt best-effort PDF generation for the final markdown with `bash market-research/shared/scripts/md-to-pdf.sh {report_dir}/{symbol}-research.md`; continue if pandoc or xelatex is unavailable.",
             f"Use `{runtime_dir}` for transient runtime notes, prompts, logs, and issue files.",
@@ -243,6 +255,7 @@ def validator_prompt(
 
 def remediation_prompt(symbol: str, run_dir: str, skill_issue_dir: str | None = None) -> str:
     issue_dir = skill_issue_dir or runtime_dir_for_prompt(symbol, run_dir)
+    procedural_output_root = procedural_output_root_for_prompt(symbol, issue_dir)
     return "\n".join(
         [
             f"The validator or producer self-check found blocking issues in `{run_dir}`.",
@@ -250,6 +263,7 @@ def remediation_prompt(symbol: str, run_dir: str, skill_issue_dir: str | None = 
             "Fix only open critical/moderate issues reported by the validation markdown/JSON.",
             "Verify each finding against frozen artifacts before editing.",
             "Update affected report, context, source registry, and manifest artifacts consistently.",
+            f"If further `procedural_source_helper.py` capture is needed, pass `--output-root {procedural_output_root} --as-of YYYY-MM-DD` so runtime artifacts land under `{issue_dir}` rather than the reference doc's literal `./runtime` example path.",
             f"Append any market-research skill improvements to `{issue_dir}/{symbol}-market-research-skill-issues.md`.",
             "Do not delete validator outputs.",
             "",
@@ -1271,6 +1285,13 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
     }
 
 
+def existing_iteration_conflict(root: Path, symbol: str, as_of: str) -> Path | None:
+    iteration_dir = root / symbol / as_of / "iteration-01"
+    if (iteration_dir / "producer.log").exists() or (iteration_dir / "validator.log").exists():
+        return iteration_dir
+    return None
+
+
 def cmd_run_batch(args: argparse.Namespace) -> None:
     default_command = default_child_command(args.agent_cli, dry_run=args.dry_run)
     missing_launchers: list[str] = []
@@ -1293,6 +1314,16 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
     symbols = [normalize_symbol(symbol) for symbol in args.symbols]
     root = Path(args.run_root)
     root.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run and not args.resume:
+        for symbol in symbols:
+            conflict = existing_iteration_conflict(root, symbol, args.as_of)
+            if conflict is not None:
+                die(
+                    f"Refusing to overwrite existing run at {conflict}: this run-root/symbol/as-of already has "
+                    "iteration-01 producer/validator logs from a prior run-batch invocation. Use a new --run-root "
+                    "(for example, one with a time-of-day suffix) for a fresh run, or pass --resume to continue "
+                    "writing into this run-root."
+                )
     improvement_notes = ensure_improvement_note_files(root)
     results = {symbol: execute_symbol_loop(args, symbol) for symbol in symbols}
     summary = {
@@ -1362,6 +1393,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_batch.add_argument("--max-remediation-loops", type=int, default=3)
     run_batch.add_argument("--command-timeout-seconds", type=int, default=DEFAULT_COMMAND_TIMEOUT_SECONDS)
     run_batch.add_argument("--dry-run", action="store_true")
+    run_batch.add_argument("--resume", action="store_true", help="Allow reusing an existing --run-root/SYMBOL/AS_OF directory that already has iteration-01 logs, instead of refusing to avoid silently overwriting a prior run's logs.")
     run_batch.set_defaults(func=cmd_run_batch)
 
     return parser

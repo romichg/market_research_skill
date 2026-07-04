@@ -47,6 +47,10 @@ When SEC returns `HTTP 403`, inspect the raw provider artifact before calling it
 - If the SEC user-agent is descriptive and the body still says rate threshold, use conservative backoff/retry or switch to saved SEC filing URLs discovered through search.
 - If equivalent SEC filing URLs are available and can be saved directly, headed-browser escalation is not required. If a material SEC page remains inaccessible and no equivalent primary source is available, ask for headed-browser human assistance.
 
+## SEC Filing Search Reliability
+
+`browse-edgar` company search (`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=...`) can return a valid but empty Atom feed even for well-known issuers; do not treat that as proof SEC search is unavailable. EDGAR full-text search (`https://efts.sec.gov/LATEST/search-index`) is sensitive to query shape: use a non-empty `forms` parameter and `%20`-encoded spaces (not `+`), since some parameter combinations return `{"message": "Internal server error"}`. Once a CIK is known, `https://data.sec.gov/submissions/CIK{10-digit-CIK}.json` is a reliable fallback for a filer's filing history. For a multi-series registrant (e.g. an ETF family filing one N-CSR or 497K per batch across many funds), downloading and inspecting a batch filing to isolate the fund-specific pages/schedule of investments is expected; do not conclude a fund-specific filing does not exist without checking that filing type in that registrant's submissions history.
+
 ## Protected Source Access
 
 Protected-source handling applies to any source, not only SEC.
