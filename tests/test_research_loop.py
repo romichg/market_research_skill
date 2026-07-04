@@ -210,8 +210,12 @@ def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp
     assert "deterministic_* source IDs" in producer
     assert "Portfolio Companies Snapshot" in producer
     assert "all holdings when the ETF has 25 or fewer holdings; otherwise cover the top 25 by weight" in producer
+    assert "peer/competitor ETF comparison" in producer
+    assert "disclose in Data Issues And Discrepancies why peer data was unavailable" in producer
     assert "authorized participant and creation/redemption mechanics" in producer
     assert "securities lending" in producer
+    assert "translate support/resistance, moving averages, volatility, drawdown, and momentum" in producer
+    assert "entry, sizing, confirmation, or invalidation implications" in producer
 
 
 def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):

@@ -98,6 +98,8 @@ Explain how the company makes or expects to make money, who pays, what products 
 
 Present market data in a table, then analyze it. Include price, market value/range, volume/liquidity, 52-week range, moving averages, volatility, relative strength, drawdown, support and resistance levels, and trend interpretation when price history exists.
 
+Translate the setup into investor-useful action context. State what the technical picture implies for entry timing, sizing, confirmation, invalidation, or monitoring. Do not merely list indicators.
+
 If no trading history exists, explain why and use the relevant lifecycle context instead: IPO terms, implied valuation, listing timeline, post-listing monitoring items, liquidity expectations, or explicit absence of market history.
 
 ## Financials And Balance Sheet
@@ -111,6 +113,8 @@ Use this section for ETFs when holdings are available. If the ETF has 25 or fewe
 ## Valuation
 
 Choose a valuation basis or range and analyze it. If market capitalization or share count conflicts across sources, state the range in this section without vendor attribution, then explain vendor/source attribution in `Data Issues And Discrepancies`. Discuss revenue multiples, book value, cash-adjusted value, peer/context limits, and what revenue or margin improvement would be needed to make the valuation less speculative.
+
+For ETFs, include peer or competitor ETF context when reproducible public/free evidence is available. If no reliable peer data was captured, disclose that limitation in `Data Issues And Discrepancies` and avoid unsupported superiority claims.
 
 ## What Looks Attractive
 

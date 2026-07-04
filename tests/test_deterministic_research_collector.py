@@ -165,6 +165,24 @@ def test_cli_doctor_redacts_secrets(tmp_path):
     assert "tiingo" in result.stdout
 
 
+def test_cli_doctor_does_not_create_default_storage_roots(tmp_path):
+    result = run_cli("doctor", "--repo-root", str(tmp_path), "--no-network")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["data_dir"] == str(tmp_path / "data")
+    assert payload["reports_dir"] == str(tmp_path / "reports")
+    assert payload["runtime_dir"] == str(tmp_path / "runtime")
+    assert payload["cache_dir"] == str(tmp_path / "data" / "cache")
+    assert payload["data_dir_exists"] is False
+    assert payload["reports_dir_exists"] is False
+    assert payload["runtime_dir_exists"] is False
+    assert payload["cache_dir_exists"] is False
+    assert not (tmp_path / "data").exists()
+    assert not (tmp_path / "reports").exists()
+    assert not (tmp_path / "runtime").exists()
+
+
 def test_fetch_writes_opt_in_metrics_without_changing_stdout_json(tmp_path):
     metrics = tmp_path / "metrics" / "collector.json"
 

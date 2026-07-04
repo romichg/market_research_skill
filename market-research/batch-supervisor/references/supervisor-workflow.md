@@ -50,6 +50,7 @@ Failure handling:
 - `producer_failed`: inspect `producer.log`; if canonical `reports/SYMBOL/YYYY-MM-DD/` or `data/SYMBOL/YYYY-MM-DD/` artifacts exist, check whether the artifact-complete fallback should have applied.
 - `validator_failed`: inspect `validator.log`; check for partial validation JSON.
 - `failed_blocking_issues`: inspect the latest validation JSON, then either let the loop run another remediation if budget remains or report unresolved blocking IDs.
+- Native child tooling failure: if a fresh child session fails after writing partial `data/` or `runtime/` evidence, preserve the child status in runtime issue notes, inspect the partial artifacts, and either complete the producer artifacts in the supervisor session or relaunch a clean child with the existing evidence paths. Do not proceed to verifier until final report Markdown/JSON and producer self-check are complete.
 - Repeated harness failures: append concrete details to `loop-skill-issues.md`.
 
 ## Feedback Collection

@@ -373,6 +373,22 @@ def resolve_storage_paths(
     }
 
 
+def nearest_existing_parent(path: Path) -> Path | None:
+    current = path
+    while not current.exists():
+        if current.parent == current:
+            return None
+        current = current.parent
+    return current
+
+
+def path_writable_without_create(path: Path) -> bool:
+    if path.exists():
+        return os.access(path, os.W_OK)
+    parent = nearest_existing_parent(path.parent)
+    return os.access(parent, os.W_OK) if parent is not None else False
+
+
 DETERMINISTIC_OUTPUT_ROOT_MESSAGE = (
     "Deterministic output root must be a directory named data and must not be under runtime or reports."
 )
@@ -2156,19 +2172,23 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     reports_dir = paths["reports_dir"]
     runtime_dir = paths["runtime_dir"]
     cache_dir = paths["cache_dir"]
-    data_dir.mkdir(parents=True, exist_ok=True)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
     providers = configured_providers(config)
     payload = {
         "python": sys.version.split()[0],
         "repo_root": str(root),
         "loaded_files": [Path(item).name for item in config.loaded_files],
-        "data_dir_writable": os.access(data_dir, os.W_OK),
-        "reports_dir_writable": os.access(reports_dir, os.W_OK),
-        "runtime_dir_writable": os.access(runtime_dir, os.W_OK),
-        "cache_dir_writable": os.access(cache_dir, os.W_OK),
+        "data_dir": str(data_dir),
+        "reports_dir": str(reports_dir),
+        "runtime_dir": str(runtime_dir),
+        "cache_dir": str(cache_dir),
+        "data_dir_exists": data_dir.exists(),
+        "reports_dir_exists": reports_dir.exists(),
+        "runtime_dir_exists": runtime_dir.exists(),
+        "cache_dir_exists": cache_dir.exists(),
+        "data_dir_writable": path_writable_without_create(data_dir),
+        "reports_dir_writable": path_writable_without_create(reports_dir),
+        "runtime_dir_writable": path_writable_without_create(runtime_dir),
+        "cache_dir_writable": path_writable_without_create(cache_dir),
         "providers": providers,
         "docs": config.docs,
         "limits": config.limits,
