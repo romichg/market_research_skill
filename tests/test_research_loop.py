@@ -218,6 +218,47 @@ def test_producer_prompt_requires_investor_language_and_etf_company_snapshot(tmp
     assert "entry, sizing, confirmation, or invalidation implications" in producer
 
 
+def test_producer_prompt_points_procedural_helper_output_root_at_plain_runtime_dir(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness("write-prompts", "AAPL", "--run-dir", "reports/AAPL/2026-06-16", "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert "procedural_source_helper.py` commands" in producer
+    assert "pass `--output-root runtime --as-of YYYY-MM-DD`" in producer
+    remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime --as-of YYYY-MM-DD`" in remediation
+
+
+def test_producer_prompt_points_procedural_helper_output_root_at_batch_run_root(tmp_path):
+    out_dir = tmp_path / "prompts"
+    run_dir = "runtime/market-research-batch-20260703/ECH/2026-07-03"
+
+    result = run_harness("write-prompts", "ECH", "--run-dir", run_dir, "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime/market-research-batch-20260703 --as-of YYYY-MM-DD`" in producer
+    assert f"land under `{run_dir}`" in producer
+    remediation = Path(payload["producer_remediation_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime/market-research-batch-20260703 --as-of YYYY-MM-DD`" in remediation
+
+
+def test_producer_prompt_procedural_output_root_for_non_dated_run_dir(tmp_path):
+    out_dir = tmp_path / "prompts"
+
+    result = run_harness("write-prompts", "AAPL", "--run-dir", "reports/AAPL", "--output-dir", str(out_dir))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    producer = Path(payload["producer_initial_prompt"]).read_text(encoding="utf-8")
+    assert "pass `--output-root runtime --as-of YYYY-MM-DD`" in producer
+    assert "--output-root runtime/AAPL " not in producer
+
+
 def test_loop_prompt_preserves_custom_runtime_root_for_transient_artifacts(tmp_path):
     out_dir = tmp_path / "prompts"
     run_dir = "runtime/market-research-loop-20260620/AAPL/2026-06-16"
@@ -982,6 +1023,95 @@ def test_run_batch_moves_intermediate_validation_scaffolds_to_runtime(tmp_path):
     assert not (reports_bundle / "EWW-remediation-validation-scaffold.json").exists()
     assert (runtime_dir / "validation_scaffolds" / "EWW-remediation-validation-scaffold.md").read_text(encoding="utf-8") == "intermediate"
     assert (runtime_dir / "validation_scaffolds" / "EWW-remediation-validation-scaffold.json").exists()
+
+
+def test_run_batch_refuses_to_reuse_run_root_with_existing_iteration_logs(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    reports_bundle = tmp_path / "reports" / "EWW" / as_of
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{validation_output_dir}'); "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+    first = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator,
+    )
+    assert first.returncode == 0, first.stderr
+
+    second = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator,
+    )
+
+    assert second.returncode != 0
+    assert "Refusing to overwrite existing run" in second.stderr
+    assert "--resume" in second.stderr
+
+    resumed = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator, "--resume",
+    )
+    assert resumed.returncode == 0, resumed.stderr
+
+
+def test_run_batch_dry_run_does_not_trigger_reuse_guard(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+
+    first = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", as_of, "--dry-run")
+    assert first.returncode == 0, first.stderr
+
+    second = run_harness("run-batch", "EWW", "--run-root", str(root), "--as-of", as_of, "--dry-run")
+    assert second.returncode == 0, second.stderr
+
+
+def test_run_batch_dry_run_then_real_run_does_not_trigger_reuse_guard(tmp_path):
+    root = tmp_path / "runtime" / "batch"
+    as_of = "2026-06-16"
+    reports_bundle = tmp_path / "reports" / "EWW" / as_of
+    producer = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        f"run_dir = Path(r'{reports_bundle}'); "
+        "run_dir.mkdir(parents=True, exist_ok=True); "
+        "(run_dir / '{symbol}-research.md').write_text('ok', encoding='utf-8'); "
+        "(run_dir / '{symbol}-research.json').write_text('{{}}', encoding='utf-8')"
+        "\""
+    )
+    validator = (
+        f"{sys.executable} -c \""
+        "from pathlib import Path; "
+        "run_dir = Path(r'{validation_output_dir}'); "
+        "(run_dir / '{symbol}-validation.json').write_text('{{\\\"issues\\\": []}}', encoding='utf-8')"
+        "\""
+    )
+
+    dry_run = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator, "--dry-run",
+    )
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert (root / "EWW" / as_of / "iteration-01" / "commands.json").exists()
+
+    real_run = run_harness(
+        "run-batch", "EWW", "--run-root", str(root), "--as-of", as_of,
+        "--producer-command", producer, "--validator-command", validator,
+    )
+
+    assert real_run.returncode == 0, real_run.stderr
 
 
 def test_run_batch_dry_run_quotes_path_placeholders(tmp_path):
