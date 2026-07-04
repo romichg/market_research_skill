@@ -71,8 +71,15 @@ RATE_LIMIT_SIGNATURES = [
 ]
 
 
-def looks_rate_limited(*texts: str) -> bool:
-    combined = " ".join(texts).lower()
+def looks_rate_limited(stdout: str, stderr: str, tail_lines: int = 40) -> bool:
+    """Detect a child rate-limit signature without false-positiving on mid-run prose.
+
+    Research children legitimately describe provider "rate limit" budgets in their narration, so the
+    scan is scoped to stderr plus the tail of stdout (where a launcher prints its terminal error).
+    Callers should additionally gate on a non-zero child exit before treating this as a rate limit.
+    """
+    stdout_tail = "\n".join(stdout.splitlines()[-tail_lines:])
+    combined = f"{stderr}\n{stdout_tail}".lower()
     return any(signature in combined for signature in RATE_LIMIT_SIGNATURES)
 
 
@@ -830,7 +837,11 @@ def run_shell_command(command: str, log_path: Path, *, timeout_seconds: int | No
         ),
         encoding="utf-8",
     )
-    return CommandResult(returncode=returncode, timed_out=timed_out, rate_limited=looks_rate_limited(stdout, stderr))
+    return CommandResult(
+        returncode=returncode,
+        timed_out=timed_out,
+        rate_limited=returncode != 0 and looks_rate_limited(stdout, stderr),
+    )
 
 
 def deterministic_bundle_exists(path: Path) -> bool:

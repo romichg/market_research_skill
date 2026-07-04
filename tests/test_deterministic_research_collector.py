@@ -2110,6 +2110,20 @@ def test_emit_sec_filings_index_handles_wrapped_submissions(tmp_path):
     assert filing["raw_path"] == str(submissions_raw)
 
 
+def test_auth_failure_message_includes_offline_recovery(capsys):
+    module = load_module()
+    statuses = [
+        {"provider": "fmp", "status": "unauthorized", "ok_files": 0},
+        {"provider": "tiingo", "status": "ok", "ok_files": 2},
+    ]
+    recovery = "python3 market-research/shared/scripts/deterministic_research_collector.py fetch AAPL --offline --providers tiingo --as-of 2026-06-16 --data-dir ./data --reports-dir ./reports"
+    with pytest.raises(SystemExit):
+        module.raise_for_auth_failures(statuses, recovery_command=recovery)
+    err = capsys.readouterr().err
+    assert "Authentication failed for provider(s): fmp" in err
+    assert "--offline --providers tiingo" in err
+
+
 def test_build_bundle_emits_sec_filings_index_from_submissions(tmp_path):
     module = load_module()
     cache = tmp_path / "cache"
