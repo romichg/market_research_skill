@@ -70,6 +70,7 @@ def test_active_docs_use_canonical_consolidated_structure():
         Path("docs/quality-bar.md"),
         Path("docs/maintainer-notes/README.md"),
         Path("docs/maintainer-notes/20260702-producer-self-check-and-validator-loops.md"),
+        Path("docs/maintainer-notes/20260703-price-fetch-suppression-and-plan-normalize-split.md"),
     }
     transient_active_roots = [
         Path("docs/superpowers/plans/self-improvement"),
