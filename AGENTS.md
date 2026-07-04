@@ -51,6 +51,19 @@ Use Python 3, four-space indentation, clear function names, and standard-library
 
 Tests use `pytest` and subprocess calls against the real helper scripts. Add tests in `tests/test_<area>.py` with names beginning `test_`. Use `tmp_path` for generated artifacts so tests do not depend on local run directories. Cover both success paths and failure behavior, especially overwrite protection, validation gates, malformed artifacts, and JSON output contracts.
 
+## Collector Runtime Behavior And Watchpoints
+
+Deterministic-collector behavior that agents and operators should know before interpreting a run. Canonical detail lives in `market-research/researcher/references/provider-data-map.md` and `docs/maintainer-notes/20260703-price-fetch-suppression-and-plan-normalize-split.md`; this is the short version:
+
+- Exactly one provider live-fetches daily prices per run: the highest-priority configured price provider that lacks a reusable cached price series and whose call budget can afford the fetch. Other price providers are suppressed, recorded as `price_fetch_suppressed` in fetch metrics plus a manifest warning. There is no cross-provider fallback if the selected provider's live fetch fails at runtime — that run has no price series; rerun with `--refresh` or explicit `--providers`/`--provider-endpoints`.
+- Budgets are cache-aware. Reusable cached endpoints are never charged in cost estimates or budget trims, and a budget of zero blocks live calls but keeps reusable cached endpoints in the effective plan for normalization. Skipped providers' per-provider metrics record the cost they would have incurred; the aggregate `provider_call_estimate` counts only attempted fetches.
+- A `--provider-endpoints` filter naming a provider outside the run's `--providers` list is a hard error (exit 2). A filter naming `prices` opts that provider into live price fetching alongside the default selection.
+- `plan-fetch` exposes top-level `price_fetch_provider` and `warnings`, including "No live price fetch this run" when no configured price provider can afford prices and no cache covers them. Dry-run mis-budgeted price coverage there before fetching.
+- Fields computed from short price history (under ~252 sessions) carry `status: "available_history"` instead of `ok` (52-week high/low, long SMAs), which excludes them from required usage dispositions; reports should present them as available-history ranges, not full 52-week ranges.
+- The usage audit counts a numeric value as narrative-used only on digit-boundary matches or humanized forms with an adjacent magnitude word ("$391.0 billion", "20bn"). Bare coincidental digits and percentages do not count; comma-grouped ("20,000 million") and truncated-decimal phrasings are known safe-side misses.
+
+Runtime signals worth checking after a batch: manifest warnings ("No live price fetch this run", "Skipped PROVIDER"/"Limited PROVIDER", `price_history_ends_before_as_of`), bundles missing `market_snapshot`/technical signals, and implausible `narrative_used`/`not_referenced` rates in `deterministic_data_usage.json`. The self-improvement prompt asks these questions per batch; escalate recurring mismatches into checks or tests.
+
 ## Commit & Pull Request Guidelines
 
 Recent commits use short, imperative summaries such as `add supervised market research loop skill` or `Refresh market research skill metadata`. Keep commits focused on one logical change. Pull requests should describe the affected skill, list verification commands run, and call out any schema, prompt, or artifact contract changes. Include example command output or sample paths when behavior changes.
