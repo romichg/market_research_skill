@@ -146,7 +146,12 @@
           "type": "array",
           "items": {"type": "string"}
         },
-        "selection_reason": {"type": "string"}
+        "selection_reason": {"type": "string"},
+        "tag": {"type": "string"},
+        "fiscal_year": {"type": ["integer", "string"]},
+        "period_end": {"type": "string"},
+        "filed_date": {"type": "string"},
+        "form": {"type": "string"}
       },
       "additionalProperties": true
     },

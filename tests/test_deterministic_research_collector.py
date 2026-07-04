@@ -1560,9 +1560,14 @@ def test_sec_companyfacts_promote_equity_fundamentals_without_extra_provider(tmp
     result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["sec"], offline=True)
 
     fundamentals = json.loads((Path(result["bundle_dir"]) / "normalized" / "equity_fundamentals.json").read_text(encoding="utf-8"))
-    assert fundamentals["revenue"]["value"]["value"] == 416161000000
+    assert fundamentals["revenue"]["value"] == 416161000000
     assert fundamentals["revenue"]["provider"] == "sec"
-    assert fundamentals["net_income"]["value"]["value"] == 112010000000
+    assert fundamentals["revenue"]["unit"] == "USD"
+    assert fundamentals["revenue"]["tag"] == "RevenueFromContractWithCustomerExcludingAssessedTax"
+    assert fundamentals["revenue"]["period_end"] == "2025-09-27"
+    assert fundamentals["revenue"]["fiscal_year"] == 2025
+    assert fundamentals["revenue"]["form"] == "10-K"
+    assert fundamentals["net_income"]["value"] == 112010000000
 
 
 def test_gaps_record_only_attempted_providers(tmp_path):
@@ -2103,6 +2108,160 @@ def test_emit_sec_filings_index_handles_wrapped_submissions(tmp_path):
     assert filing["report_date"] == "2026-03-31"
     assert filing["primary_document_url"].endswith("/qubt-20260331.htm")
     assert filing["raw_path"] == str(submissions_raw)
+
+
+def test_build_bundle_emits_sec_filings_index_from_submissions(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "submissions",
+        {"cik": "0000320193"},
+        {
+            "name": "APPLE INC",
+            "cik": "320193",
+            "sic": "3571",
+            "exchanges": ["Nasdaq"],
+            "filings": {
+                "recent": {
+                    "accessionNumber": ["0000320193-25-000079"],
+                    "form": ["10-K"],
+                    "filingDate": ["2025-10-31"],
+                    "reportDate": ["2025-09-27"],
+                    "primaryDocument": ["aapl-20250927.htm"],
+                }
+            },
+        },
+        source_url="https://data.sec.gov/submissions/CIK0000320193.json",
+    )
+
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["sec"], offline=True)
+    bundle_dir = Path(result["bundle_dir"])
+
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+    assert identity["cik"]["value"] == "320193"
+    assert identity["cik"]["provider"] == "sec"
+
+    index_path = bundle_dir / "normalized" / "sec_filings_index.json"
+    assert index_path.exists()
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    assert index["filings"][0]["form"] == "10-K"
+    assert index["filings"][0]["primary_document_url"].endswith("/aapl-20250927.htm")
+
+
+def test_normalize_identity_cik_falls_back_to_company_tickers(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "company_tickers",
+        {},
+        {"0": {"ticker": "AAPL", "cik_str": 320193}},
+        source_url="https://www.sec.gov/files/company_tickers.json",
+    )
+    module.write_raw(
+        cache,
+        "AAPL",
+        "sec",
+        "submissions",
+        {"cik": "0000320193"},
+        {"name": "APPLE INC", "filings": {"recent": {"form": ["10-K"]}}},
+        source_url="https://data.sec.gov/submissions/CIK0000320193.json",
+    )
+
+    identity = module.normalize_identity(cache, "AAPL", providers=["sec"])
+
+    assert identity["cik"]["value"] == "320193"
+    assert identity["cik"]["provider"] == "sec"
+    assert identity["cik"]["endpoint"] == "company_tickers"
+
+
+def test_build_bundle_truncates_prices_after_as_of(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    prices = [
+        {"date": "2026-06-10", "open": 100, "high": 101, "low": 99, "close": 100, "adjClose": 100, "volume": 1000},
+        {"date": "2026-06-15", "open": 105, "high": 106, "low": 104, "close": 110, "adjClose": 110, "volume": 1100},
+        {"date": "2026-06-20", "open": 120, "high": 131, "low": 119, "close": 130, "adjClose": 130, "volume": 1200},
+    ]
+    module.write_raw(
+        cache,
+        "AAPL",
+        "tiingo",
+        "prices",
+        {"startDate": "2021-01-01", "endDate": "2026-06-16"},
+        prices,
+        source_url="https://api.tiingo.com/tiingo/daily/AAPL/prices",
+    )
+
+    result = module.build_bundle("AAPL", "2026-06-16", cache, tmp_path / "data", providers=["tiingo"], offline=True)
+    bundle_dir = Path(result["bundle_dir"])
+
+    prices_daily = json.loads((bundle_dir / "normalized" / "prices_daily.json").read_text(encoding="utf-8"))
+    assert [row["date"] for row in prices_daily["prices"]] == ["2026-06-10", "2026-06-15"]
+
+    snapshot = json.loads((bundle_dir / "normalized" / "market_snapshot.json").read_text(encoding="utf-8"))
+    assert snapshot["latest_close"]["value"] == 110
+    assert snapshot["latest_close"]["as_of"] == "2026-06-15"
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert any("Dropped 1 cached price row" in warning for warning in manifest["warnings"])
+    assert any("price_history_ends_before_as_of" in warning for warning in manifest["warnings"])
+
+
+def test_sec_403_error_body_is_read_once_and_preserved(tmp_path):
+    module = load_module()
+    cache = tmp_path / "cache"
+    config = module.ProviderConfig(values={}, docs={}, limits={}, loaded_files=[])
+
+    class DrainingHTTPError(HTTPError):
+        def __init__(self, body):
+            super().__init__(
+                url="https://data.sec.gov/submissions/CIK0000320193.json",
+                code=403,
+                msg="Forbidden",
+                hdrs={"content-type": "text/html"},
+                fp=None,
+            )
+            self._body = body
+            self._drained = False
+
+        def read(self, amt=None):
+            if self._drained:
+                return b""
+            self._drained = True
+            return self._body if amt is None else self._body[:amt]
+
+    def fake_urlopen(request, timeout=20):
+        raise DrainingHTTPError(b"<html><title>SEC.gov | Request Rate Threshold Exceeded</title></html>")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    try:
+        path = module.fetch_with_cache(
+            cache,
+            "AAPL",
+            "sec",
+            "submissions",
+            {"cik": "0000320193"},
+            "https://data.sec.gov/submissions/CIK0000320193.json",
+            "https://data.sec.gov/submissions/CIK0000320193.json",
+            config,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/126.0 Safari/537.36"},
+            refresh=True,
+        )
+    finally:
+        monkeypatch.undo()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    provider_result = saved["provider_result"]
+    assert provider_result["status"] == "rate_limited"
+    assert "Request Rate Threshold Exceeded" in provider_result["error_body_snippet"]
 
 
 def test_analysis_limitations_map_provider_status_to_investor_impact():

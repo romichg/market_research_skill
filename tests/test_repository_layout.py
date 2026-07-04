@@ -73,6 +73,7 @@ def test_active_docs_use_canonical_consolidated_structure():
     }
     transient_active_roots = [
         Path("docs/superpowers/plans/self-improvement"),
+        Path("docs/superpowers/specs"),
     ]
     actual_active_docs = set()
     for path in (ROOT / "docs").rglob("*"):

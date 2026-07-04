@@ -632,10 +632,29 @@ def retry_policy_for_provider(provider: str) -> RetryPolicy:
     return RetryPolicy(max_attempts=3, initial_backoff_seconds=0.5)
 
 
+def read_http_error_body(exc: HTTPError, limit: int = 4096) -> str:
+    """Read an HTTPError body at most once, caching it on the exception.
+
+    ``HTTPError`` wraps a single-read stream, so a retry decision that inspects the body must not
+    drain it before the caller stores the ``error_body_snippet``. Cache the decoded text on the
+    exception and reuse it everywhere.
+    """
+    cached = getattr(exc, "_cached_body_text", None)
+    if cached is not None:
+        return cached
+    try:
+        body = exc.read(limit)
+    except (OSError, ValueError):
+        body = b""
+    text = body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else str(body)
+    exc._cached_body_text = text
+    return text
+
+
 def should_retry(exc: BaseException, policy: RetryPolicy, provider: str | None = None, headers: dict[str, str] | None = None) -> bool:
     if isinstance(exc, HTTPError):
         if provider == "sec" and exc.code == 403:
-            body = exc.read(4096).decode("utf-8", "replace")
+            body = read_http_error_body(exc)
             status, _error = classify_http_error("sec", exc.code, body)
             user_agent = (headers or {}).get("User-Agent", "")
             return status == "rate_limited" and is_descriptive_sec_user_agent(user_agent)
@@ -674,8 +693,7 @@ def fetch_with_cache(cache_root: Path, symbol: str, provider: str, endpoint: str
         status, semantic_error = classify_provider_payload(provider, data)
         return write_raw(cache_root, symbol, provider, endpoint, params, data, source_url=source_url, status=status, error=semantic_error)
     except HTTPError as exc:
-        body_bytes = exc.read(4096)
-        body_text = body_bytes.decode("utf-8", "replace")
+        body_text = read_http_error_body(exc)
         status, error = classify_http_error(provider, exc.code, body_text)
         metadata = {
             "http_status": exc.code,
@@ -969,6 +987,8 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
         url = payload.get("provider_result", {}).get("url", "")
         if data.get("name"):
             identity["company_name"] = provenance(data["name"], "sec", url, "submissions", raw)
+        if data.get("cik") not in (None, ""):
+            identity["cik"] = provenance(str(data["cik"]), "sec", url, "submissions", raw)
         if data.get("sic"):
             identity["sic"] = provenance(data["sic"], "sec", url, "submissions", raw)
         if data.get("exchanges"):
@@ -1049,6 +1069,14 @@ def normalize_identity(cache_root: Path, symbol: str, providers: list[str] | Non
         raw, payload = av_etf
         url = payload.get("provider_result", {}).get("url", "")
         asset_type_signals.append(asset_type_signal("etf", "alphavantage", url, "etf_profile", raw, 85, "alphavantage ETF_PROFILE response"))
+    if "cik" not in identity and provider_enabled(providers, "sec") and provider_endpoint_enabled(endpoint_plan, "sec", "company_tickers"):
+        tickers_raw = read_raw_latest(cache_root, symbol, "sec", "company_tickers")
+        if tickers_raw and raw_payload_ok("sec", tickers_raw[1]):
+            cik = cik_from_cached_tickers(cache_root, symbol)
+            if cik:
+                raw, payload = tickers_raw
+                url = payload.get("provider_result", {}).get("url", "")
+                identity["cik"] = provenance(str(cik), "sec", url, "company_tickers", raw)
     identity["asset_type"] = choose_asset_type(asset_type_signals)
     return identity
 
@@ -1076,6 +1104,18 @@ def normalize_prices(cache_root: Path, symbol: str, providers: list[str] | None 
             rows = sorted(rows, key=lambda row: row["date"])
             return rows, path, provider, payload.get("provider_result", {}).get("url", "")
     return [], None, "", ""
+
+
+def truncate_prices_at_as_of(rows: list[dict[str, Any]], as_of: str | None) -> tuple[list[dict[str, Any]], int]:
+    """Drop price rows dated after as_of so cached history reused across dates cannot leak look-ahead data.
+
+    Rows use ISO YYYY-MM-DD dates, which compare correctly as strings. Returns the kept rows and the
+    number of dropped future rows so the caller can record a manifest warning.
+    """
+    if not as_of:
+        return rows, 0
+    kept = [row for row in rows if str(row.get("date", "")) <= as_of]
+    return kept, len(rows) - len(kept)
 
 
 def parse_price_rows(provider: str, data: Any) -> list[dict[str, Any]]:
@@ -1333,6 +1373,22 @@ def normalize_market_snapshot(cache_root: Path, symbol: str, prices: list[dict[s
     return snapshot
 
 
+def companyfacts_point(fact: dict[str, Any], provider: str, url: str, endpoint: str, raw: Path) -> dict[str, Any]:
+    """Build a scalar-valued DataPoint for an SEC companyfacts figure.
+
+    The DataPoint ``value`` is the numeric ``val`` so downstream usage audits and report corpora can
+    match it like any other scalar field. The XBRL tag and filing period metadata are carried as
+    sibling keys for provenance instead of being nested inside ``value``.
+    """
+    point = provenance(fact.get("value"), provider, url, endpoint, raw, unit="USD", as_of=fact.get("period_end"))
+    point["period"] = fact.get("period_end")
+    sibling_keys = {"tag": "tag", "fiscal_year": "fy", "period_end": "period_end", "filed_date": "filed", "form": "form"}
+    for out_key, fact_key in sibling_keys.items():
+        if fact.get(fact_key) is not None:
+            point[out_key] = fact.get(fact_key)
+    return point
+
+
 def normalize_equity_fundamentals(cache_root: Path, symbol: str, providers: list[str] | None = None, endpoint_plan: dict[str, set[str]] | None = None) -> dict[str, Any]:
     providers = providers or DEFAULT_PROVIDERS
     fundamentals: dict[str, Any] = {}
@@ -1343,10 +1399,10 @@ def normalize_equity_fundamentals(cache_root: Path, symbol: str, providers: list
         url = payload.get("provider_result", {}).get("url", "")
         revenue = latest_companyfacts_usd_fact(data, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"])
         if revenue:
-            fundamentals["revenue"] = provenance(revenue, "sec", url, "companyfacts", raw, unit="USD", as_of=revenue.get("period_end"))
+            fundamentals["revenue"] = companyfacts_point(revenue, "sec", url, "companyfacts", raw)
         net_income = latest_companyfacts_usd_fact(data, ["NetIncomeLoss", "ProfitLoss"])
         if net_income:
-            fundamentals["net_income"] = provenance(net_income, "sec", url, "companyfacts", raw, unit="USD", as_of=net_income.get("period_end"))
+            fundamentals["net_income"] = companyfacts_point(net_income, "sec", url, "companyfacts", raw)
     av = read_raw_latest(cache_root, symbol, "alphavantage", "overview") if provider_enabled(providers, "alphavantage") and provider_endpoint_enabled(endpoint_plan, "alphavantage", "overview") else None
     if av and raw_payload_ok("alphavantage", av[1]):
         raw, payload = av
@@ -1865,7 +1921,19 @@ def build_bundle(symbol: str, as_of: str, cache_root: Path, output_root: Path, p
     identity = normalize_identity(cache_root, symbol, providers, endpoint_plan)
     if asset_type != "auto":
         identity["asset_type"] = provenance(asset_type, "cli", "", "asset_type", Path(""))
+    warnings = list(warnings or [])
     prices, price_raw, price_provider, price_url = normalize_prices(cache_root, symbol, providers, endpoint_plan)
+    prices, dropped_future_rows = truncate_prices_at_as_of(prices, as_of)
+    if dropped_future_rows:
+        warnings.append(
+            f"Dropped {dropped_future_rows} cached price row(s) dated after as_of {as_of}; "
+            "normalized prices and technicals are truncated to the as_of date."
+        )
+    if prices and prices[-1]["date"] < as_of:
+        warnings.append(
+            f"price_history_ends_before_as_of: latest available price row is {prices[-1]['date']}, "
+            f"before as_of {as_of}; treat price, volume, and technical fields as latest-available, not as_of."
+        )
     snapshot = normalize_market_snapshot(cache_root, symbol, prices, price_raw, price_provider, price_url, providers, endpoint_plan)
     technicals = technicals_from_prices(prices, price_provider, price_raw, price_url)
     fundamentals = normalize_equity_fundamentals(cache_root, symbol, providers, endpoint_plan)
