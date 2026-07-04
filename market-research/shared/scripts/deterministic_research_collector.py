@@ -919,6 +919,21 @@ def price_provider_to_live_fetch(
     return None
 
 
+def no_live_price_fetch_warning() -> str:
+    return (
+        "No live price fetch this run: no configured price provider has remaining budget to fetch "
+        "prices, and no cached price series is available as a fallback."
+    )
+
+
+def reusable_cached_endpoints(cache_root: Path, symbol: str, provider: str, endpoints: set[str], refresh: bool = False) -> set[str]:
+    return {
+        endpoint
+        for endpoint in endpoints
+        if reusable_cached_raw(cache_root, symbol, provider, endpoint, refresh=refresh)
+    }
+
+
 def explicit_price_opt_ins(items: list[str] | None) -> set[str]:
     """Providers whose explicit ``--provider-endpoints PROVIDER=...`` filter names ``prices``.
 
@@ -2375,10 +2390,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     )
     if not args.offline:
         if price_candidates and price_fetch_provider is None and not price_covered_by_cache:
-            warnings.append(
-                "No live price fetch this run: no configured price provider has remaining budget to fetch "
-                "prices, and no cached price series is available as a fallback."
-            )
+            warnings.append(no_live_price_fetch_warning())
         for provider in providers:
             budget = provider_call_budget(provider, budgets)
             provider_root = cache_root / symbol / provider
@@ -2390,6 +2402,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 and provider != price_fetch_provider
                 and provider not in explicit_price_providers
                 and (price_fetch_provider is not None or price_covered_by_cache)
+                and not reusable_cached_raw(cache_root, symbol, provider, "prices", refresh=args.refresh)
             )
             chargeable_endpoints = set(endpoints)
             if price_suppressed:
@@ -2399,7 +2412,8 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             estimated_cost = estimated_provider_call_cost(cache_root, symbol, provider, refresh=args.refresh, endpoints=chargeable_endpoints)
             if budget <= 0:
                 warnings.append(f"Skipped {provider}: provider call budget is {budget}.")
-                effective_endpoint_plan[provider] = {"prices"} if price_suppressed else set()
+                cached_plan_endpoints = reusable_cached_endpoints(cache_root, symbol, provider, endpoints, refresh=args.refresh)
+                effective_endpoint_plan[provider] = cached_plan_endpoints | ({"prices"} if price_suppressed else set())
                 provider_metrics.append(
                     {
                         "provider": provider,
@@ -2515,7 +2529,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         offline=args.offline,
         providers_requested=providers,
         provider_fetches_attempted=sum(1 for item in provider_metrics if item["fetch_attempted"]),
-        provider_call_estimate=sum(item["estimated_call_cost"] for item in provider_metrics),
+        provider_call_estimate=sum(item["estimated_call_cost"] for item in provider_metrics if item["fetch_attempted"]),
         provider_metrics=provider_metrics,
         bundle_dir=result.get("bundle_dir"),
     )
@@ -2577,6 +2591,9 @@ def cmd_plan_fetch(args: argparse.Namespace) -> None:
     price_covered_by_cache = price_fetch_provider is None and any(
         reusable_cached_raw(cache_root, symbol, provider, "prices", refresh=args.refresh) for provider in price_candidates
     )
+    warnings = []
+    if price_candidates and price_fetch_provider is None and not price_covered_by_cache:
+        warnings.append(no_live_price_fetch_warning())
     provider_plans = [
         provider_fetch_plan(
             cache_root,
@@ -2598,6 +2615,8 @@ def cmd_plan_fetch(args: argparse.Namespace) -> None:
         "command": "plan-fetch",
         "symbol": symbol,
         "as_of": as_of,
+        "price_fetch_provider": price_fetch_provider,
+        "warnings": warnings,
         "providers": provider_plans,
         "provider_call_estimate": sum(item["estimated_call_cost"] for item in provider_plans),
         "would_fetch_endpoint_count": sum(len(item["would_fetch_endpoints"]) for item in provider_plans),

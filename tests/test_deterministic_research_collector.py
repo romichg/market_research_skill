@@ -300,6 +300,57 @@ def test_fetch_respects_zero_provider_budget(tmp_path, monkeypatch):
     assert calls == ["tiingo"]
 
 
+def test_zero_budget_provider_keeps_reusable_cached_endpoints_in_bundle(tmp_path, monkeypatch):
+    # J2: budget 0 prevents live fetches, but reusable cached endpoints still cost no calls and
+    # should remain in the effective endpoint plan for normalization.
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "fundamentals",
+        {},
+        {"General": {"Name": "Cached EODHD Name", "MarketCapitalization": 123}},
+        source_url="https://eodhd.example/fundamentals/AAPL.US",
+    )
+    calls = []
+
+    def fake_fetch(symbol, provider, as_of, cache_root, config, refresh=False, endpoints=None):
+        calls.append((provider, tuple(sorted(endpoints or []))))
+        return []
+
+    monkeypatch.setattr(module, "fetch_provider", fake_fetch)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(cache),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "eodhd,tiingo",
+            "provider_endpoints": ["tiingo=prices"],
+            "max_provider_calls": ["eodhd=0"],
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    bundle_dir = tmp_path / "data" / "AAPL" / "2026-06-01"
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    identity = json.loads((bundle_dir / "normalized" / "identity.json").read_text(encoding="utf-8"))
+
+    assert calls == [("tiingo", ("prices",))]
+    assert manifest["endpoint_plan"]["eodhd"] == ["fundamentals", "prices"]
+    assert identity["company_name"]["value"] == "Cached EODHD Name"
+
+
 def test_fetch_trims_provider_to_affordable_endpoints_when_estimated_cost_exceeds_budget(tmp_path, monkeypatch):
     module = load_module()
     calls = []
@@ -541,6 +592,62 @@ def test_no_budget_anywhere_warns_instead_of_misleading_suppression_message(tmp_
     assert not any("already covers prices" in warning for warning in manifest["warnings"])
 
 
+def test_plan_fetch_warns_when_no_live_price_fetch_or_cache_is_available(tmp_path):
+    # J4: plan-fetch should surface the same no-price-fetch condition as fetch so dry runs catch
+    # mis-budgeted price coverage.
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,eodhd",
+        "--max-provider-calls",
+        "tiingo=0",
+        "--max-provider-calls",
+        "eodhd=1",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["price_fetch_provider"] is None
+    assert any("No live price fetch this run" in warning for warning in payload["warnings"])
+
+
+def test_plan_fetch_reports_selected_price_fetch_provider_without_warning(tmp_path):
+    result = run_cli(
+        "plan-fetch",
+        "AAPL",
+        "--providers",
+        "tiingo,eodhd",
+        "--max-provider-calls",
+        "tiingo=0",
+        "--as-of",
+        "2026-06-01",
+        "--repo-root",
+        str(tmp_path),
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["price_fetch_provider"] == "eodhd"
+    assert payload["warnings"] == []
+
+
 def test_explicit_provider_endpoints_prices_opts_in_lower_priority_provider(tmp_path, monkeypatch):
     # F3: an explicit `--provider-endpoints eodhd=prices` request should not be silently suppressed
     # just because tiingo (higher priority) is also configured and covers prices by default.
@@ -736,6 +843,7 @@ def test_zero_budget_metrics_entry_records_real_estimated_cost(tmp_path, monkeyp
             "cache_dir": str(tmp_path / "cache"),
             "reports_dir": str(tmp_path / "reports"),
             "providers": "eodhd,tiingo",
+            "provider_endpoints": ["tiingo=prices"],
             "max_provider_calls": ["eodhd=0"],
             "offline": False,
             "refresh": False,
@@ -751,6 +859,66 @@ def test_zero_budget_metrics_entry_records_real_estimated_cost(tmp_path, monkeyp
     assert eodhd_metrics["fetch_attempted"] is False
     # eodhd default endpoints: fundamentals(10) + news(1) + historical_market_cap(1), no live prices.
     assert eodhd_metrics["estimated_call_cost"] == 12
+    assert captured["provider_call_estimate"] == 1
+
+
+def test_fetch_suppression_reporting_matches_plan_fetch_when_provider_has_own_price_cache(tmp_path, monkeypatch):
+    # J3: if a provider's own reusable cache covers prices, fetch should not report that provider's
+    # price endpoint as suppressed by another provider. That matches plan-fetch's own-cache guard.
+    module = load_module()
+    cache = tmp_path / "cache"
+    module.write_raw(
+        cache,
+        "AAPL",
+        "eodhd",
+        "prices",
+        {"from": "2025-06-01", "to": "2026-06-01"},
+        [{"date": "2026-06-01", "adjusted_close": 100}],
+        source_url="https://eodhd.example/eod/AAPL.US",
+    )
+    captured = {}
+
+    def capture_write_metrics(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(module, "fetch_provider", lambda *a, **k: [])
+    monkeypatch.setattr(module, "write_metrics", capture_write_metrics)
+    args = type(
+        "Args",
+        (),
+        {
+            "repo_root": str(tmp_path),
+            "symbol": "AAPL",
+            "as_of": "2026-06-01",
+            "data_dir": str(tmp_path / "data"),
+            "cache_dir": str(cache),
+            "reports_dir": str(tmp_path / "reports"),
+            "providers": "tiingo,eodhd",
+            "max_provider_calls": None,
+            "offline": False,
+            "refresh": False,
+            "asset_type": "auto",
+            "metrics_json": None,
+        },
+    )()
+
+    module.cmd_fetch(args)
+
+    eodhd_metrics = next(item for item in captured["provider_metrics"] if item["provider"] == "eodhd")
+    manifest = json.loads((tmp_path / "data" / "AAPL" / "2026-06-01" / "manifest.json").read_text(encoding="utf-8"))
+    plan = module.provider_fetch_plan(
+        cache,
+        "AAPL",
+        "eodhd",
+        module.provider_call_budget("eodhd", {}),
+        False,
+        module.default_endpoint_plan(["eodhd"])["eodhd"],
+        suppress_prices=True,
+    )
+
+    assert eodhd_metrics["price_fetch_suppressed"] is False
+    assert plan["price_fetch_suppressed"] is False
+    assert not any("Skipped live daily-price fetch for eodhd" in warning for warning in manifest["warnings"])
 
 
 def test_read_raw_json_memo_reparses_after_file_content_changes(tmp_path):

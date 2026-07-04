@@ -268,24 +268,29 @@ def report_reference_corpus(md_path: Path | None, json_path: Path | None, report
     return "\n".join(parts).lower()
 
 
-def humanized_scaled_tokens(value: float) -> list[str]:
+HUMANIZED_SCALE_UNITS = (
+    (1_000_000_000_000, r"(?:trillion|tn|trn|t)"),
+    (1_000_000_000, r"(?:billion|bn|b)"),
+    (1_000_000, r"(?:million|mm|m)"),
+)
+
+
+def humanized_scaled_tokens(value: float) -> list[tuple[str, str]]:
     """Conservative humanized-number tokens for a large numeric value.
 
     A memo that (correctly) writes "$391.0 billion" for a 391035000000 revenue should still count as
-    a value reference. Scale the value to millions/billions/trillions and render one- and two-decimal
-    forms; the scaled decimal is specific enough to avoid coincidental matches. The integer form is
-    added only when the scaled value is a whole number of at least 10, so a bare single-digit token
-    (e.g. "5" from a 5M value) never matches unrelated text (G4).
+    a value reference. Scale the value to millions/billions/trillions and render one-decimal,
+    two-decimal, and rounded-integer forms, but return the unit pattern with each token so matching
+    requires an adjacent magnitude word/suffix. That keeps "$391 billion" recognizable without
+    treating a bare "20.0%" or "8000 employees" as a large-dollar value reference.
     """
-    tokens: list[str] = []
+    tokens: list[tuple[str, str]] = []
     magnitude = abs(value)
-    for scale in (1_000_000_000_000, 1_000_000_000, 1_000_000):
+    for scale, unit_pattern in HUMANIZED_SCALE_UNITS:
         if magnitude >= scale:
             scaled = value / scale
-            tokens.append(f"{scaled:.1f}")
-            tokens.append(f"{scaled:.2f}")
-            if scaled == int(scaled) and abs(scaled) >= 10:
-                tokens.append(str(int(scaled)))
+            for token in {f"{scaled:.1f}", f"{scaled:.2f}", str(round(scaled))}:
+                tokens.append((token, unit_pattern))
     return tokens
 
 
@@ -295,7 +300,6 @@ def numeric_value_tokens(value: float) -> list[str]:
         tokens.append(str(int(value)))
     tokens.append(f"{value:g}")
     tokens.append(f"{value:.2f}")
-    tokens.extend(humanized_scaled_tokens(value))
     return [token.lower() for token in tokens if token]
 
 
@@ -313,6 +317,9 @@ def value_referenced_in_corpus(value: Any, corpus: str) -> bool:
         # introduces further digits (i.e. the token is part of a larger number), not sentence punctuation.
         for token in numeric_value_tokens(float(value)):
             if re.search(rf"(?<!\d)(?<!\d\.){re.escape(token)}(?!\d)(?!\.\d)", corpus):
+                return True
+        for token, unit_pattern in humanized_scaled_tokens(float(value)):
+            if re.search(rf"(?<!\d)(?<!\d\.){re.escape(token.lower())}\s*{unit_pattern}\b", corpus):
                 return True
         return False
     text = str(value).strip().lower()

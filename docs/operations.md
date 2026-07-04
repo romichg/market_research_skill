@@ -115,7 +115,7 @@ python3 market-research/batch-supervisor/scripts/research_loop.py self-improve \
 
 Before writing the prompt, the helper refreshes `skill-improvement-feedback.md` and `.json` under each runtime batch root. That runtime package consolidates loop notes, operator notes, report-side skill issue files, and inline report comments such as `<@researcher: ...>`, so self-improvement review does not depend on scanning final report directories directly.
 
-By default the prompt itself writes under the ignored local-only path `docs/superpowers/plans/self-improvement/TIMESTAMP/`. Review the generated prompt manually, run it in your agent session when appropriate, then capture durable conclusions in active docs, maintainer notes, skill files, or tests before deleting completed generated outputs.
+By default the prompt itself writes under `docs/superpowers/plans/self-improvement/TIMESTAMP/`. These outputs may be committed on active work branches to preserve the review trail. Review the generated prompt manually, run it in your agent session when appropriate, then capture durable conclusions in active docs, maintainer notes, skill files, or tests before deleting completed generated outputs.
 
 ## Generated Artifacts
 
