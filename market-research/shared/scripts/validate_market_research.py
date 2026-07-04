@@ -353,7 +353,7 @@ def usage_disposition_issues(comparison: dict[str, Any]) -> list[dict[str, Any]]
     issues = []
     for item in comparison.get("missing_required", []):
         field_path = item.get("field_path", "unknown")
-        safe_field_path = str(field_path).replace(".", "-").replace("_", "_")
+        safe_field_path = str(field_path).replace(".", "-")
         issues.append(
             {
                 "id": f"deterministic-usage-missing-required-{safe_field_path}",

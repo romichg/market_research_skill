@@ -7,7 +7,7 @@ The helper supports final report directories under `reports/SYMBOL/AS_OF/`, dete
 When a deterministic data bundle is provided, write the scaffold under `reports/SYMBOL/AS_OF/`. It is lint input, not the completed judgment validation:
 
 ```bash
-python3 {baseDir}/../shared/scripts/validate_market_research.py data/SYMBOL/AS_OF --output-prefix reports/SYMBOL/AS_OF/SYMBOL-validation-scaffold
+python3 market-research/shared/scripts/validate_market_research.py data/SYMBOL/AS_OF --output-prefix reports/SYMBOL/AS_OF/SYMBOL-validation-scaffold
 ```
 
 The scaffold includes `deterministic_data_usage`, a heuristic audit of normalized `status: ok` datapoints and whether report text/JSON appears to reference each field, value, raw path, or source URL. It also includes `deterministic_data_usage_dispositions`, comparing report JSON against `deterministic_data_usage.json` requirements.

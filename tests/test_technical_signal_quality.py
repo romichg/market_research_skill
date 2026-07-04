@@ -33,3 +33,22 @@ def test_technical_signals_include_investor_expected_fields():
     ]:
         assert key in out
         assert out[key]["status"] == "ok"
+
+
+def test_full_year_history_labels_window_fields_ok():
+    c = load_module()
+    out = c.technicals_from_prices(rows(260), "test", Path("raw.json"), "source")
+    assert out["fifty_two_week_high"]["status"] == "ok"
+    assert out["fifty_two_week_low"]["status"] == "ok"
+    assert out["average_volume_90"]["status"] == "ok"
+
+
+def test_short_history_labels_window_fields_as_available_history():
+    c = load_module()
+    out = c.technicals_from_prices(rows(40), "test", Path("raw.json"), "source")
+    # Values are still populated from available history, but the status makes the short window explicit.
+    assert out["fifty_two_week_high"]["status"] == "available_history"
+    assert out["fifty_two_week_high"]["value"] is not None
+    assert out["fifty_two_week_low"]["status"] == "available_history"
+    assert out["average_volume_90"]["status"] == "available_history"
+    assert out["average_volume_30"]["status"] == "ok"

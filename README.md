@@ -74,7 +74,8 @@ sudo dnf install -y pandoc texlive-xetex google-noto-sans-fonts
 macOS with Homebrew:
 
 ```bash
-brew install pandoc --cask mactex-no-gui
+brew install pandoc
+brew install --cask mactex-no-gui
 ```
 
 ### Optional Headed Browser Tooling

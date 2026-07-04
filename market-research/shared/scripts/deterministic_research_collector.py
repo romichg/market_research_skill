@@ -1268,7 +1268,7 @@ def technicals_from_prices(rows: list[dict[str, Any]], provider: str, raw_path_v
     volumes = [float(row["volume"]) for row in rows if row.get("volume") is not None]
     latest_date = rows[-1]["date"] if rows else None
 
-    def point(name: str, value: Any, status: str = "ok") -> dict[str, Any]:
+    def point(value: Any, status: str = "ok") -> dict[str, Any]:
         return provenance(value, provider or "unavailable", source_url, "prices", raw, as_of=latest_date, status=status)
 
     result: dict[str, Any] = {}
@@ -1277,38 +1277,41 @@ def technicals_from_prices(rows: list[dict[str, Any]], provider: str, raw_path_v
         if len(closes) >= window:
             sma_value = round(average(closes[-window:]) or 0, 6)
             sma_values[window] = sma_value
-            result[f"sma_{window}"] = point(f"sma_{window}", sma_value)
+            result[f"sma_{window}"] = point(sma_value)
         else:
             sma_values[window] = None
-            result[f"sma_{window}"] = point(None, None, "insufficient_data")
+            result[f"sma_{window}"] = point(None, "insufficient_data")
     if closes:
-        result["latest_close"] = point("latest_close", closes[-1])
-        result["fifty_two_week_high"] = point("fifty_two_week_high", max(closes[-252:]))
-        result["fifty_two_week_low"] = point("fifty_two_week_low", min(closes[-252:]))
-        result["max_drawdown_available"] = point("max_drawdown_available", round(max_drawdown(closes) or 0, 6))
+        result["latest_close"] = point(closes[-1])
+        # These summarize a nominal one-year window; when fewer than ~252 sessions are available the
+        # value reflects available history only, so label it rather than implying a full 52-week range.
+        window_52w_status = "ok" if len(closes) >= 252 else "available_history"
+        result["fifty_two_week_high"] = point(max(closes[-252:]), window_52w_status)
+        result["fifty_two_week_low"] = point(min(closes[-252:]), window_52w_status)
+        result["max_drawdown_available"] = point(round(max_drawdown(closes) or 0, 6))
         rsi_value = rsi(closes, 14)
-        result["rsi_14"] = point("rsi_14", round(rsi_value, 6) if rsi_value is not None else None, "ok" if rsi_value is not None else "insufficient_data")
+        result["rsi_14"] = point(round(rsi_value, 6) if rsi_value is not None else None, "ok" if rsi_value is not None else "insufficient_data")
         macd_value = macd(closes, 12, 26, 9)
-        result["macd_12_26_9"] = point("macd_12_26_9", macd_value, "ok" if macd_value is not None else "insufficient_data")
+        result["macd_12_26_9"] = point(macd_value, "ok" if macd_value is not None else "insufficient_data")
         volatility_value = realized_volatility(closes, 30)
-        result["realized_volatility_30"] = point("realized_volatility_30", round(volatility_value, 6) if volatility_value is not None else None, "ok" if volatility_value is not None else "insufficient_data")
+        result["realized_volatility_30"] = point(round(volatility_value, 6) if volatility_value is not None else None, "ok" if volatility_value is not None else "insufficient_data")
         trend_value = trend_classification(closes[-1], sma_values.get(20), sma_values.get(50), sma_values.get(200))
-        result["trend_classification"] = point("trend_classification", trend_value, "ok" if trend_value != "insufficient_data" else "insufficient_data")
+        result["trend_classification"] = point(trend_value, "ok" if trend_value != "insufficient_data" else "insufficient_data")
     if volumes:
-        result["average_volume_30"] = point("average_volume_30", round(average(volumes[-30:]) or 0, 6))
-        result["average_volume_90"] = point("average_volume_90", round(average(volumes[-90:]) or 0, 6))
+        result["average_volume_30"] = point(round(average(volumes[-30:]) or 0, 6), "ok" if len(volumes) >= 30 else "available_history")
+        result["average_volume_90"] = point(round(average(volumes[-90:]) or 0, 6), "ok" if len(volumes) >= 90 else "available_history")
         if len(volumes) >= 90:
             avg_30 = average(volumes[-30:]) or 0
             avg_90 = average(volumes[-90:]) or 0
             relative_volume = avg_30 / avg_90 if avg_90 else None
-            result["relative_volume_30_vs_90"] = point("relative_volume_30_vs_90", round(relative_volume, 6) if relative_volume is not None else None, "ok" if relative_volume is not None else "insufficient_data")
+            result["relative_volume_30_vs_90"] = point(round(relative_volume, 6) if relative_volume is not None else None, "ok" if relative_volume is not None else "insufficient_data")
         else:
-            result["relative_volume_30_vs_90"] = point(None, None, "insufficient_data")
+            result["relative_volume_30_vs_90"] = point(None, "insufficient_data")
     for name, periods in {"return_1m": 21, "return_3m": 63, "return_6m": 126, "return_1y": 252}.items():
         if len(closes) > periods:
-            result[name] = point(name, round(pct_return(closes[-periods - 1], closes[-1]) or 0, 6))
+            result[name] = point(round(pct_return(closes[-periods - 1], closes[-1]) or 0, 6))
         else:
-            result[name] = point(None, None, "insufficient_data")
+            result[name] = point(None, "insufficient_data")
     return result
 
 
