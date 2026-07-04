@@ -171,10 +171,9 @@ def data_dir_for_prompt(symbol: str, run_dir: str) -> str:
 
 def procedural_output_root_for_prompt(symbol: str, runtime_dir: str) -> str:
     path = Path(runtime_dir)
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) and path.parent.name.upper() == symbol.upper():
+    dated_name = re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name) or path.name == "YYYY-MM-DD"
+    if dated_name and path.parent.name.upper() == symbol.upper():
         return str(path.parent.parent)
-    if path.name.upper() == symbol.upper():
-        return str(path.parent)
     return str(path.parent)
 
 
@@ -1286,7 +1285,7 @@ def execute_symbol_loop(args: argparse.Namespace, symbol: str) -> dict[str, Any]
 
 def existing_iteration_conflict(root: Path, symbol: str, as_of: str) -> Path | None:
     iteration_dir = root / symbol / as_of / "iteration-01"
-    if (iteration_dir / "producer.log").exists() or (iteration_dir / "commands.json").exists():
+    if (iteration_dir / "producer.log").exists() or (iteration_dir / "validator.log").exists():
         return iteration_dir
     return None
 
@@ -1319,9 +1318,9 @@ def cmd_run_batch(args: argparse.Namespace) -> None:
             if conflict is not None:
                 die(
                     f"Refusing to overwrite existing run at {conflict}: this run-root/symbol/as-of already has "
-                    "iteration-01 logs from a prior run-batch invocation. Use a new --run-root (for example, one "
-                    "with a time-of-day suffix) for a fresh run, or pass --resume to continue writing into this "
-                    "run-root."
+                    "iteration-01 producer/validator logs from a prior run-batch invocation. Use a new --run-root "
+                    "(for example, one with a time-of-day suffix) for a fresh run, or pass --resume to continue "
+                    "writing into this run-root."
                 )
     improvement_notes = ensure_improvement_note_files(root)
     results = {symbol: execute_symbol_loop(args, symbol) for symbol in symbols}
